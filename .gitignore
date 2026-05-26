@@ -1,0 +1,28 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Documentation (not part of Android app repo)
+*.pdf
+*.docx
+*.txt
+/reconciliation/
+/reviews/
+/agri-os-android/
+/data/
+agri_platform_*.md
+
+# Temp files
+~$*
