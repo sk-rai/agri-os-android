@@ -35,14 +35,16 @@ interface AgriOsApi {
 
     @GET("master-data/geography/villages")
     suspend fun getVillages(
-        @Query("block_id") blockId: String,
+        @Query("block_id") blockId: String? = null,
+        @Query("district_id") districtId: String? = null,
         @Query("search") search: String? = null
     ): Response<List<GeographyVillageDto>>
 
     @GET("master-data/geography/villages/search")
     suspend fun searchVillages(
         @Query("q") query: String,
-        @Query("limit") limit: Int = 10
+        @Query("district_id") districtId: String? = null,
+        @Query("limit") limit: Int = 50
     ): Response<List<GeographyVillageDto>>
 
     @GET("master-data/crops/categories")

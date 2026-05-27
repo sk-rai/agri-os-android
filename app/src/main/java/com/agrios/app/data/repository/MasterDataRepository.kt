@@ -130,7 +130,7 @@ class MasterDataRepository(
      */
     suspend fun downloadVillagesForBlock(blockId: String): Boolean {
         return try {
-            val response = api.getVillages(blockId)
+            val response = api.getVillages(blockId = blockId)
             if (response.isSuccessful) {
                 val villages = response.body() ?: emptyList()
                 val entities = villages.map {
@@ -154,6 +154,60 @@ class MasterDataRepository(
         } catch (e: Exception) {
             Log.e(TAG, "Village download failed", e)
             false
+        }
+    }
+
+    /**
+     * Download all villages for a specific district (called on-demand).
+     * Uses district-wide search to bypass block-level restrictions.
+     */
+    suspend fun downloadVillagesForDistrict(districtId: String): Boolean {
+        return try {
+            val response = api.getVillages(districtId = districtId)
+            if (response.isSuccessful) {
+                val villages = response.body() ?: emptyList()
+                val entities = villages.map {
+                    GeographyVillageEntity(
+                        id = it.id,
+                        lgdCode = it.lgdCode,
+                        blockId = it.blockId,
+                        districtId = it.districtId,
+                        canonicalName = it.canonicalName,
+                        pinCodes = Gson().toJson(it.pinCodes ?: emptyList<String>()),
+                        aliases = Gson().toJson(it.aliases ?: emptyList<String>())
+                    )
+                }
+                cacheDao.insertVillages(entities)
+                Log.d(TAG, "Cached ${entities.size} villages for district $districtId")
+                true
+            } else {
+                Log.e(TAG, "Failed to get villages for district: ${response.code()}")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "District village download failed", e)
+            false
+        }
+    }
+
+    /**
+     * Search villages by name within a district (backend fuzzy search).
+     * Used when local cache doesn't have results.
+     */
+    suspend fun searchVillagesInDistrict(query: String, districtId: String): List<GeographyVillageDto>? {
+        return try {
+            val response = api.searchVillages(query, districtId, limit = 50)
+            if (response.isSuccessful) {
+                val villages = response.body() ?: emptyList()
+                Log.d(TAG, "Backend search found ${villages.size} villages for '$query' in district $districtId")
+                villages
+            } else {
+                Log.e(TAG, "Village search failed: ${response.code()}")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Village search error", e)
+            null
         }
     }
 }

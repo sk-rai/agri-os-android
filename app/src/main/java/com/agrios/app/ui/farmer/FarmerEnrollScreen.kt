@@ -101,12 +101,13 @@ fun FarmerEnrollScreen(onBack: () -> Unit) {
         }
     }
 
-    // Load villages when block changes (on-demand from API if not cached)
-    LaunchedEffect(selectedBlockId) {
-        if (selectedBlockId.isNotEmpty()) {
-            db.geographyCacheDao().getVillagesByBlock(selectedBlockId).collect {
-                if (it.isEmpty()) {
-                    android.util.Log.d("FarmerEnroll", "Villages not cached for block $selectedBlockId, downloading...")
+    // Load villages when district is selected (district-wide, not block-scoped)
+    LaunchedEffect(selectedDistrictId) {
+        if (selectedDistrictId.isNotEmpty()) {
+            // First check if we have cached villages for this district
+            db.geographyCacheDao().getVillagesByDistrict(selectedDistrictId).collect { cachedVillages ->
+                if (cachedVillages.isEmpty()) {
+                    android.util.Log.d("FarmerEnroll", "No villages cached for district $selectedDistrictId, downloading...")
                     val okHttpClient = okhttp3.OkHttpClient.Builder()
                         .addInterceptor(com.agrios.app.core.network.AuthInterceptor(db.authDao()))
                         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -119,10 +120,12 @@ fun FarmerEnrollScreen(onBack: () -> Unit) {
                         .build()
                         .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
                     val repo = com.agrios.app.data.repository.MasterDataRepository(api, db.geographyCacheDao())
-                    repo.downloadVillagesForBlock(selectedBlockId)
-                    db.geographyCacheDao().getVillagesByBlock(selectedBlockId).collect { villages = it }
+                    repo.downloadVillagesForDistrict(selectedDistrictId)
+                    // Re-collect after download
+                    db.geographyCacheDao().getVillagesByDistrict(selectedDistrictId).collect { villages = it }
                 } else {
-                    villages = it
+                    android.util.Log.d("FarmerEnroll", "Loaded ${cachedVillages.size} villages for district $selectedDistrictId")
+                    villages = cachedVillages
                 }
             }
         } else {
@@ -163,7 +166,8 @@ fun FarmerEnrollScreen(onBack: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = {
                     showSuccess = false; mobileNumber = "+91"; displayName = ""; pinCode = ""
-                    selectedStateId = ""; selectedDistrictId = ""; selectedBlockId = ""
+                    selectedStateId = ""; selectedDistrictId = ""
+                    // Keep block selection - it's informational
                     selectedVillageId = ""; selectedVillageName = ""; isManualVillage = false
                     selectedKharif = emptySet(); selectedRabi = emptySet(); selectedZaid = emptySet()
                 }) { Text(LanguageManager.localize("Enroll Another", "एक और नामांकन")) }
@@ -221,7 +225,7 @@ fun FarmerEnrollScreen(onBack: () -> Unit) {
                 )
             }
 
-            // Block/Tehsil
+            // Block/Tehsil (optional - for informational purposes)
             if (selectedDistrictId.isNotEmpty()) {
                 SearchableDropdown(
                     label = Labels.selectBlock,
@@ -229,13 +233,17 @@ fun FarmerEnrollScreen(onBack: () -> Unit) {
                     selectedId = selectedBlockId,
                     onSelect = { id, _ ->
                         selectedBlockId = id
-                        selectedVillageId = ""; pinCode = ""
                     }
+                )
+                Text(
+                    "ℹ️ ${LanguageManager.localize("Block is optional. Village search covers entire district.", "ब्लॉक वैकल्पिक है। गाँव खोज पूरे जिले को कवर करती है।")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            // Village (with "Not in list" option)
-            if (selectedBlockId.isNotEmpty()) {
+            // Village (district-wide search, appears after district selection)
+            if (selectedDistrictId.isNotEmpty()) {
                 if (isManualVillage) {
                     OutlinedTextField(
                         value = selectedVillageName,
@@ -315,6 +323,9 @@ fun FarmerEnrollScreen(onBack: () -> Unit) {
                 onClick = {
                     if (mobileNumber.length < 12) {
                         errorMessage = "📞 ${LanguageManager.localize("Enter valid mobile number", "सही मोबाइल नंबर दर्ज करें")}"; return@Button
+                    }
+                    if (selectedDistrictId.isEmpty()) {
+                        errorMessage = "📍 ${LanguageManager.localize("Select district", "जिला चुनें")}"; return@Button
                     }
                     if (selectedVillageId.isEmpty() && !isManualVillage) {
                         errorMessage = "📍 ${LanguageManager.localize("Select village", "गाँव चुनें")}"; return@Button
