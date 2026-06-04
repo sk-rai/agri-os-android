@@ -20,6 +20,10 @@ data class FarmerEntity(
     @ColumnInfo(name = "village_name") val villageName: String? = null,
     @ColumnInfo(name = "primary_crop_code") val primaryCropCode: String? = null,
     @ColumnInfo(name = "display_name") val displayName: String? = null,
+    @ColumnInfo(name = "father_name") val fatherName: String? = null,
+    @ColumnInfo(name = "age") val age: Int? = null,
+    @ColumnInfo(name = "gender") val gender: String? = null, // MALE, FEMALE, OTHER
+    @ColumnInfo(name = "aadhaar_number") val aadhaarNumber: String? = null, // Masked: XXXX-XXXX-1234
     @ColumnInfo(name = "assistance_mode") val assistanceMode: String = "DEALER_ASSISTED",
     @ColumnInfo(name = "sync_status") val syncStatus: String = SyncStatus.PENDING.name,
     @ColumnInfo(name = "created_at") val createdAt: Long,

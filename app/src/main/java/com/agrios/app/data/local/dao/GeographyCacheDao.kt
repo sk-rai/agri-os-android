@@ -38,8 +38,8 @@ interface GeographyCacheDao {
     @Query("SELECT * FROM geography_villages WHERE district_id = :districtId AND is_active = 1 ORDER BY canonical_name")
     fun getVillagesByDistrict(districtId: String): Flow<List<GeographyVillageEntity>>
 
-    @Query("SELECT * FROM geography_villages WHERE district_id = :districtId AND canonical_name LIKE '%' || :query || '%' AND is_active = 1 ORDER BY canonical_name LIMIT :limit")
-    suspend fun searchVillagesByDistrict(districtId: String, query: String, limit: Int = 50): List<GeographyVillageEntity>
+    @Query("SELECT COUNT(*) FROM geography_villages WHERE district_id = :districtId")
+    suspend fun getVillageCountForDistrict(districtId: String): Int
 
     @Query("SELECT * FROM geography_villages WHERE canonical_name LIKE '%' || :query || '%' AND is_active = 1 ORDER BY canonical_name LIMIT :limit")
     suspend fun searchVillages(query: String, limit: Int = 20): List<GeographyVillageEntity>

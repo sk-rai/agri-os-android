@@ -22,6 +22,12 @@ interface FarmerDao {
     @Query("UPDATE farmers_local SET sync_status = :status WHERE id = :id")
     suspend fun updateSyncStatus(id: String, status: String)
 
+    @Update
+    suspend fun update(farmer: FarmerEntity)
+
+    @Query("UPDATE farmers_local SET display_name = :name, aadhaar_number = :aadhaar, updated_at = :updatedAt WHERE id = :id")
+    suspend fun updateProfile(id: String, name: String?, aadhaar: String?, updatedAt: Long)
+
     @Query("SELECT COUNT(*) FROM farmers_local")
     suspend fun getCount(): Int
 }

@@ -15,6 +15,7 @@ import com.agrios.app.AgriOsApp
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.core.util.UnitConverter
+import com.agrios.app.core.util.VillageIdUtil
 import com.agrios.app.data.local.entity.*
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
@@ -22,14 +23,29 @@ import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ParcelRegisterScreen(onBack: () -> Unit) {
+fun ParcelRegisterScreen(
+    onBack: () -> Unit,
+    preselectedFarmerId: String = "",
+    onNavigateToSoilProfile: ((parcelId: String, farmerId: String) -> Unit)? = null
+) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
 
-    // Farmer selection
-    var selectedFarmerId by remember { mutableStateOf("") }
+    // Farmer selection — pre-select if coming from farmer enrollment
+    var selectedFarmerId by remember { mutableStateOf(preselectedFarmerId) }
     var selectedFarmerName by remember { mutableStateOf("") }
     val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
+    var savedParcelId by remember { mutableStateOf("") }
+
+    // Resolve pre-selected farmer name
+    LaunchedEffect(preselectedFarmerId, farmers) {
+        if (preselectedFarmerId.isNotEmpty() && selectedFarmerName.isEmpty()) {
+            val farmer = farmers.find { it.id == preselectedFarmerId }
+            if (farmer != null) {
+                selectedFarmerName = farmer.displayName ?: farmer.mobileNumber
+            }
+        }
+    }
 
     // Parcel form
     var reportedArea by remember { mutableStateOf("") }
@@ -86,15 +102,33 @@ fun ParcelRegisterScreen(onBack: () -> Unit) {
                         Text(LanguageManager.localize("Saved locally.", "स्थानीय रूप से सहेजा।"), style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                Spacer(Modifier.height(16.dp))
+
+                // Primary: Add soil profile for this parcel
+                Button(
+                    onClick = { onNavigateToSoilProfile?.invoke(savedParcelId, selectedFarmerId) ?: onBack() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(LanguageManager.localize("🌍 Add Soil Profile", "🌍 मिट्टी प्रोफ़ाइल जोड़ें"))
+                }
+
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = {
+
+                // Secondary: Register another parcel
+                OutlinedButton(onClick = {
                     showSuccess = false
                     reportedArea = ""
                     gpsMode = "NONE"
                     centroidLat = ""
                     centroidLng = ""
-                }) {
-                    Text(Labels.addParcel)
+                    savedParcelId = ""
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text(LanguageManager.localize("Register Another Parcel", "एक और भूखंड पंजीकृत करें"))
+                }
+
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+                    Text(LanguageManager.localize("Go to Home", "होम पर जाएं"))
                 }
                 return@Column
             }
@@ -307,10 +341,12 @@ fun ParcelRegisterScreen(onBack: () -> Unit) {
                         )
                         db.parcelDao().insert(parcel)
 
-                        // Sync payload
+                        // Sync payload — handle manual village (non-UUID village_id)
+                        val villageId = farmer?.villageId
                         val payload = Gson().toJson(mapOf(
                             "farmer_id" to selectedFarmerId,
-                            "village_id" to (farmer?.villageId ?: ""),
+                            "village_id" to VillageIdUtil.getSyncVillageId(villageId),
+                            "village_name_manual" to VillageIdUtil.getSyncVillageNameManual(villageId, farmer?.villageName),
                             "reported_area" to area,
                             "reported_area_unit" to selectedUnit,
                             "ownership_type" to ownershipType,
@@ -333,6 +369,9 @@ fun ParcelRegisterScreen(onBack: () -> Unit) {
 
                         isSaving = false
                         showSuccess = true
+                        savedParcelId = parcelId
+                        // Trigger immediate background sync
+                        com.agrios.app.core.sync.SyncWorker.triggerImmediateSync(AgriOsApp.instance)
                     }
                 },
                 enabled = !isSaving,

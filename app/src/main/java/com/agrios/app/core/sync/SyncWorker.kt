@@ -86,6 +86,10 @@ class SyncWorker(
         )
 
         return try {
+            // First, fix any previously failed items with bad payloads
+            val fixed = syncManager.fixAndRetryFailedItems()
+            if (fixed > 0) Log.d(TAG, "Auto-fixed $fixed failed items")
+
             val result = syncManager.processQueue()
             Log.d(TAG, "Sync complete: ${result.accepted} accepted, ${result.conflicts} conflicts, ${result.failed} failed")
 

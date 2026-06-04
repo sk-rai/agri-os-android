@@ -44,7 +44,7 @@ interface AgriOsApi {
     suspend fun searchVillages(
         @Query("q") query: String,
         @Query("district_id") districtId: String? = null,
-        @Query("limit") limit: Int = 50
+        @Query("limit") limit: Int = 20
     ): Response<List<GeographyVillageDto>>
 
     @GET("master-data/crops/categories")
@@ -82,4 +82,16 @@ interface AgriOsApi {
         @Path("id") conflictId: String,
         @Body request: ResolveConflictDto
     ): Response<Unit>
+
+    // --- Soil Profiles ---
+    @GET("soil-profiles/infer/{districtName}")
+    suspend fun inferSoilType(
+        @Path("districtName") districtName: String
+    ): Response<SoilInferenceResponseDto>
+
+    @POST("soil-profiles")
+    suspend fun createSoilProfile(@Body request: CreateSoilProfileDto): Response<SoilProfileResponseDto>
+
+    @GET("soil-profiles")
+    suspend fun getSoilProfiles(@Query("parcel_id") parcelId: String): Response<List<SoilProfileResponseDto>>
 }

@@ -1,6 +1,7 @@
 package com.agrios.app.core.auth
 
 import android.provider.Settings
+import android.util.Log
 import com.agrios.app.data.local.dao.AuthDao
 import com.agrios.app.data.local.entity.AuthStateEntity
 import com.agrios.app.data.remote.api.AgriOsApi
@@ -8,6 +9,9 @@ import com.agrios.app.data.remote.dto.DeviceAuthDto
 import com.agrios.app.data.remote.dto.OtpRequestDto
 import com.agrios.app.data.remote.dto.OtpVerifyDto
 import kotlinx.coroutines.flow.Flow
+import android.util.Base64
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 /**
  * Auth flow:
@@ -21,6 +25,9 @@ class AuthRepository(
     private val deviceId: String,
     private val deviceName: String
 ) {
+    companion object {
+        private const val TAG = "AuthRepository"
+    }
 
     fun observeAuthState(): Flow<AuthStateEntity?> = authDao.observeAuthState()
 
@@ -64,11 +71,19 @@ class AuthRepository(
             )
             if (response.isSuccessful) {
                 val body = response.body()!!
+                Log.d(TAG, "Auth response: userId=${body.userId}, tenantId=${body.tenantId}, role=${body.role}")
+
+                // If backend didn't return tenant_id, try to extract from JWT claims
+                val tenantId = body.tenantId ?: extractTenantFromJwt(body.accessToken)
+                if (body.tenantId == null) {
+                    Log.w(TAG, "tenant_id not in auth response body, extracted from JWT: $tenantId")
+                }
+
                 val authState = AuthStateEntity(
                     jwt = body.accessToken,
                     deviceKey = body.deviceKey,
                     userId = body.userId,
-                    tenantId = body.tenantId,
+                    tenantId = tenantId,
                     role = body.role,
                     mobileNumber = mobileNumber,
                     isAuthenticated = true
@@ -97,11 +112,18 @@ class AuthRepository(
             )
             if (response.isSuccessful) {
                 val body = response.body()!!
+                Log.d(TAG, "Device auth response: userId=${body.userId}, tenantId=${body.tenantId}, role=${body.role}")
+
+                // If backend didn't return tenant_id, try JWT or keep existing
+                val tenantId = body.tenantId
+                    ?: extractTenantFromJwt(body.accessToken)
+                    ?: currentState.tenantId
+
                 val authState = AuthStateEntity(
                     jwt = body.accessToken,
                     deviceKey = deviceKey,
                     userId = body.userId,
-                    tenantId = body.tenantId ?: currentState.tenantId,
+                    tenantId = tenantId,
                     role = body.role,
                     mobileNumber = currentState.mobileNumber,
                     isAuthenticated = true
@@ -124,5 +146,30 @@ class AuthRepository(
 
     suspend fun logout() {
         authDao.clearAuth()
+    }
+
+    /**
+     * Extract tenant_id from JWT payload claims.
+     * JWT format: header.payload.signature (base64url encoded)
+     * The payload typically contains: {"sub": "...", "tenant_id": "...", ...}
+     */
+    private fun extractTenantFromJwt(jwt: String): String? {
+        return try {
+            val parts = jwt.split(".")
+            if (parts.size < 2) return null
+            val payload = String(Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))
+            val claims: Map<String, Any?> = Gson().fromJson(
+                payload, object : TypeToken<Map<String, Any?>>() {}.type
+            )
+            // Try common claim names for tenant
+            val tenantId = claims["tenant_id"] as? String
+                ?: claims["tid"] as? String
+                ?: claims["tenant"] as? String
+            Log.d(TAG, "JWT claims keys: ${claims.keys}, extracted tenant_id=$tenantId")
+            tenantId
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract tenant from JWT: ${e.message}")
+            null
+        }
     }
 }

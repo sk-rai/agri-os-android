@@ -126,7 +126,42 @@ class MasterDataRepository(
     }
 
     /**
-     * Download villages for a specific block (called on-demand).
+     * Download ALL villages for a district (called when district is selected).
+     * Uses the district_id endpoint which returns up to 5000 villages.
+     * This replaces the per-block download for village search purposes.
+     */
+    suspend fun downloadVillagesForDistrict(districtId: String): Boolean {
+        return try {
+            Log.d(TAG, "Downloading villages for district $districtId...")
+            val response = api.getVillages(districtId = districtId)
+            if (response.isSuccessful) {
+                val villages = response.body() ?: emptyList()
+                val entities = villages.map {
+                    GeographyVillageEntity(
+                        id = it.id,
+                        lgdCode = it.lgdCode,
+                        blockId = it.blockId,
+                        districtId = it.districtId,
+                        canonicalName = it.canonicalName,
+                        pinCodes = Gson().toJson(it.pinCodes ?: emptyList<String>()),
+                        aliases = Gson().toJson(it.aliases ?: emptyList<String>())
+                    )
+                }
+                cacheDao.insertVillages(entities)
+                Log.d(TAG, "✅ Cached ${entities.size} villages for district $districtId")
+                true
+            } else {
+                Log.e(TAG, "Failed to get villages for district: ${response.code()}")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "District village download failed", e)
+            false
+        }
+    }
+
+    /**
+     * Download villages for a specific block (kept for backward compat).
      */
     suspend fun downloadVillagesForBlock(blockId: String): Boolean {
         return try {

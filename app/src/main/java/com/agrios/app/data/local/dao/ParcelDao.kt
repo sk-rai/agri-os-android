@@ -22,6 +22,12 @@ interface ParcelDao {
     @Query("UPDATE parcels_local SET sync_status = :status WHERE id = :id")
     suspend fun updateSyncStatus(id: String, status: String)
 
+    @Update
+    suspend fun update(parcel: ParcelEntity)
+
+    @Query("UPDATE parcels_local SET survey_number = :surveyNumber, updated_at = :updatedAt WHERE id = :id")
+    suspend fun updateSurveyNumber(id: String, surveyNumber: String?, updatedAt: Long)
+
     @Query("SELECT COUNT(*) FROM parcels_local")
     suspend fun getCount(): Int
 }

@@ -26,6 +26,11 @@ data class ParcelEntity(
     @ColumnInfo(name = "gps_lng") val gpsLng: Double? = null,
     @ColumnInfo(name = "ownership_type") val ownershipType: String = "OWNED",
     @ColumnInfo(name = "irrigation_type") val irrigationType: String? = null,
+    @ColumnInfo(name = "irrigation_source") val irrigationSource: String? = null, // TUBEWELL_DIESEL, TUBEWELL_ELECTRIC, CANAL, etc.
+    @ColumnInfo(name = "survey_number") val surveyNumber: String? = null, // Land survey/khasra number
+    @ColumnInfo(name = "annual_rent") val annualRent: Double? = null, // Only for LEASED parcels
+    @ColumnInfo(name = "share_percentage") val sharePercentage: Int? = null, // For SHARED ownership
+    @ColumnInfo(name = "sharecrop_percentage") val sharecropPercentage: Int? = null, // For SHARECROP
     @ColumnInfo(name = "sync_status") val syncStatus: String = SyncStatus.PENDING.name,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,

@@ -63,4 +63,36 @@ interface SyncQueueDao {
 
     @Query("DELETE FROM sync_queue WHERE sync_status = 'SYNCED' AND created_at < :olderThan")
     suspend fun cleanupSynced(olderThan: Long)
+
+    /**
+     * Get all queue items (any status) for dependency resolution.
+     * Used by SyncManager to check if a parent entity has been synced.
+     */
+    @Query("SELECT * FROM sync_queue")
+    suspend fun getAllForDependencyCheck(): List<SyncQueueEntity>
+
+    /**
+     * Reset a FAILED item back to PENDING for retry (e.g., after payload fix).
+     */
+    @Query("""
+        UPDATE sync_queue 
+        SET sync_status = 'PENDING', 
+            retry_count = 0, 
+            next_retry_after = NULL, 
+            last_error = NULL 
+        WHERE event_id = :eventId AND sync_status = 'FAILED'
+    """)
+    suspend fun resetFailedItem(eventId: String)
+
+    /**
+     * Update the payload of a queue item (for fixing malformed data before retry).
+     */
+    @Query("UPDATE sync_queue SET payload = :payload WHERE event_id = :eventId")
+    suspend fun updatePayload(eventId: String, payload: String)
+
+    /**
+     * Get all failed items for review/reset.
+     */
+    @Query("SELECT * FROM sync_queue WHERE sync_status = 'FAILED'")
+    suspend fun getFailedItems(): List<SyncQueueEntity>
 }

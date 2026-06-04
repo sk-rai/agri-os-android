@@ -1,29 +1,84 @@
 package com.agrios.app.ui.home
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.network.ApiConfig
+import com.agrios.app.core.network.AuthInterceptor
+import com.agrios.app.core.sync.SyncManager
 import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
+import com.agrios.app.data.local.entity.FarmerEntity
 import com.agrios.app.ui.components.SyncStatusBadge
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onNavigateToFarmerEnroll: () -> Unit,
-    onNavigateToParcelRegister: () -> Unit
+    onNavigateToParcelRegister: () -> Unit,
+    onNavigateToSettings: () -> Unit = {},
+    onNavigateToFarmerProfile: (farmerId: String) -> Unit = {}
 ) {
     val db = AgriOsApp.instance.database
+    val scope = rememberCoroutineScope()
     val pendingCount by db.syncQueueDao().observePendingCount().collectAsState(initial = 0)
     val conflictCount by db.syncQueueDao().observeConflictCount().collectAsState(initial = 0)
+    var isSyncing by remember { mutableStateOf(false) }
+    var lastSyncMessage by remember { mutableStateOf<String?>(null) }
+
+    // Trigger sync on screen entry if there are pending items
+    LaunchedEffect(Unit) {
+        SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+    }
+
+    fun runSyncNow() {
+        scope.launch {
+            isSyncing = true
+            lastSyncMessage = null
+            try {
+                val okHttpClient = OkHttpClient.Builder()
+                    .addInterceptor(AuthInterceptor(db.authDao()))
+                    .connectTimeout(ApiConfig.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .readTimeout(ApiConfig.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .writeTimeout(ApiConfig.WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .build()
+                val api = Retrofit.Builder()
+                    .baseUrl(ApiConfig.BASE_URL)
+                    .client(okHttpClient)
+                    .addConverterFactory(GsonConverterFactory.create())
+                    .build()
+                    .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
+                val syncManager = SyncManager(db.syncQueueDao(), api)
+                syncManager.fixAndRetryFailedItems()
+                val result = syncManager.processQueue()
+                lastSyncMessage = when {
+                    result.accepted > 0 -> "✅ ${result.accepted} ${LanguageManager.localize("synced", "सिंक हुए")}"
+                    result.failed > 0 -> "❌ ${result.failed} ${LanguageManager.localize("failed", "विफल")}"
+                    result.conflicts > 0 -> "⚠️ ${result.conflicts} ${LanguageManager.localize("conflicts", "विरोध")}"
+                    else -> LanguageManager.localize("All synced", "सब सिंक हो गया")
+                }
+            } catch (e: Exception) {
+                lastSyncMessage = "❌ ${e.message}"
+            } finally {
+                isSyncing = false
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -31,10 +86,21 @@ fun HomeScreen(
                 title = { Text("Agri-OS") },
                 actions = {
                     SyncStatusBadge(pendingCount = pendingCount, conflictCount = conflictCount)
-                    IconButton(onClick = {
-                        SyncWorker.triggerImmediateSync(AgriOsApp.instance)
-                    }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Sync")
+                    IconButton(
+                        onClick = { runSyncNow() },
+                        enabled = !isSyncing
+                    ) {
+                        if (isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = LanguageManager.localize("Sync", "सिंक"))
+                        }
+                    }
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = LanguageManager.localize("Settings", "सेटिंग्स"))
                     }
                 }
             )
@@ -113,8 +179,40 @@ fun HomeScreen(
                 }
             }
 
-            // Sync status
-            if (pendingCount > 0 || conflictCount > 0) {
+            // Enrolled farmers list
+            val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
+            if (farmers.isNotEmpty()) {
+                HorizontalDivider()
+                Text(
+                    "👤 ${LanguageManager.localize("Enrolled Farmers", "नामांकित किसान")} (${farmers.size})",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                farmers.take(5).forEach { farmer ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigateToFarmerProfile(farmer.id) }
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(farmer.displayName ?: farmer.mobileNumber, style = MaterialTheme.typography.bodyMedium)
+                                Text(farmer.villageName ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text("→", style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+                if (farmers.size > 5) {
+                    Text(
+                        LanguageManager.localize("+ ${farmers.size - 5} more", "+ ${farmers.size - 5} और"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            // Sync status card
+            if (pendingCount > 0 || conflictCount > 0 || isSyncing || lastSyncMessage != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -123,9 +221,38 @@ fun HomeScreen(
                     )
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(LanguageManager.localize("Sync Status", "सिंक स्थिति"), style = MaterialTheme.typography.titleSmall)
-                        if (pendingCount > 0) Text("🔄 $pendingCount ${LanguageManager.localize("items waiting", "आइटम प्रतीक्षा में")}")
-                        if (conflictCount > 0) Text("⚠️ $conflictCount ${LanguageManager.localize("need attention", "ध्यान दें")}")
+                        Text(
+                            LanguageManager.localize("Sync Status", "सिंक स्थिति"),
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        if (isSyncing) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    LanguageManager.localize("Syncing...", "सिंक हो रहा है..."),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        } else {
+                            if (pendingCount > 0) {
+                                Text("🔄 $pendingCount ${LanguageManager.localize("items waiting", "आइटम प्रतीक्षा में")}")
+                            }
+                            if (conflictCount > 0) {
+                                Text("⚠️ $conflictCount ${LanguageManager.localize("need attention", "ध्यान दें")}")
+                            }
+                            if (lastSyncMessage != null) {
+                                Text(lastSyncMessage!!, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { runSyncNow() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(LanguageManager.localize("Sync Now", "अभी सिंक करें"))
+                            }
+                        }
                     }
                 }
             }

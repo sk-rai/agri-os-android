@@ -9,6 +9,7 @@ import com.agrios.app.data.local.dao.GeographyCacheDao
 import com.agrios.app.data.local.dao.SyncQueueDao
 import com.agrios.app.data.local.dao.FarmerDao
 import com.agrios.app.data.local.dao.ParcelDao
+import com.agrios.app.data.local.dao.SoilProfileDao
 import com.agrios.app.data.local.entity.*
 
 @Database(
@@ -24,8 +25,9 @@ import com.agrios.app.data.local.entity.*
         FarmerEntity::class,
         ParcelEntity::class,
         CacheMetadataEntity::class,
+        SoilProfileEntity::class,
     ],
-    version = 1,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,6 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun syncQueueDao(): SyncQueueDao
     abstract fun farmerDao(): FarmerDao
     abstract fun parcelDao(): ParcelDao
+    abstract fun soilProfileDao(): SoilProfileDao
 
     companion object {
         @Volatile
@@ -45,7 +48,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "agrios_local.db"
-                ).build()
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

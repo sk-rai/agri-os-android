@@ -7,6 +7,7 @@ import com.agrios.app.data.local.entity.SyncStatus
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.SyncBatchRequestDto
 import com.agrios.app.data.remote.dto.SyncEventDto
+import com.agrios.app.core.util.VillageIdUtil
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlin.math.min
@@ -43,6 +44,11 @@ class SyncManager(
             return SyncResult(0, 0, 0)
         }
 
+        Log.d(TAG, "Processing ${pending.size} pending items")
+        pending.forEach { item ->
+            Log.d(TAG, "  Queue item: eventId=${item.eventId}, entityType=${item.entityType}, entityId=${item.entityId}, deps=${item.dependencyIds}, status=${item.syncStatus}, retries=${item.retryCount}")
+        }
+
         // Filter by dependencies: skip items whose parents haven't synced
         val eligible = filterByDependencies(pending)
         if (eligible.isEmpty()) {
@@ -52,10 +58,23 @@ class SyncManager(
 
         // Build batch payload
         val events = eligible.map { item ->
-            val payloadMap: Map<String, Any?> = gson.fromJson(
+            val payloadMap: MutableMap<String, Any?> = gson.fromJson(
                 item.payload,
-                object : TypeToken<Map<String, Any?>>() {}.type
+                object : TypeToken<MutableMap<String, Any?>>() {}.type
             )
+
+            // Sanitize village_id: never send non-UUID strings to backend
+            val villageId = payloadMap["village_id"] as? String
+            if (villageId != null && !VillageIdUtil.isValidUuid(villageId)) {
+                Log.w(TAG, "Sanitizing invalid village_id='$villageId' → null (extracting manual name)")
+                val manualName = VillageIdUtil.extractManualVillageName(villageId)
+                    ?: payloadMap["village_name_manual"] as? String
+                payloadMap["village_id"] = null
+                if (manualName != null && payloadMap["village_name_manual"] == null) {
+                    payloadMap["village_name_manual"] = manualName
+                }
+            }
+
             SyncEventDto(
                 eventId = item.eventId,
                 entityType = item.entityType,
@@ -67,6 +86,12 @@ class SyncManager(
             )
         }
 
+        Log.d(TAG, "Sending ${events.size} events to POST /sync/events")
+        events.forEach { event ->
+            Log.d(TAG, "  → eventId=${event.eventId}, type=${event.entityType}, op=${event.operation}")
+            Log.d(TAG, "    payload=${gson.toJson(event.payload)}")
+        }
+
         return try {
             // Mark as syncing
             eligible.forEach { syncQueueDao.updateStatus(it.eventId, SyncStatus.SYNCING.name) }
@@ -76,25 +101,54 @@ class SyncManager(
 
             if (response.isSuccessful) {
                 val body = response.body()!!
+                Log.d(TAG, "✅ Server response: accepted=${body.accepted.size}, conflicts=${body.conflicts.size}, failed=${body.failed.size}")
                 handleSyncResponse(body.accepted, body.conflicts, body.failed, eligible)
-                SyncResult(
+                val result = SyncResult(
                     accepted = body.accepted.size,
                     conflicts = body.conflicts.size,
                     failed = body.failed.size
                 )
+                // If items were accepted, immediately process again to pick up
+                // any newly unblocked dependents (e.g. parcels waiting on farmer)
+                if (result.accepted > 0) {
+                    Log.d(TAG, "Items accepted — running follow-up pass for unblocked dependents")
+                    val followUp = processQueue()
+                    return SyncResult(
+                        accepted = result.accepted + followUp.accepted,
+                        conflicts = result.conflicts + followUp.conflicts,
+                        failed = result.failed + followUp.failed
+                    )
+                }
+                result
             } else {
-                // Server error — retry all
-                markBatchForRetry(eligible, "HTTP ${response.code()}: ${response.message()}")
+                // Server error — log full details for debugging
+                val errorBody = try { response.errorBody()?.string() } catch (_: Exception) { null }
+                Log.e(TAG, "❌ Server rejected sync: HTTP ${response.code()} ${response.message()}")
+                Log.e(TAG, "❌ Response body: $errorBody")
+                Log.e(TAG, "❌ Request had ${events.size} events for entities: ${eligible.map { "${it.entityType}:${it.entityId}" }}")
+                markBatchForRetry(eligible, "HTTP ${response.code()}: ${errorBody ?: response.message()}")
                 SyncResult(0, 0, eligible.size)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Sync network error", e)
-            markBatchForRetry(eligible, e.message ?: "Network error")
+            Log.e(TAG, "❌ Sync network error: ${e.javaClass.simpleName}: ${e.message}", e)
+            markBatchForRetry(eligible, "${e.javaClass.simpleName}: ${e.message}")
             SyncResult(0, 0, eligible.size)
         }
     }
 
+    /**
+     * Filter items by dependency chain.
+     * An item is eligible if:
+     * - It has no dependencies, OR
+     * - All its dependency entity_ids have been SYNCED (no longer in queue as non-SYNCED)
+     *
+     * dependencyIds stores the entityId of the parent (e.g., parcel depends on farmer entityId).
+     * We check if any queue item with that entityId is still unsynced.
+     */
     private suspend fun filterByDependencies(items: List<SyncQueueEntity>): List<SyncQueueEntity> {
+        // Get ALL items in queue (not just pending) to check dependency status
+        val allItems = syncQueueDao.getAllForDependencyCheck()
+
         val eligible = mutableListOf<SyncQueueEntity>()
         for (item in items) {
             if (item.dependencyIds.isNullOrBlank()) {
@@ -104,13 +158,14 @@ class SyncManager(
             val depIds = item.dependencyIds.split(",").filter { it.isNotBlank() }
             // Check if all dependencies are synced
             val unsyncedDeps = depIds.filter { depId ->
-                val depItems = syncQueueDao.getPendingBatch(Long.MAX_VALUE, 1000)
-                depItems.any { it.entityId == depId && it.syncStatus != SyncStatus.SYNCED.name }
+                // A dependency is unsynced if there's a queue item with that entityId
+                // that is NOT in SYNCED status
+                allItems.any { it.entityId == depId && it.syncStatus != SyncStatus.SYNCED.name }
             }
             if (unsyncedDeps.isEmpty()) {
                 eligible.add(item)
             } else {
-                Log.d(TAG, "Skipping ${item.entityId}: waiting on ${unsyncedDeps.size} dependencies")
+                Log.d(TAG, "Skipping ${item.eventId}: waiting on ${unsyncedDeps.size} dependencies (depIds=$depIds)")
             }
         }
         return eligible
@@ -136,15 +191,16 @@ class SyncManager(
 
         // Handle failures
         failed.forEach { failure ->
+            Log.e(TAG, "❌ Server failed event: ${failure.eventId}, code=${failure.errorCode}, message=${failure.message}, retryable=${failure.retryable}")
             val item = items.find { it.eventId == failure.eventId }
             if (item != null) {
                 if (failure.retryable && item.retryCount < item.maxRetries) {
                     val nextRetry = calculateNextRetry(item.retryCount + 1)
-                    syncQueueDao.markForRetry(failure.eventId, nextRetry, failure.message)
+                    syncQueueDao.markForRetry(failure.eventId, nextRetry, "${failure.errorCode}: ${failure.message}")
                     Log.d(TAG, "🔄 Retry scheduled: ${failure.eventId} (attempt ${item.retryCount + 1})")
                 } else {
-                    syncQueueDao.markFailed(failure.eventId, "MAX_RETRIES: ${failure.message}")
-                    Log.e(TAG, "❌ Failed permanently: ${failure.eventId}")
+                    syncQueueDao.markFailed(failure.eventId, "${failure.errorCode}: ${failure.message}")
+                    Log.e(TAG, "❌ Failed permanently: ${failure.eventId} — ${failure.errorCode}: ${failure.message}")
                 }
             }
         }
@@ -175,5 +231,48 @@ class SyncManager(
     ) {
         val total get() = accepted + conflicts + failed
         val isSuccess get() = conflicts == 0 && failed == 0
+    }
+
+    /**
+     * Fix and retry all FAILED items by sanitizing their payloads.
+     * Fixes invalid village_id values (e.g., "manual_saraimohan" → null + village_name_manual).
+     * Returns the number of items reset for retry.
+     */
+    suspend fun fixAndRetryFailedItems(): Int {
+        val failedItems = syncQueueDao.getFailedItems()
+        var fixedCount = 0
+
+        for (item in failedItems) {
+            val payloadMap: MutableMap<String, Any?> = gson.fromJson(
+                item.payload,
+                object : TypeToken<MutableMap<String, Any?>>() {}.type
+            )
+
+            var modified = false
+
+            // Fix invalid village_id
+            val villageId = payloadMap["village_id"] as? String
+            if (villageId != null && !VillageIdUtil.isValidUuid(villageId)) {
+                val manualName = VillageIdUtil.extractManualVillageName(villageId)
+                    ?: payloadMap["village_name_manual"] as? String
+                payloadMap["village_id"] = null
+                if (manualName != null) {
+                    payloadMap["village_name_manual"] = manualName
+                }
+                modified = true
+                Log.d(TAG, "Fixed payload for ${item.eventId}: village_id='$villageId' → null, manual='$manualName'")
+            }
+
+            if (modified) {
+                syncQueueDao.updatePayload(item.eventId, gson.toJson(payloadMap))
+            }
+
+            syncQueueDao.resetFailedItem(item.eventId)
+            fixedCount++
+            Log.d(TAG, "Reset failed item ${item.eventId} (${item.entityType}) for retry")
+        }
+
+        Log.d(TAG, "Fixed and reset $fixedCount failed items")
+        return fixedCount
     }
 }
