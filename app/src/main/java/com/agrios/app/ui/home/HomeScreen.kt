@@ -32,7 +32,8 @@ fun HomeScreen(
     onNavigateToFarmerEnroll: () -> Unit,
     onNavigateToParcelRegister: () -> Unit,
     onNavigateToSettings: () -> Unit = {},
-    onNavigateToFarmerProfile: (farmerId: String) -> Unit = {}
+    onNavigateToFarmerProfile: (farmerId: String) -> Unit = {},
+    onNavigateToCropCycle: () -> Unit = {}
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
@@ -173,6 +174,27 @@ fun HomeScreen(
                         Text(Labels.registerParcel, style = MaterialTheme.typography.titleSmall)
                         Text(
                             LanguageManager.localize("Add land parcel for farmer", "किसान के लिए भूखंड जोड़ें"),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+
+            // Start Crop Cycle
+            ElevatedCard(
+                onClick = onNavigateToCropCycle,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        Text(LanguageManager.localize("Start Crop Cycle", "फसल चक्र शुरू करें"), style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            LanguageManager.localize("Begin a new crop season", "नया फसल मौसम शुरू करें"),
                             style = MaterialTheme.typography.bodySmall
                         )
                     }

@@ -4,6 +4,7 @@ import android.util.Log
 import com.agrios.app.data.local.dao.GeographyCacheDao
 import com.agrios.app.data.local.entity.*
 import com.agrios.app.data.remote.api.AgriOsApi
+import com.agrios.app.data.remote.dto.GeographyVillageDto
 import com.google.gson.Gson
 
 /**
@@ -188,39 +189,6 @@ class MasterDataRepository(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Village download failed", e)
-            false
-        }
-    }
-
-    /**
-     * Download all villages for a specific district (called on-demand).
-     * Uses district-wide search to bypass block-level restrictions.
-     */
-    suspend fun downloadVillagesForDistrict(districtId: String): Boolean {
-        return try {
-            val response = api.getVillages(districtId = districtId)
-            if (response.isSuccessful) {
-                val villages = response.body() ?: emptyList()
-                val entities = villages.map {
-                    GeographyVillageEntity(
-                        id = it.id,
-                        lgdCode = it.lgdCode,
-                        blockId = it.blockId,
-                        districtId = it.districtId,
-                        canonicalName = it.canonicalName,
-                        pinCodes = Gson().toJson(it.pinCodes ?: emptyList<String>()),
-                        aliases = Gson().toJson(it.aliases ?: emptyList<String>())
-                    )
-                }
-                cacheDao.insertVillages(entities)
-                Log.d(TAG, "Cached ${entities.size} villages for district $districtId")
-                true
-            } else {
-                Log.e(TAG, "Failed to get villages for district: ${response.code()}")
-                false
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "District village download failed", e)
             false
         }
     }

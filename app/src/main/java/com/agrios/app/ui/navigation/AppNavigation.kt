@@ -10,6 +10,7 @@ import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.ui.auth.AuthScreen
 import com.agrios.app.ui.auth.AuthViewModel
 import com.agrios.app.ui.auth.LanguageSetupScreen
+import com.agrios.app.ui.dynamicform.DynamicFormScreen
 import com.agrios.app.ui.enrollment.UnifiedEnrollmentScreen
 import com.agrios.app.ui.farmer.FarmerEnrollScreen
 import com.agrios.app.ui.farmer.FarmerProfileScreen
@@ -29,6 +30,7 @@ object Routes {
     const val FARMER_PROFILE = "farmer_profile"
     const val PARCEL_REGISTER = "parcel_register"
     const val SOIL_PROFILE = "soil_profile"
+    const val CROP_CYCLE_CREATE = "crop_cycle_create"
     const val SETTINGS = "settings"
 }
 
@@ -97,6 +99,7 @@ fun AppNavigation() {
                 onNavigateToFarmerEnroll = { navController.navigate(Routes.UNIFIED_ENROLL) },
                 onNavigateToParcelRegister = { navController.navigate(Routes.PARCEL_REGISTER) },
                 onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
+                onNavigateToCropCycle = { navController.navigate(Routes.CROP_CYCLE_CREATE) },
                 onNavigateToFarmerProfile = { farmerId ->
                     navController.navigate(Routes.FARMER_PROFILE + "?farmerId=$farmerId")
                 }
@@ -199,6 +202,14 @@ fun AppNavigation() {
                         popUpTo(0) { inclusive = true }
                     }
                 }
+            )
+        }
+
+        composable(Routes.CROP_CYCLE_CREATE) {
+            DynamicFormScreen(
+                formId = "crop_cycle_create",
+                onBack = { navController.popBackStack() },
+                onSuccess = { navController.popBackStack() }
             )
         }
     }
