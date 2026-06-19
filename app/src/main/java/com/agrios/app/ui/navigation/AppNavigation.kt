@@ -10,6 +10,7 @@ import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.ui.auth.AuthScreen
 import com.agrios.app.ui.auth.AuthViewModel
 import com.agrios.app.ui.auth.LanguageSetupScreen
+import com.agrios.app.ui.cropcycle.StageTimelineScreen
 import com.agrios.app.ui.dynamicform.DynamicFormScreen
 import com.agrios.app.ui.enrollment.UnifiedEnrollmentScreen
 import com.agrios.app.ui.farmer.FarmerEnrollScreen
@@ -31,6 +32,7 @@ object Routes {
     const val PARCEL_REGISTER = "parcel_register"
     const val SOIL_PROFILE = "soil_profile"
     const val CROP_CYCLE_CREATE = "crop_cycle_create"
+    const val STAGE_TIMELINE = "stage_timeline"
     const val SETTINGS = "settings"
 }
 
@@ -102,6 +104,9 @@ fun AppNavigation() {
                 onNavigateToCropCycle = { navController.navigate(Routes.CROP_CYCLE_CREATE) },
                 onNavigateToFarmerProfile = { farmerId ->
                     navController.navigate(Routes.FARMER_PROFILE + "?farmerId=$farmerId")
+                },
+                onNavigateToStageTimeline = { cycleId ->
+                    navController.navigate(Routes.STAGE_TIMELINE + "?cycleId=$cycleId")
                 }
             )
         }
@@ -209,7 +214,27 @@ fun AppNavigation() {
             DynamicFormScreen(
                 formId = "crop_cycle_create",
                 onBack = { navController.popBackStack() },
-                onSuccess = { navController.popBackStack() }
+                onSuccess = {
+                    // After crop cycle saved, go back to home
+                    // TODO: Navigate to stage timeline when direct API call is integrated
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.CROP_CYCLE_CREATE) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable(
+            Routes.STAGE_TIMELINE + "?cycleId={cycleId}",
+            arguments = listOf(androidx.navigation.navArgument("cycleId") {
+                type = androidx.navigation.NavType.StringType
+                defaultValue = ""
+            })
+        ) { backStackEntry ->
+            val cycleId = backStackEntry.arguments?.getString("cycleId") ?: ""
+            StageTimelineScreen(
+                cycleId = cycleId,
+                onBack = { navController.popBackStack() }
             )
         }
     }

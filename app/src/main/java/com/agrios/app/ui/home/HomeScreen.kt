@@ -33,7 +33,8 @@ fun HomeScreen(
     onNavigateToParcelRegister: () -> Unit,
     onNavigateToSettings: () -> Unit = {},
     onNavigateToFarmerProfile: (farmerId: String) -> Unit = {},
-    onNavigateToCropCycle: () -> Unit = {}
+    onNavigateToCropCycle: () -> Unit = {},
+    onNavigateToStageTimeline: (cycleId: String) -> Unit = {}
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
@@ -42,7 +43,12 @@ fun HomeScreen(
     var isSyncing by remember { mutableStateOf(false) }
     var lastSyncMessage by remember { mutableStateOf<String?>(null) }
 
-    // Trigger sync on screen entry if there are pending items
+    // Check if farmer profile exists (enrollment done)
+    val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
+    val hasProfile = farmers.isNotEmpty()
+    val farmer = farmers.firstOrNull()
+
+    // Trigger sync on screen entry
     LaunchedEffect(Unit) {
         SyncWorker.triggerImmediateSync(AgriOsApp.instance)
     }
@@ -114,122 +120,85 @@ fun HomeScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Welcome card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        LanguageManager.localize("Welcome", "स्वागत है"),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        LanguageManager.localize("Manage farmers and parcels", "किसानों और भूखंडों का प्रबंधन करें"),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
+            if (hasProfile && farmer != null) {
+                // ═══════════ PROFILE EXISTS — show farmer info + crop actions ═══════════
 
-            // Quick actions
-            Text(
-                LanguageManager.localize("Quick Actions", "त्वरित कार्य"),
-                style = MaterialTheme.typography.titleSmall
-            )
-
-            // Enroll Farmer
-            ElevatedCard(
-                onClick = onNavigateToFarmerEnroll,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Farmer info header (tappable)
+                Card(
+                    onClick = { onNavigateToFarmerProfile(farmer.id) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text(Labels.enrollFarmer, style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            LanguageManager.localize("Add new farmer", "नया किसान जोड़ें"),
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "👤 ${farmer.displayName ?: farmer.mobileNumber}",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                "📍 ${farmer.villageName ?: ""} | ${farmer.mobileNumber}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Text("✏️", style = MaterialTheme.typography.titleMedium)
                     }
                 }
-            }
 
-            // Register Parcel
-            ElevatedCard(
-                onClick = onNavigateToParcelRegister,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text(Labels.registerParcel, style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            LanguageManager.localize("Add land parcel for farmer", "किसान के लिए भूखंड जोड़ें"),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
-
-            // Start Crop Cycle
-            ElevatedCard(
-                onClick = onNavigateToCropCycle,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text(LanguageManager.localize("Start Crop Cycle", "फसल चक्र शुरू करें"), style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            LanguageManager.localize("Begin a new crop season", "नया फसल मौसम शुरू करें"),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
-
-            // Enrolled farmers list
-            val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
-            if (farmers.isNotEmpty()) {
-                HorizontalDivider()
+                // Crop actions
                 Text(
-                    "👤 ${LanguageManager.localize("Enrolled Farmers", "नामांकित किसान")} (${farmers.size})",
+                    LanguageManager.localize("Crop Management", "फसल प्रबंधन"),
                     style = MaterialTheme.typography.titleSmall
                 )
-                farmers.take(5).forEach { farmer ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigateToFarmerProfile(farmer.id) }
-                    ) {
-                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(farmer.displayName ?: farmer.mobileNumber, style = MaterialTheme.typography.bodyMedium)
-                                Text(farmer.villageName ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text("→", style = MaterialTheme.typography.bodyLarge)
+
+                // Start Crop Cycle
+                ElevatedCard(
+                    onClick = onNavigateToCropCycle,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text(LanguageManager.localize("Start Crop Cycle", "फसल चक्र शुरू करें"), style = MaterialTheme.typography.titleSmall)
+                            Text(LanguageManager.localize("Begin a new crop season", "नया फसल मौसम शुरू करें"), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
-                if (farmers.size > 5) {
-                    Text(
-                        LanguageManager.localize("+ ${farmers.size - 5} more", "+ ${farmers.size - 5} और"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+
+                // TODO: Show active crop cycles list here when we have them
+
+                // Add another parcel (secondary action)
+                HorizontalDivider()
+                TextButton(onClick = onNavigateToParcelRegister) {
+                    Text("+ ${LanguageManager.localize("Add another land parcel", "एक और भूखंड जोड़ें")}")
+                }
+
+            } else {
+                // ═══════════ NO PROFILE — show enrollment ═══════════
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(LanguageManager.localize("Welcome", "स्वागत है"), style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(LanguageManager.localize("Set up your farm profile to get started", "शुरू करने के लिए अपना कृषि प्रोफ़ाइल बनाएं"), style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
+                ElevatedCard(
+                    onClick = onNavigateToFarmerEnroll,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text(LanguageManager.localize("Create Farm Profile", "कृषि प्रोफ़ाइल बनाएं"), style = MaterialTheme.typography.titleSmall)
+                            Text(LanguageManager.localize("Farmer details + land + soil", "किसान विवरण + भूमि + मिट्टी"), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
 

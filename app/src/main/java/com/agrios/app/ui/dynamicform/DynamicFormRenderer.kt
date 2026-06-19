@@ -237,6 +237,21 @@ private fun RenderField(
             }
         }
 
+        "info" -> {
+            // Info/placeholder field — no input, just displays a message
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Text(
+                    text = "📷 $label — ${LanguageManager.localize("Coming soon", "जल्द आ रहा")}",
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         else -> {
             Text("⚠️ Unknown field type: ${field.type}", style = MaterialTheme.typography.bodySmall)
         }

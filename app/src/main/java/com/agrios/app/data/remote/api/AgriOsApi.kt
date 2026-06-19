@@ -94,4 +94,31 @@ interface AgriOsApi {
 
     @GET("soil-profiles")
     suspend fun getSoilProfiles(@Query("parcel_id") parcelId: String): Response<List<SoilProfileResponseDto>>
+
+    // --- Crop Cycles ---
+    @GET("crop-cycles/templates/{cropCode}")
+    suspend fun getCropTemplate(
+        @Path("cropCode") cropCode: String,
+        @Query("season") season: String? = null
+    ): Response<CropTemplateDto>
+
+    @POST("crop-cycles")
+    suspend fun createCropCycle(@Body request: Map<String, @JvmSuppressWildcards Any?>): Response<CropCycleResponseDto>
+
+    @GET("crop-cycles")
+    suspend fun getCropCycles(
+        @Query("parcel_id") parcelId: String? = null,
+        @Query("farmer_id") farmerId: String? = null,
+        @Query("status") status: String? = null
+    ): Response<List<CropCycleResponseDto>>
+
+    @GET("crop-cycles/{id}")
+    suspend fun getCropCycle(@Path("id") id: String): Response<CropCycleResponseDto>
+
+    @PATCH("crop-cycles/{cycleId}/stages/{stageId}")
+    suspend fun updateStage(
+        @Path("cycleId") cycleId: String,
+        @Path("stageId") stageId: String,
+        @Body request: StageUpdateDto
+    ): Response<CropStageDto>
 }

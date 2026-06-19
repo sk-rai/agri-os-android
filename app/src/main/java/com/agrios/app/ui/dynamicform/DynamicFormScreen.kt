@@ -20,8 +20,10 @@ import com.agrios.app.data.local.entity.SyncQueueEntity
 import com.agrios.app.data.local.entity.SyncStatus
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.FormSchemaDto
+import com.agrios.app.ui.cropcycle.StageInferenceDialog
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -56,6 +58,9 @@ fun DynamicFormScreen(
     var isSaving by remember { mutableStateOf(false) }
     var saveSuccess by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
+    var createdCycleId by remember { mutableStateOf<String?>(null) }
+    var createdCycleResponse by remember { mutableStateOf<com.agrios.app.data.remote.dto.CropCycleResponseDto?>(null) }
+    var showInferenceDialog by remember { mutableStateOf(false) }
 
     // Pre-fill context values
     LaunchedEffect(contextValues) {
@@ -151,18 +156,54 @@ fun DynamicFormScreen(
                 }
 
                 saveSuccess -> {
+                    // Show inference dialog if crop cycle has inferred stage
+                    if (showInferenceDialog && createdCycleResponse != null && createdCycleResponse!!.inferredCurrentStage != null) {
+                        StageInferenceDialog(
+                            cycle = createdCycleResponse!!,
+                            onStartFromInferred = {
+                                showInferenceDialog = false
+                                onSuccess()
+                            },
+                            onStartFromBeginning = {
+                                showInferenceDialog = false
+                                onSuccess()
+                            },
+                            onDismiss = {
+                                showInferenceDialog = false
+                                onSuccess()
+                            }
+                        )
+                    }
+
+                    // Check if we should show inference dialog on first success
+                    LaunchedEffect(saveSuccess) {
+                        if (createdCycleResponse?.inferredCurrentStage != null) {
+                            showInferenceDialog = true
+                        }
+                    }
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("✅ ${LanguageManager.localize("Saved!", "सहेजा!")}", style = MaterialTheme.typography.titleSmall)
-                            Text(LanguageManager.localize("Syncing in background.", "पृष्ठभूमि में सिंक हो रहा।"), style = MaterialTheme.typography.bodySmall)
+                            if (createdCycleResponse != null) {
+                                val c = createdCycleResponse!!
+                                if (c.expectedHarvestDate != null) {
+                                    Text("${LanguageManager.localize("Expected harvest", "अपेक्षित कटाई")}: ${c.expectedHarvestDate}", style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (c.stages.isNotEmpty()) {
+                                    Text("${c.stages.size} ${LanguageManager.localize("stages planned", "चरण नियोजित")}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            } else {
+                                Text(LanguageManager.localize("Syncing in background.", "पृष्ठभूमि में सिंक हो रहा।"), style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                     Spacer(Modifier.height(16.dp))
                     Button(onClick = onSuccess, modifier = Modifier.fillMaxWidth()) {
-                        Text(LanguageManager.localize("Done", "हो गया"))
+                        Text(LanguageManager.localize("Continue", "आगे बढ़ें"))
                     }
                 }
 
@@ -217,30 +258,64 @@ fun DynamicFormScreen(
                             scope.launch {
                                 try {
                                     val entityType = schema!!.entityType
-                                    val entityId = UUID.randomUUID().toString()
                                     val now = System.currentTimeMillis()
 
                                     // Build payload (filter out null values)
                                     val payload = formValues.filter { it.value != null && it.value.toString().isNotBlank() }
 
-                                    // Queue for sync
-                                    db.syncQueueDao().enqueue(SyncQueueEntity(
-                                        eventId = UUID.randomUUID().toString(),
-                                        entityType = entityType,
-                                        entityId = entityId,
-                                        operation = "CREATE",
-                                        payload = Gson().toJson(payload),
-                                        syncStatus = SyncStatus.PENDING.name,
-                                        priority = SyncPriority.HIGH.name,
-                                        createdAt = now
-                                    ))
+                                    // For CROP_CYCLE, make direct API call to get stages/inference
+                                    if (entityType == "CROP_CYCLE") {
+                                        withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                            // Add farmer_id from auth state
+                                            val authState = db.authDao().getAuthState()
+                                            val farmerId = authState?.userId ?: ""
+                                            val enrichedPayload = payload.toMutableMap()
+                                            if (!enrichedPayload.containsKey("farmer_id") && farmerId.isNotBlank()) {
+                                                enrichedPayload["farmer_id"] = farmerId
+                                            }
+                                            val okHttp = OkHttpClient.Builder()
+                                                .addInterceptor(AuthInterceptor(db.authDao()))
+                                                .connectTimeout(15, TimeUnit.SECONDS)
+                                                .readTimeout(15, TimeUnit.SECONDS)
+                                                .build()
+                                            val api = Retrofit.Builder()
+                                                .baseUrl(ApiConfig.BASE_URL)
+                                                .client(okHttp)
+                                                .addConverterFactory(GsonConverterFactory.create())
+                                                .build()
+                                                .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
 
-                                    // Trigger sync
-                                    SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+                                            val response = api.createCropCycle(enrichedPayload)
+                                            if (response.isSuccessful) {
+                                                val cycleResponse = response.body()
+                                                Log.d(TAG, "Crop cycle created: ${cycleResponse?.id}, inferred stage: ${cycleResponse?.inferredCurrentStage}")
+                                                createdCycleId = cycleResponse?.id
+                                                createdCycleResponse = cycleResponse
+                                            } else {
+                                                val errorBody = response.errorBody()?.string()
+                                                Log.e(TAG, "Crop cycle creation failed: ${response.code()} $errorBody")
+                                                throw Exception("HTTP ${response.code()}: ${errorBody ?: response.message()}")
+                                            }
+                                        }
+                                    } else {
+                                        // For other entity types, use sync queue
+                                        val entityId = UUID.randomUUID().toString()
+                                        db.syncQueueDao().enqueue(SyncQueueEntity(
+                                            eventId = UUID.randomUUID().toString(),
+                                            entityType = entityType,
+                                            entityId = entityId,
+                                            operation = "CREATE",
+                                            payload = Gson().toJson(payload),
+                                            syncStatus = SyncStatus.PENDING.name,
+                                            priority = SyncPriority.HIGH.name,
+                                            createdAt = now
+                                        ))
+                                        SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+                                    }
 
                                     isSaving = false
                                     saveSuccess = true
-                                    Log.d(TAG, "Form saved: $entityType/$entityId")
+                                    Log.d(TAG, "Form saved: $entityType")
                                 } catch (e: Exception) {
                                     isSaving = false
                                     saveError = e.message
