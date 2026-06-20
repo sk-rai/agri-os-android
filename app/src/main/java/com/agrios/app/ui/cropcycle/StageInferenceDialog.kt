@@ -21,9 +21,8 @@ fun StageInferenceDialog(
     onStartFromBeginning: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val lang = if (LanguageManager.isHindi()) "hi" else "en"
     val inferredStage = cycle.stages.find { it.code == cycle.inferredCurrentStage }
-    val inferredStageName = inferredStage?.name?.get(lang) ?: inferredStage?.name?.get("en") ?: cycle.inferredCurrentStage ?: ""
+    val inferredStageName = inferredStage?.getDisplayName() ?: cycle.inferredCurrentStage ?: ""
 
     AlertDialog(
         onDismissRequest = onDismiss,

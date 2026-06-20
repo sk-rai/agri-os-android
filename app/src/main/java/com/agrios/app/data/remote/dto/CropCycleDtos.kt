@@ -23,23 +23,26 @@ data class CropCycleResponseDto(
 // --- Stage within a crop cycle ---
 data class CropStageDto(
     @SerializedName("id") val id: String? = null,
-    @SerializedName("code") val code: String,
-    @SerializedName("name") val name: Map<String, String> = emptyMap(),
+    @SerializedName("code") val code: String = "",
+    @SerializedName("name") val name: String? = null, // Plain string from cycle response (English only)
     @SerializedName("order") val order: Int = 0,
     @SerializedName("day_offset") val dayOffset: Int = 0,
     @SerializedName("duration_days") val durationDays: Int = 0,
     @SerializedName("expected_start_date") val expectedStartDate: String? = null,
     @SerializedName("expected_end_date") val expectedEndDate: String? = null,
-    @SerializedName("status") val status: String = "PENDING", // PENDING, IN_PROGRESS, COMPLETED, SKIPPED
-    @SerializedName("stage_type") val stageType: String? = null, // PRE_FIELD, VEGETATIVE, REPRODUCTIVE, HARVEST
+    @SerializedName("status") val status: String = "PENDING",
+    @SerializedName("stage_type") val stageType: String? = null,
     @SerializedName("phase") val phase: String? = null,
-    @SerializedName("description") val description: Map<String, String>? = null,
+    @SerializedName("description") val description: String? = null, // English only from cycle response
     @SerializedName("farmer_actions") val farmerActions: List<String>? = null,
     @SerializedName("typical_inputs") val typicalInputs: List<String>? = null,
     @SerializedName("key_observations") val keyObservations: List<String>? = null,
     @SerializedName("icon") val icon: String? = null,
-    @SerializedName("color") val color: String? = null
-)
+    @SerializedName("color") val color: String? = null,
+    @SerializedName("stage_name") val stageName: String? = null // Alternative field name from backend
+) {
+    fun getDisplayName(): String = name ?: stageName ?: code
+}
 
 // --- Crop Template (from GET /api/v1/crop-cycles/templates/{crop_code}) ---
 data class CropTemplateDto(
@@ -58,7 +61,9 @@ data class CropTemplateDto(
 
 // --- Stage update request ---
 data class StageUpdateDto(
-    @SerializedName("status") val status: String, // IN_PROGRESS, COMPLETED, SKIPPED
-    @SerializedName("actual_date") val actualDate: String? = null,
-    @SerializedName("notes") val notes: String? = null
+    @SerializedName("action") val action: String, // START, COMPLETE, SKIP, FAIL
+    @SerializedName("gps_lat") val gpsLat: Double? = null,
+    @SerializedName("gps_lng") val gpsLng: Double? = null,
+    @SerializedName("notes") val notes: String? = null,
+    @SerializedName("skip_reason") val skipReason: String? = null
 )

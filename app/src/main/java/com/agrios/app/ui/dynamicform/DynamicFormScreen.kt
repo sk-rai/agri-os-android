@@ -42,7 +42,8 @@ fun DynamicFormScreen(
     formId: String,
     contextValues: Map<String, String> = emptyMap(), // Pre-filled values (e.g., parcel_id, farmer_id)
     onBack: () -> Unit,
-    onSuccess: () -> Unit
+    onSuccess: () -> Unit,
+    onCycleCreated: ((cycleId: String) -> Unit)? = null
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
@@ -162,15 +163,24 @@ fun DynamicFormScreen(
                             cycle = createdCycleResponse!!,
                             onStartFromInferred = {
                                 showInferenceDialog = false
-                                onSuccess()
+                                val cycleId = createdCycleId
+                                if (cycleId != null && onCycleCreated != null) {
+                                    onCycleCreated(cycleId)
+                                } else {
+                                    onSuccess()
+                                }
                             },
                             onStartFromBeginning = {
                                 showInferenceDialog = false
-                                onSuccess()
+                                val cycleId = createdCycleId
+                                if (cycleId != null && onCycleCreated != null) {
+                                    onCycleCreated(cycleId)
+                                } else {
+                                    onSuccess()
+                                }
                             },
                             onDismiss = {
                                 showInferenceDialog = false
-                                onSuccess()
                             }
                         )
                     }
@@ -202,7 +212,14 @@ fun DynamicFormScreen(
                         }
                     }
                     Spacer(Modifier.height(16.dp))
-                    Button(onClick = onSuccess, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = {
+                        val cycleId = createdCycleId
+                        if (cycleId != null && onCycleCreated != null) {
+                            onCycleCreated(cycleId)
+                        } else {
+                            onSuccess()
+                        }
+                    }, modifier = Modifier.fillMaxWidth()) {
                         Text(LanguageManager.localize("Continue", "आगे बढ़ें"))
                     }
                 }
@@ -266,11 +283,21 @@ fun DynamicFormScreen(
                                     // For CROP_CYCLE, make direct API call to get stages/inference
                                     if (entityType == "CROP_CYCLE") {
                                         withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                            // Add farmer_id from auth state
-                                            val authState = db.authDao().getAuthState()
-                                            val farmerId = authState?.userId ?: ""
+                                            // Get farmer_id from the selected parcel (not from auth user_id)
+                                            val parcelId = payload["parcel_id"]?.toString()
+                                            var farmerId: String? = null
+                                            if (parcelId != null) {
+                                                val parcel = db.parcelDao().getById(parcelId)
+                                                farmerId = parcel?.farmerId
+                                            }
+                                            // Fallback to first farmer in local DB
+                                            if (farmerId == null) {
+                                                val authState = db.authDao().getAuthState()
+                                                farmerId = authState?.userId
+                                            }
+
                                             val enrichedPayload = payload.toMutableMap()
-                                            if (!enrichedPayload.containsKey("farmer_id") && farmerId.isNotBlank()) {
+                                            if (farmerId != null) {
                                                 enrichedPayload["farmer_id"] = farmerId
                                             }
                                             val okHttp = OkHttpClient.Builder()

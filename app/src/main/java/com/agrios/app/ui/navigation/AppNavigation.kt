@@ -215,9 +215,13 @@ fun AppNavigation() {
                 formId = "crop_cycle_create",
                 onBack = { navController.popBackStack() },
                 onSuccess = {
-                    // After crop cycle saved, go back to home
-                    // TODO: Navigate to stage timeline when direct API call is integrated
+                    // Navigate to stage timeline if we have a cycle ID
                     navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.CROP_CYCLE_CREATE) { inclusive = true }
+                    }
+                },
+                onCycleCreated = { cycleId ->
+                    navController.navigate(Routes.STAGE_TIMELINE + "?cycleId=$cycleId") {
                         popUpTo(Routes.CROP_CYCLE_CREATE) { inclusive = true }
                     }
                 }

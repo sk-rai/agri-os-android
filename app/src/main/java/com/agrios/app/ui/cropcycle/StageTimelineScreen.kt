@@ -42,7 +42,6 @@ fun StageTimelineScreen(
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
-    val lang = if (LanguageManager.isHindi()) "hi" else "en"
 
     var cycle by remember { mutableStateOf<CropCycleResponseDto?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -161,7 +160,6 @@ fun StageTimelineScreen(
                     c.stages.forEachIndexed { index, stage ->
                         StageTimelineItem(
                             stage = stage,
-                            lang = lang,
                             isLast = index == c.stages.lastIndex,
                             onAdvance = { newStatus ->
                                 scope.launch {
@@ -172,13 +170,13 @@ fun StageTimelineScreen(
                                             val resp = api.updateStage(
                                                 cycleId = cycleId,
                                                 stageId = stageId,
-                                                request = StageUpdateDto(status = newStatus)
+                                                request = StageUpdateDto(action = newStatus)
                                             )
                                             if (resp.isSuccessful) {
                                                 // Reload cycle
                                                 val reloadResp = api.getCropCycle(cycleId)
                                                 if (reloadResp.isSuccessful) cycle = reloadResp.body()
-                                                actionMessage = "✅ ${stage.name[lang] ?: stage.code} → $newStatus"
+                                                actionMessage = "✅ ${stage.getDisplayName()} → $newStatus"
                                             } else {
                                                 actionMessage = "❌ ${resp.code()}: ${resp.message()}"
                                             }
@@ -199,7 +197,6 @@ fun StageTimelineScreen(
 @Composable
 private fun StageTimelineItem(
     stage: CropStageDto,
-    lang: String,
     isLast: Boolean,
     onAdvance: (status: String) -> Unit
 ) {
@@ -258,7 +255,7 @@ private fun StageTimelineItem(
         // Stage content
         Column(modifier = Modifier.weight(1f).padding(start = 8.dp, bottom = 16.dp)) {
             Text(
-                "$statusIcon ${stage.name[lang] ?: stage.name["en"] ?: stage.code}",
+                "$statusIcon ${stage.getDisplayName()}",
                 style = MaterialTheme.typography.bodyMedium
             )
             if (stage.expectedStartDate != null) {
@@ -276,7 +273,7 @@ private fun StageTimelineItem(
                 )
             }
             // Description
-            val desc = stage.description?.get(lang) ?: stage.description?.get("en")
+            val desc = stage.description
             if (!desc.isNullOrBlank()) {
                 Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -287,13 +284,13 @@ private fun StageTimelineItem(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (stage.status == "PENDING") {
                         OutlinedButton(
-                            onClick = { onAdvance("IN_PROGRESS") },
+                            onClick = { onAdvance("START") },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
                             Text(LanguageManager.localize("Start", "शुरू"), style = MaterialTheme.typography.labelSmall)
                         }
                         TextButton(
-                            onClick = { onAdvance("SKIPPED") },
+                            onClick = { onAdvance("SKIP") },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
                             Text(LanguageManager.localize("Skip", "छोड़ें"), style = MaterialTheme.typography.labelSmall)
@@ -301,7 +298,7 @@ private fun StageTimelineItem(
                     }
                     if (stage.status == "IN_PROGRESS") {
                         Button(
-                            onClick = { onAdvance("COMPLETED") },
+                            onClick = { onAdvance("COMPLETE") },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
                             Text(LanguageManager.localize("Complete", "पूरा"), style = MaterialTheme.typography.labelSmall)
