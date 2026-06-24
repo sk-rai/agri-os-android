@@ -56,7 +56,24 @@ data class CropTemplateDto(
     @SerializedName("has_nursery") val hasNursery: Boolean = false,
     @SerializedName("date_label") val dateLabel: Map<String, String>? = null,
     @SerializedName("staging_system") val stagingSystem: String? = null,
-    @SerializedName("stages") val stages: List<CropStageDto> = emptyList()
+    @SerializedName("stages") val stages: List<TemplateStageDto> = emptyList()
+)
+
+// --- Template stage (includes recommended_activities) ---
+data class TemplateStageDto(
+    @SerializedName("code") val code: String = "",
+    @SerializedName("name") val name: Map<String, String>? = null,
+    @SerializedName("order") val order: Int = 0,
+    @SerializedName("day_offset") val dayOffset: Int = 0,
+    @SerializedName("duration_days") val durationDays: Int = 0,
+    @SerializedName("stage_type") val stageType: String? = null,
+    @SerializedName("phase") val phase: String? = null,
+    @SerializedName("description") val description: Map<String, String>? = null,
+    @SerializedName("farmer_actions") val farmerActions: List<String>? = null,
+    @SerializedName("typical_inputs") val typicalInputs: List<String>? = null,
+    @SerializedName("icon") val icon: String? = null,
+    @SerializedName("color") val color: String? = null,
+    @SerializedName("recommended_activities") val recommendedActivities: List<RecommendedActivityDto>? = null
 )
 
 // --- Stage update request ---
@@ -66,4 +83,15 @@ data class StageUpdateDto(
     @SerializedName("gps_lng") val gpsLng: Double? = null,
     @SerializedName("notes") val notes: String? = null,
     @SerializedName("skip_reason") val skipReason: String? = null
+)
+
+// --- Recommended Activity (from template) ---
+data class RecommendedActivityDto(
+    @SerializedName("day_offset") val dayOffset: Int = 0,
+    @SerializedName("activity_type") val activityType: String = "",
+    @SerializedName("input_name") val inputName: String = "",
+    @SerializedName("typical_quantity") val typicalQuantity: String? = null,
+    @SerializedName("typical_cost_per_acre") val typicalCostPerAcre: Double? = null,
+    @SerializedName("is_critical") val isCritical: Boolean = false,
+    @SerializedName("description") val description: Map<String, String>? = null
 )

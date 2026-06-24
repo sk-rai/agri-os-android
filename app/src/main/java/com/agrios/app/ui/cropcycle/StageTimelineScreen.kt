@@ -23,6 +23,8 @@ import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
 import com.agrios.app.data.remote.dto.CropStageDto
+import com.agrios.app.data.remote.dto.CropTemplateDto
+import com.agrios.app.data.remote.dto.RecommendedActivityDto
 import com.agrios.app.data.remote.dto.StageUpdateDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -45,6 +47,7 @@ fun StageTimelineScreen(
     val scope = rememberCoroutineScope()
 
     var cycle by remember { mutableStateOf<CropCycleResponseDto?>(null) }
+    var template by remember { mutableStateOf<CropTemplateDto?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
@@ -73,6 +76,20 @@ fun StageTimelineScreen(
                 val response = api.getCropCycle(cycleId)
                 if (response.isSuccessful) {
                     cycle = response.body()
+                    // Fetch template for recommended activities
+                    val cropCode = cycle?.cropCode
+                    val season = cycle?.seasonCode
+                    if (cropCode != null) {
+                        try {
+                            val templateResp = api.getCropTemplate(cropCode, season)
+                            if (templateResp.isSuccessful) {
+                                template = templateResp.body()
+                                Log.d(TAG, "Template loaded: ${template?.cropCode}, ${template?.stages?.size} stages")
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Template fetch failed (non-critical): ${e.message}")
+                        }
+                    }
                 } else {
                     error = "HTTP ${response.code()}"
                 }
@@ -159,9 +176,15 @@ fun StageTimelineScreen(
                     )
 
                     c.stages.forEachIndexed { index, stage ->
+                        // Get recommended activities for this stage from template
+                        val templateStage = template?.stages?.find { it.code == stage.code }
+                        val recommendations = templateStage?.recommendedActivities ?: emptyList()
+
                         StageTimelineItem(
                             stage = stage,
                             isLast = index == c.stages.lastIndex,
+                            recommendations = recommendations,
+                            stageStartDate = stage.expectedStartDate,
                             onAdvance = { newStatus ->
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
@@ -202,6 +225,8 @@ fun StageTimelineScreen(
 private fun StageTimelineItem(
     stage: CropStageDto,
     isLast: Boolean,
+    recommendations: List<RecommendedActivityDto> = emptyList(),
+    stageStartDate: String? = null,
     onAdvance: (status: String) -> Unit,
     onLogActivity: () -> Unit = {}
 ) {
@@ -315,6 +340,48 @@ private fun StageTimelineItem(
                         ) {
                             Text(LanguageManager.localize("📋 Log Activity", "📋 गतिविधि दर्ज"), style = MaterialTheme.typography.labelSmall)
                         }
+                    }
+                }
+            }
+
+            // Recommended activities (from template)
+            val isStageActive = stage.status == "IN_PROGRESS" || stage.status == "ACTIVE" || stage.status == "STARTED"
+            if (isStageActive && recommendations.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    LanguageManager.localize("📅 Recommended Activities", "📅 अनुशंसित गतिविधियाँ"),
+                    style = MaterialTheme.typography.labelMedium
+                )
+                val lang = if (LanguageManager.isHindi()) "hi" else "en"
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                recommendations.forEach { rec ->
+                    val recommendedDate = if (stageStartDate != null) {
+                        try {
+                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                            val start = sdf.parse(stageStartDate)
+                            val cal = java.util.Calendar.getInstance()
+                            cal.time = start!!
+                            cal.add(java.util.Calendar.DAY_OF_YEAR, rec.dayOffset)
+                            sdf.format(cal.time)
+                        } catch (_: Exception) { "Day ${rec.dayOffset}" }
+                    } else "Day ${rec.dayOffset}"
+
+                    val isOverdue = recommendedDate < today && recommendedDate.length == 10
+                    val icon = when {
+                        rec.isCritical && isOverdue -> "🚨"
+                        isOverdue -> "⚠️"
+                        rec.isCritical -> "❗"
+                        else -> "•"
+                    }
+                    val desc = rec.description?.get(lang) ?: rec.description?.get("en") ?: ""
+
+                    Text(
+                        "$icon $recommendedDate: ${rec.inputName}${if (rec.typicalQuantity != null) " (${rec.typicalQuantity})" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (desc.isNotBlank()) {
+                        Text("  $desc", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
