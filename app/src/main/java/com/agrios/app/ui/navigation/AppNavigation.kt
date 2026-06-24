@@ -33,6 +33,7 @@ object Routes {
     const val SOIL_PROFILE = "soil_profile"
     const val CROP_CYCLE_CREATE = "crop_cycle_create"
     const val STAGE_TIMELINE = "stage_timeline"
+    const val ACTIVITY_LOG = "activity_log"
     const val SETTINGS = "settings"
 }
 
@@ -199,6 +200,22 @@ fun AppNavigation() {
             )
         }
 
+        composable(
+            Routes.ACTIVITY_LOG + "?cycleId={cycleId}",
+            arguments = listOf(androidx.navigation.navArgument("cycleId") {
+                type = androidx.navigation.NavType.StringType
+                defaultValue = ""
+            })
+        ) { backStackEntry ->
+            val cycleId = backStackEntry.arguments?.getString("cycleId") ?: ""
+            DynamicFormScreen(
+                formId = "activity_log",
+                contextValues = mapOf("crop_cycle_id" to cycleId),
+                onBack = { navController.popBackStack() },
+                onSuccess = { navController.popBackStack() }
+            )
+        }
+
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
@@ -238,7 +255,10 @@ fun AppNavigation() {
             val cycleId = backStackEntry.arguments?.getString("cycleId") ?: ""
             StageTimelineScreen(
                 cycleId = cycleId,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onNavigateToActivityLog = { cId ->
+                    navController.navigate(Routes.ACTIVITY_LOG + "?cycleId=$cId")
+                }
             )
         }
     }

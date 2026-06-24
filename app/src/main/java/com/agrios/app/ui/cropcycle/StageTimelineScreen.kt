@@ -38,7 +38,8 @@ private const val TAG = "StageTimeline"
 @Composable
 fun StageTimelineScreen(
     cycleId: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToActivityLog: ((cycleId: String) -> Unit)? = null
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
@@ -185,6 +186,9 @@ fun StageTimelineScreen(
                                         }
                                     }
                                 }
+                            },
+                            onLogActivity = {
+                                onNavigateToActivityLog?.invoke(cycleId)
                             }
                         )
                     }
@@ -198,7 +202,8 @@ fun StageTimelineScreen(
 private fun StageTimelineItem(
     stage: CropStageDto,
     isLast: Boolean,
-    onAdvance: (status: String) -> Unit
+    onAdvance: (status: String) -> Unit,
+    onLogActivity: () -> Unit = {}
 ) {
     val stageColor = try {
         Color(android.graphics.Color.parseColor(stage.color ?: "#9E9E9E"))
@@ -208,7 +213,7 @@ private fun StageTimelineItem(
 
     val statusIcon = when (stage.status) {
         "COMPLETED" -> "✅"
-        "IN_PROGRESS" -> "🔵"
+        "IN_PROGRESS", "ACTIVE", "STARTED" -> "🔵"
         "SKIPPED" -> "⏭️"
         else -> "⚪"
     }
@@ -229,7 +234,7 @@ private fun StageTimelineItem(
                     .background(
                         when (stage.status) {
                             "COMPLETED" -> Color(0xFF4CAF50)
-                            "IN_PROGRESS" -> Color(0xFF2196F3)
+                            "IN_PROGRESS", "ACTIVE", "STARTED" -> Color(0xFF2196F3)
                             "SKIPPED" -> Color(0xFF9E9E9E)
                             else -> stageColor.copy(alpha = 0.3f)
                         }
@@ -279,7 +284,8 @@ private fun StageTimelineItem(
             }
 
             // Action buttons
-            if (stage.status == "PENDING" || stage.status == "IN_PROGRESS") {
+            val isActive = stage.status == "IN_PROGRESS" || stage.status == "ACTIVE" || stage.status == "STARTED"
+            if (stage.status == "PENDING" || isActive) {
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (stage.status == "PENDING") {
@@ -296,12 +302,18 @@ private fun StageTimelineItem(
                             Text(LanguageManager.localize("Skip", "छोड़ें"), style = MaterialTheme.typography.labelSmall)
                         }
                     }
-                    if (stage.status == "IN_PROGRESS") {
+                    if (isActive) {
                         Button(
                             onClick = { onAdvance("COMPLETE") },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
                             Text(LanguageManager.localize("Complete", "पूरा"), style = MaterialTheme.typography.labelSmall)
+                        }
+                        OutlinedButton(
+                            onClick = { onLogActivity() },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Text(LanguageManager.localize("📋 Log Activity", "📋 गतिविधि दर्ज"), style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
