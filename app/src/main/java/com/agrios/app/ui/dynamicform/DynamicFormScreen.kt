@@ -25,6 +25,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.UUID
@@ -322,6 +323,41 @@ fun DynamicFormScreen(
                                                 val errorBody = response.errorBody()?.string()
                                                 Log.e(TAG, "Crop cycle creation failed: ${response.code()} $errorBody")
                                                 throw Exception("HTTP ${response.code()}: ${errorBody ?: response.message()}")
+                                            }
+                                        }
+                                    } else if (formId == "activity_log") {
+                                        // Activity log — direct API call to /crop-cycles/{cycleId}/activities
+                                        val cycleId = contextValues["crop_cycle_id"] ?: ""
+                                        if (cycleId.isBlank()) {
+                                            throw Exception("Missing crop_cycle_id for activity log")
+                                        }
+                                        withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                            val okHttp = OkHttpClient.Builder()
+                                                .addInterceptor(AuthInterceptor(db.authDao()))
+                                                .connectTimeout(15, TimeUnit.SECONDS)
+                                                .readTimeout(15, TimeUnit.SECONDS)
+                                                .build()
+
+                                            val activityUrl = "${ApiConfig.BASE_URL}crop-cycles/$cycleId/activities"
+                                            Log.d(TAG, "Posting activity to: $activityUrl")
+                                            Log.d(TAG, "Activity payload: ${Gson().toJson(payload)}")
+
+                                            val requestBody = okhttp3.RequestBody.create(
+                                                "application/json".toMediaTypeOrNull(),
+                                                Gson().toJson(payload)
+                                            )
+                                            val request = okhttp3.Request.Builder()
+                                                .url(activityUrl)
+                                                .post(requestBody)
+                                                .build()
+                                            val response = okHttp.newCall(request).execute()
+
+                                            if (response.isSuccessful) {
+                                                Log.d(TAG, "Activity logged successfully")
+                                            } else {
+                                                val errorBody = response.body?.string()
+                                                Log.e(TAG, "Activity log failed: ${response.code} $errorBody")
+                                                throw Exception("HTTP ${response.code}: ${errorBody ?: response.message}")
                                             }
                                         }
                                     } else {

@@ -10,6 +10,7 @@ import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.ui.auth.AuthScreen
 import com.agrios.app.ui.auth.AuthViewModel
 import com.agrios.app.ui.auth.LanguageSetupScreen
+import com.agrios.app.ui.cropcycle.StageActivitiesScreen
 import com.agrios.app.ui.cropcycle.StageTimelineScreen
 import com.agrios.app.ui.dynamicform.DynamicFormScreen
 import com.agrios.app.ui.enrollment.UnifiedEnrollmentScreen
@@ -34,6 +35,7 @@ object Routes {
     const val CROP_CYCLE_CREATE = "crop_cycle_create"
     const val STAGE_TIMELINE = "stage_timeline"
     const val ACTIVITY_LOG = "activity_log"
+    const val STAGE_ACTIVITIES = "stage_activities"
     const val SETTINGS = "settings"
 }
 
@@ -201,6 +203,30 @@ fun AppNavigation() {
         }
 
         composable(
+            Routes.STAGE_ACTIVITIES + "?cycleId={cycleId}",
+            arguments = listOf(androidx.navigation.navArgument("cycleId") {
+                type = androidx.navigation.NavType.StringType
+                defaultValue = ""
+            })
+        ) { backStackEntry ->
+            val cycleId = backStackEntry.arguments?.getString("cycleId") ?: ""
+            StageActivitiesScreen(
+                cycleId = cycleId,
+                onBack = { navController.popBackStack() },
+                onLogActivity = { prefillData ->
+                    // Navigate to activity form with pre-filled context
+                    val contextMap = mutableMapOf("crop_cycle_id" to cycleId)
+                    contextMap.putAll(prefillData)
+                    // Store prefill in saved state
+                    navController.navigate(Routes.ACTIVITY_LOG + "?cycleId=$cycleId")
+                },
+                onLogCustomActivity = {
+                    navController.navigate(Routes.ACTIVITY_LOG + "?cycleId=$cycleId")
+                }
+            )
+        }
+
+        composable(
             Routes.ACTIVITY_LOG + "?cycleId={cycleId}",
             arguments = listOf(androidx.navigation.navArgument("cycleId") {
                 type = androidx.navigation.NavType.StringType
@@ -257,7 +283,7 @@ fun AppNavigation() {
                 cycleId = cycleId,
                 onBack = { navController.popBackStack() },
                 onNavigateToActivityLog = { cId ->
-                    navController.navigate(Routes.ACTIVITY_LOG + "?cycleId=$cId")
+                    navController.navigate(Routes.STAGE_ACTIVITIES + "?cycleId=$cId")
                 }
             )
         }
