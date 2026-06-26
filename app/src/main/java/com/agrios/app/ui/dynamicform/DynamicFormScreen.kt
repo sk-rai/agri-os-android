@@ -67,7 +67,10 @@ fun DynamicFormScreen(
     // Pre-fill context values
     LaunchedEffect(contextValues) {
         contextValues.forEach { (key, value) ->
-            formValues[key] = value
+            // Apply context values to form fields (for pre-fill from recommendations)
+            if (key != "crop_cycle_id") {
+                formValues[key] = value
+            }
         }
     }
 
@@ -281,51 +284,8 @@ fun DynamicFormScreen(
                                     // Build payload (filter out null values)
                                     val payload = formValues.filter { it.value != null && it.value.toString().isNotBlank() }
 
-                                    // For CROP_CYCLE, make direct API call to get stages/inference
-                                    if (entityType == "CROP_CYCLE") {
-                                        withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                            // Get farmer_id from the selected parcel (not from auth user_id)
-                                            val parcelId = payload["parcel_id"]?.toString()
-                                            var farmerId: String? = null
-                                            if (parcelId != null) {
-                                                val parcel = db.parcelDao().getById(parcelId)
-                                                farmerId = parcel?.farmerId
-                                            }
-                                            // Fallback to first farmer in local DB
-                                            if (farmerId == null) {
-                                                val authState = db.authDao().getAuthState()
-                                                farmerId = authState?.userId
-                                            }
-
-                                            val enrichedPayload = payload.toMutableMap()
-                                            if (farmerId != null) {
-                                                enrichedPayload["farmer_id"] = farmerId
-                                            }
-                                            val okHttp = OkHttpClient.Builder()
-                                                .addInterceptor(AuthInterceptor(db.authDao()))
-                                                .connectTimeout(15, TimeUnit.SECONDS)
-                                                .readTimeout(15, TimeUnit.SECONDS)
-                                                .build()
-                                            val api = Retrofit.Builder()
-                                                .baseUrl(ApiConfig.BASE_URL)
-                                                .client(okHttp)
-                                                .addConverterFactory(GsonConverterFactory.create())
-                                                .build()
-                                                .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
-
-                                            val response = api.createCropCycle(enrichedPayload)
-                                            if (response.isSuccessful) {
-                                                val cycleResponse = response.body()
-                                                Log.d(TAG, "Crop cycle created: ${cycleResponse?.id}, inferred stage: ${cycleResponse?.inferredCurrentStage}")
-                                                createdCycleId = cycleResponse?.id
-                                                createdCycleResponse = cycleResponse
-                                            } else {
-                                                val errorBody = response.errorBody()?.string()
-                                                Log.e(TAG, "Crop cycle creation failed: ${response.code()} $errorBody")
-                                                throw Exception("HTTP ${response.code()}: ${errorBody ?: response.message()}")
-                                            }
-                                        }
-                                    } else if (formId == "activity_log") {
+                                    // Route to correct endpoint based on form type
+                                    if (formId == "activity_log") {
                                         // Activity log — direct API call to /crop-cycles/{cycleId}/activities
                                         val cycleId = contextValues["crop_cycle_id"] ?: ""
                                         if (cycleId.isBlank()) {
@@ -358,6 +318,47 @@ fun DynamicFormScreen(
                                                 val errorBody = response.body?.string()
                                                 Log.e(TAG, "Activity log failed: ${response.code} $errorBody")
                                                 throw Exception("HTTP ${response.code}: ${errorBody ?: response.message}")
+                                            }
+                                        }
+                                    } else if (entityType == "CROP_CYCLE") {
+                                        // Crop cycle creation — direct API call to get stages/inference
+                                        withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                            val parcelId = payload["parcel_id"]?.toString()
+                                            var farmerId: String? = null
+                                            if (parcelId != null) {
+                                                val parcel = db.parcelDao().getById(parcelId)
+                                                farmerId = parcel?.farmerId
+                                            }
+                                            if (farmerId == null) {
+                                                val authState = db.authDao().getAuthState()
+                                                farmerId = authState?.userId
+                                            }
+                                            val enrichedPayload = payload.toMutableMap()
+                                            if (farmerId != null) {
+                                                enrichedPayload["farmer_id"] = farmerId
+                                            }
+                                            val okHttp = OkHttpClient.Builder()
+                                                .addInterceptor(AuthInterceptor(db.authDao()))
+                                                .connectTimeout(15, TimeUnit.SECONDS)
+                                                .readTimeout(15, TimeUnit.SECONDS)
+                                                .build()
+                                            val api = Retrofit.Builder()
+                                                .baseUrl(ApiConfig.BASE_URL)
+                                                .client(okHttp)
+                                                .addConverterFactory(GsonConverterFactory.create())
+                                                .build()
+                                                .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
+
+                                            val response = api.createCropCycle(enrichedPayload)
+                                            if (response.isSuccessful) {
+                                                val cycleResponse = response.body()
+                                                Log.d(TAG, "Crop cycle created: ${cycleResponse?.id}, inferred stage: ${cycleResponse?.inferredCurrentStage}")
+                                                createdCycleId = cycleResponse?.id
+                                                createdCycleResponse = cycleResponse
+                                            } else {
+                                                val errorBody = response.errorBody()?.string()
+                                                Log.e(TAG, "Crop cycle creation failed: ${response.code()} $errorBody")
+                                                throw Exception("HTTP ${response.code()}: ${errorBody ?: response.message()}")
                                             }
                                         }
                                     } else {

@@ -74,10 +74,16 @@ fun StageActivitiesScreen(
                     cycle = cycleResp.body()
                     // Load template
                     val cropCode = cycle?.cropCode
+                    Log.d(TAG, "Fetching template for cropCode='$cropCode', season='${cycle?.seasonCode}'")
                     if (cropCode != null) {
                         val templateResp = api.getCropTemplate(cropCode, cycle?.seasonCode)
+                        Log.d(TAG, "Template response: ${templateResp.code()}, body null? ${templateResp.body() == null}")
                         if (templateResp.isSuccessful) {
                             template = templateResp.body()
+                            val nurseryStage = template?.stages?.find { it.code == "NURSERY" }
+                            Log.d(TAG, "Template stages: ${template?.stages?.size}, nursery recommendations: ${nurseryStage?.recommendedActivities?.size}")
+                        } else {
+                            Log.w(TAG, "Template fetch failed: ${templateResp.code()} ${templateResp.errorBody()?.string()}")
                         }
                     }
                 } else {
@@ -101,6 +107,13 @@ fun StageActivitiesScreen(
 
     // Get recommendations for active stage from template
     val recommendations = template?.stages?.find { it.code == activeStageCode }?.recommendedActivities ?: emptyList()
+
+    // Debug
+    LaunchedEffect(cycle, template) {
+        Log.d(TAG, "Active stage: code='$activeStageCode', status='${activeStage?.status}'")
+        Log.d(TAG, "Template stages codes: ${template?.stages?.map { it.code }}")
+        Log.d(TAG, "Recommendations count for '$activeStageCode': ${recommendations.size}")
+    }
 
     Scaffold(
         topBar = {

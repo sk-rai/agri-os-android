@@ -215,10 +215,13 @@ fun AppNavigation() {
                 onBack = { navController.popBackStack() },
                 onLogActivity = { prefillData ->
                     // Navigate to activity form with pre-filled context
-                    val contextMap = mutableMapOf("crop_cycle_id" to cycleId)
-                    contextMap.putAll(prefillData)
-                    // Store prefill in saved state
-                    navController.navigate(Routes.ACTIVITY_LOG + "?cycleId=$cycleId")
+                    // Encode prefill data in the cycleId route for now
+                    // The contextValues will include cycle_id + prefill fields
+                    val activityType = prefillData["activity_type"] ?: ""
+                    val inputName = prefillData["input_name"] ?: ""
+                    navController.navigate(
+                        Routes.ACTIVITY_LOG + "?cycleId=$cycleId&activityType=$activityType&inputName=$inputName"
+                    )
                 },
                 onLogCustomActivity = {
                     navController.navigate(Routes.ACTIVITY_LOG + "?cycleId=$cycleId")
@@ -227,16 +230,31 @@ fun AppNavigation() {
         }
 
         composable(
-            Routes.ACTIVITY_LOG + "?cycleId={cycleId}",
-            arguments = listOf(androidx.navigation.navArgument("cycleId") {
-                type = androidx.navigation.NavType.StringType
-                defaultValue = ""
-            })
+            Routes.ACTIVITY_LOG + "?cycleId={cycleId}&activityType={activityType}&inputName={inputName}",
+            arguments = listOf(
+                androidx.navigation.navArgument("cycleId") {
+                    type = androidx.navigation.NavType.StringType
+                    defaultValue = ""
+                },
+                androidx.navigation.navArgument("activityType") {
+                    type = androidx.navigation.NavType.StringType
+                    defaultValue = ""
+                },
+                androidx.navigation.navArgument("inputName") {
+                    type = androidx.navigation.NavType.StringType
+                    defaultValue = ""
+                }
+            )
         ) { backStackEntry ->
             val cycleId = backStackEntry.arguments?.getString("cycleId") ?: ""
+            val activityType = backStackEntry.arguments?.getString("activityType") ?: ""
+            val inputName = backStackEntry.arguments?.getString("inputName") ?: ""
+            val context = mutableMapOf("crop_cycle_id" to cycleId)
+            if (activityType.isNotBlank()) context["activity_type"] = activityType
+            if (inputName.isNotBlank()) context["input_name"] = inputName
             DynamicFormScreen(
                 formId = "activity_log",
-                contextValues = mapOf("crop_cycle_id" to cycleId),
+                contextValues = context,
                 onBack = { navController.popBackStack() },
                 onSuccess = { navController.popBackStack() }
             )
