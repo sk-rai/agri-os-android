@@ -18,8 +18,7 @@ import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
-import com.agrios.app.data.remote.dto.CropTemplateDto
-import com.agrios.app.data.remote.dto.RecommendedActivityDto
+import com.agrios.app.data.remote.dto.CycleRecommendedActivityDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -48,7 +47,7 @@ fun StageActivitiesScreen(
     val lang = if (LanguageManager.isHindi()) "hi" else "en"
 
     var cycle by remember { mutableStateOf<CropCycleResponseDto?>(null) }
-    var template by remember { mutableStateOf<CropTemplateDto?>(null) }
+    var allRecommendations by remember { mutableStateOf<List<CycleRecommendedActivityDto>>(emptyList()) }
     var loggedActivities by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -73,19 +72,15 @@ fun StageActivitiesScreen(
                 val cycleResp = api.getCropCycle(cycleId)
                 if (cycleResp.isSuccessful) {
                     cycle = cycleResp.body()
-                    // Load template
-                    val cropCode = cycle?.cropCode
-                    Log.d(TAG, "Fetching template for cropCode='$cropCode', season='${cycle?.seasonCode}'")
-                    if (cropCode != null) {
-                        val templateResp = api.getCropTemplate(cropCode, cycle?.seasonCode)
-                        Log.d(TAG, "Template response: ${templateResp.code()}, body null? ${templateResp.body() == null}")
-                        if (templateResp.isSuccessful) {
-                            template = templateResp.body()
-                            val nurseryStage = template?.stages?.find { it.code == "NURSERY" }
-                            Log.d(TAG, "Template stages: ${template?.stages?.size}, nursery recommendations: ${nurseryStage?.recommendedActivities?.size}")
-                        } else {
-                            Log.w(TAG, "Template fetch failed: ${templateResp.code()} ${templateResp.errorBody()?.string()}")
-                        }
+
+                    // Load cycle-aware recommended activities with backend-calculated dates
+                    val recResp = api.getRecommendedActivities(cycleId)
+                    Log.d(TAG, "Recommended activities response: ${recResp.code()}, body null? ${recResp.body() == null}")
+                    if (recResp.isSuccessful) {
+                        allRecommendations = recResp.body()?.recommendedActivities ?: emptyList()
+                        Log.d(TAG, "Recommended activities loaded: ${allRecommendations.size}")
+                    } else {
+                        Log.w(TAG, "Recommended activities fetch failed: ${recResp.code()} ${recResp.errorBody()?.string()}")
                     }
 
                     // Fetch logged activities for this cycle
@@ -124,13 +119,13 @@ fun StageActivitiesScreen(
     val activeStageCode = activeStage?.code
     val stageStartDate = activeStage?.expectedStartDate
 
-    // Get recommendations for active stage from template
-    val recommendations = template?.stages?.find { it.code == activeStageCode }?.recommendedActivities ?: emptyList()
+    // Get cycle-aware recommendations for the active stage
+    val recommendations = allRecommendations.filter { it.stageCode == activeStageCode }
 
     // Debug
-    LaunchedEffect(cycle, template) {
+    LaunchedEffect(cycle, allRecommendations) {
         Log.d(TAG, "Active stage: code='$activeStageCode', status='${activeStage?.status}'")
-        Log.d(TAG, "Template stages codes: ${template?.stages?.map { it.code }}")
+        Log.d(TAG, "Recommendation stage codes: ${allRecommendations.map { it.stageCode }.distinct()}")
         Log.d(TAG, "Recommendations count for '$activeStageCode': ${recommendations.size}")
     }
 
@@ -197,7 +192,7 @@ fun StageActivitiesScreen(
                         val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
                         recommendations.forEachIndexed { index, rec ->
-                            val recommendedDate = calculateRecommendedDate(stageStartDate, rec.dayOffset)
+                            val recommendedDate = rec.recommendedDate ?: calculateRecommendedDate(stageStartDate, rec.dayOffset)
                             val isOverdue = recommendedDate != null && recommendedDate < today
 
                             // Check if this recommendation has been logged
@@ -239,7 +234,7 @@ fun StageActivitiesScreen(
                                             if (rec.typicalCostPerAcre != null) {
                                                 prefill["cost_hint"] = rec.typicalCostPerAcre.toString()
                                             }
-                                            prefill["activity_date"] = today
+                                            prefill["activity_date"] = rec.recommendedDate ?: recommendedDate ?: today
                                             onLogActivity(prefill)
                                         }
                                     },

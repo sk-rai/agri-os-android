@@ -95,3 +95,26 @@ data class RecommendedActivityDto(
     @SerializedName("is_critical") val isCritical: Boolean = false,
     @SerializedName("description") val description: Map<String, String>? = null
 )
+
+// --- Cycle-aware recommended activities (from GET /crop-cycles/{id}/recommended-activities) ---
+data class CycleRecommendedActivitiesResponseDto(
+    @SerializedName("cycle_id") val cycleId: String? = null,
+    @SerializedName("crop_code") val cropCode: String? = null,
+    @SerializedName("season_code") val seasonCode: String? = null,
+    @SerializedName("planned_sowing_date") val plannedSowingDate: String? = null,
+    @SerializedName("recommended_activities") val recommendedActivities: List<CycleRecommendedActivityDto> = emptyList()
+)
+
+data class CycleRecommendedActivityDto(
+    @SerializedName("stage_code") val stageCode: String = "",
+    @SerializedName("stage_name") val stageName: String? = null,
+    @SerializedName("stage_expected_start_date") val stageExpectedStartDate: String? = null,
+    @SerializedName("activity_type") val activityType: String = "",
+    @SerializedName("input_name") val inputName: String = "",
+    @SerializedName("day_offset") val dayOffset: Int = 0,
+    @SerializedName("recommended_date") val recommendedDate: String? = null,
+    @SerializedName("typical_quantity") val typicalQuantity: String? = null,
+    @SerializedName("typical_cost_per_acre") val typicalCostPerAcre: Double? = null,
+    @SerializedName("is_critical") val isCritical: Boolean = false,
+    @SerializedName("description") val description: Map<String, String>? = null
+)

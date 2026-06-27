@@ -115,6 +115,11 @@ interface AgriOsApi {
     @GET("crop-cycles/{id}")
     suspend fun getCropCycle(@Path("id") id: String): Response<CropCycleResponseDto>
 
+    @GET("crop-cycles/{cycleId}/recommended-activities")
+    suspend fun getRecommendedActivities(
+        @Path("cycleId") cycleId: String
+    ): Response<CycleRecommendedActivitiesResponseDto>
+
     @PATCH("crop-cycles/{cycleId}/stages/{stageId}")
     suspend fun updateStage(
         @Path("cycleId") cycleId: String,
