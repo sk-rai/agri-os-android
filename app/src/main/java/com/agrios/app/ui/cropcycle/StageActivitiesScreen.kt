@@ -49,6 +49,7 @@ fun StageActivitiesScreen(
 
     var cycle by remember { mutableStateOf<CropCycleResponseDto?>(null) }
     var template by remember { mutableStateOf<CropTemplateDto?>(null) }
+    var loggedActivities by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -85,6 +86,24 @@ fun StageActivitiesScreen(
                         } else {
                             Log.w(TAG, "Template fetch failed: ${templateResp.code()} ${templateResp.errorBody()?.string()}")
                         }
+                    }
+
+                    // Fetch logged activities for this cycle
+                    try {
+                        val activitiesUrl = "${ApiConfig.BASE_URL}crop-cycles/$cycleId/activities"
+                        val activitiesReq = okhttp3.Request.Builder().url(activitiesUrl).build()
+                        val activitiesResp = okHttp.newCall(activitiesReq).execute()
+                        if (activitiesResp.isSuccessful) {
+                            val body = activitiesResp.body?.string()
+                            if (body != null) {
+                                loggedActivities = com.google.gson.Gson().fromJson(
+                                    body, object : com.google.gson.reflect.TypeToken<List<Map<String, Any?>>>() {}.type
+                                )
+                                Log.d(TAG, "Logged activities: ${loggedActivities.size}")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to fetch logged activities: ${e.message}")
                     }
                 } else {
                     error = "HTTP ${cycleResp.code()}"
@@ -180,7 +199,23 @@ fun StageActivitiesScreen(
                         recommendations.forEachIndexed { index, rec ->
                             val recommendedDate = calculateRecommendedDate(stageStartDate, rec.dayOffset)
                             val isOverdue = recommendedDate != null && recommendedDate < today
+
+                            // Check if this recommendation has been logged
+                            val isLogged = loggedActivities.any { activity ->
+                                val loggedInput = activity["input_name"]?.toString() ?: ""
+                                val loggedType = activity["activity_type"]?.toString() ?: ""
+                                loggedInput.contains(rec.inputName, ignoreCase = true) ||
+                                    (loggedType == rec.activityType && loggedInput.isNotBlank() && rec.inputName.contains(loggedInput, ignoreCase = true))
+                            }
+                            val loggedEntry = if (isLogged) {
+                                loggedActivities.find { activity ->
+                                    val loggedInput = activity["input_name"]?.toString() ?: ""
+                                    loggedInput.contains(rec.inputName, ignoreCase = true)
+                                }
+                            } else null
+
                             val icon = when {
+                                isLogged -> "✅"
                                 rec.isCritical && isOverdue -> "🚨"
                                 isOverdue -> "⚠️"
                                 rec.isCritical -> "❗"
@@ -192,24 +227,28 @@ fun StageActivitiesScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        // Pre-fill the activity form
-                                        val prefill = mutableMapOf(
-                                            "activity_type" to rec.activityType,
-                                            "input_name" to rec.inputName
-                                        )
-                                        if (rec.typicalQuantity != null) {
-                                            prefill["quantity_hint"] = rec.typicalQuantity
+                                        if (!isLogged) {
+                                            // Pre-fill the activity form
+                                            val prefill = mutableMapOf(
+                                                "activity_type" to rec.activityType,
+                                                "input_name" to rec.inputName
+                                            )
+                                            if (rec.typicalQuantity != null) {
+                                                prefill["quantity_hint"] = rec.typicalQuantity
+                                            }
+                                            if (rec.typicalCostPerAcre != null) {
+                                                prefill["cost_hint"] = rec.typicalCostPerAcre.toString()
+                                            }
+                                            prefill["activity_date"] = today
+                                            onLogActivity(prefill)
                                         }
-                                        if (rec.typicalCostPerAcre != null) {
-                                            prefill["cost_hint"] = rec.typicalCostPerAcre.toString()
-                                        }
-                                        // Use today's date as actual date (farmer can edit)
-                                        prefill["activity_date"] = today
-                                        onLogActivity(prefill)
                                     },
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (isOverdue) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-                                    else MaterialTheme.colorScheme.surfaceVariant
+                                    containerColor = when {
+                                        isLogged -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                        isOverdue -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                                        else -> MaterialTheme.colorScheme.surfaceVariant
+                                    }
                                 )
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
@@ -220,17 +259,28 @@ fun StageActivitiesScreen(
                                                 rec.inputName,
                                                 style = MaterialTheme.typography.bodyMedium
                                             )
-                                            Text(
-                                                "${LanguageManager.localize("Day", "दिन")} ${rec.dayOffset}${if (recommendedDate != null) " ($recommendedDate)" else ""}" +
-                                                    "${if (rec.typicalQuantity != null) " • ${rec.typicalQuantity}" else ""}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            if (desc.isNotBlank()) {
+                                            if (isLogged && loggedEntry != null) {
+                                                val loggedCost = loggedEntry["cost_amount"]?.toString() ?: ""
+                                                val loggedQty = loggedEntry["quantity"]?.toString() ?: ""
+                                                val loggedDate = loggedEntry["activity_date"]?.toString() ?: ""
+                                                Text(
+                                                    "₹$loggedCost • $loggedQty • $loggedDate",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            } else {
+                                                Text(
+                                                    "${LanguageManager.localize("Day", "दिन")} ${rec.dayOffset}${if (recommendedDate != null) " ($recommendedDate)" else ""}" +
+                                                        "${if (rec.typicalQuantity != null) " • ${rec.typicalQuantity}" else ""}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            if (desc.isNotBlank() && !isLogged) {
                                                 Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                         }
-                                        Text("→", style = MaterialTheme.typography.titleMedium)
+                                        if (!isLogged) Text("→", style = MaterialTheme.typography.titleMedium)
                                     }
                                 }
                             }
