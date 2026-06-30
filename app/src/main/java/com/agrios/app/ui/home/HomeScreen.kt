@@ -19,8 +19,12 @@ import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.local.entity.FarmerEntity
+import com.agrios.app.data.remote.api.AgriOsApi
+import com.agrios.app.data.remote.dto.CropCycleResponseDto
 import com.agrios.app.ui.components.SyncStatusBadge
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -47,10 +51,55 @@ fun HomeScreen(
     val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
     val hasProfile = farmers.isNotEmpty()
     val farmer = farmers.firstOrNull()
+    var activeCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
+    var isLoadingCycles by remember { mutableStateOf(false) }
+    var cycleLoadMessage by remember { mutableStateOf<String?>(null) }
+
+    val api = remember {
+        val okHttpClient = OkHttpClient.Builder()
+            .addInterceptor(AuthInterceptor(db.authDao()))
+            .connectTimeout(ApiConfig.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(ApiConfig.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(ApiConfig.WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .build()
+        Retrofit.Builder()
+            .baseUrl(ApiConfig.BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(AgriOsApi::class.java)
+    }
 
     // Trigger sync on screen entry
     LaunchedEffect(Unit) {
         SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+    }
+
+    LaunchedEffect(farmer?.id) {
+        val farmerId = farmer?.id
+        if (farmerId.isNullOrBlank()) {
+            activeCycles = emptyList()
+            return@LaunchedEffect
+        }
+
+        isLoadingCycles = true
+        cycleLoadMessage = null
+        try {
+            val response = withContext(Dispatchers.IO) {
+                api.getCropCycles(farmerId = farmerId, status = "ACTIVE")
+            }
+            if (response.isSuccessful) {
+                activeCycles = response.body().orEmpty()
+            } else {
+                activeCycles = emptyList()
+                cycleLoadMessage = "Could not load active crop cycles (${response.code()})"
+            }
+        } catch (e: Exception) {
+            activeCycles = emptyList()
+            cycleLoadMessage = e.message
+        } finally {
+            isLoadingCycles = false
+        }
     }
 
     fun runSyncNow() {
@@ -150,6 +199,54 @@ fun HomeScreen(
                     style = MaterialTheme.typography.titleSmall
                 )
 
+                if (isLoadingCycles) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Loading active crop cycles...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                activeCycles.forEach { cycle ->
+                    val currentStage = cycle.stages.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
+                        ?: cycle.stages.firstOrNull { it.status.equals("PENDING", ignoreCase = true) }
+                    ElevatedCard(
+                        onClick = { onNavigateToStageTimeline(cycle.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.elevatedCardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "Continue ${cycle.cropName ?: cycle.cropCode}",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                listOfNotNull(
+                                    cycle.seasonCode,
+                                    currentStage?.getDisplayName()
+                                ).joinToString(" • "),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            currentStage?.expectedStartDate?.let { startDate ->
+                                Text(
+                                    "Current stage started: $startDate",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (cycleLoadMessage != null && activeCycles.isEmpty()) {
+                    Text(
+                        cycleLoadMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
                 // Start Crop Cycle
                 ElevatedCard(
                     onClick = onNavigateToCropCycle,
@@ -159,13 +256,19 @@ fun HomeScreen(
                         Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text(LanguageManager.localize("Start Crop Cycle", "फसल चक्र शुरू करें"), style = MaterialTheme.typography.titleSmall)
-                            Text(LanguageManager.localize("Begin a new crop season", "नया फसल मौसम शुरू करें"), style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                if (activeCycles.isEmpty()) LanguageManager.localize("Start Crop Cycle", "फसल चक्र शुरू करें")
+                                else LanguageManager.localize("Start another crop cycle", "एक और फसल चक्र शुरू करें"),
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                if (activeCycles.isEmpty()) LanguageManager.localize("Begin a new crop season", "नया फसल मौसम शुरू करें")
+                                else LanguageManager.localize("For another land parcel or crop", "दूसरे खेत या फसल के लिए"),
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                 }
-
-                // TODO: Show active crop cycles list here when we have them
 
                 // Add another parcel (secondary action)
                 HorizontalDivider()
