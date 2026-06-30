@@ -1,5 +1,6 @@
 package com.agrios.app.ui.navigation
 
+import android.net.Uri
 import androidx.compose.runtime.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -203,36 +204,49 @@ fun AppNavigation() {
         }
 
         composable(
-            Routes.STAGE_ACTIVITIES + "?cycleId={cycleId}",
-            arguments = listOf(androidx.navigation.navArgument("cycleId") {
-                type = androidx.navigation.NavType.StringType
-                defaultValue = ""
-            })
+            Routes.STAGE_ACTIVITIES + "?cycleId={cycleId}&stageCode={stageCode}",
+            arguments = listOf(
+                androidx.navigation.navArgument("cycleId") {
+                    type = androidx.navigation.NavType.StringType
+                    defaultValue = ""
+                },
+                androidx.navigation.navArgument("stageCode") {
+                    type = androidx.navigation.NavType.StringType
+                    defaultValue = ""
+                }
+            )
         ) { backStackEntry ->
             val cycleId = backStackEntry.arguments?.getString("cycleId") ?: ""
+            val stageCode = backStackEntry.arguments?.getString("stageCode") ?: ""
             StageActivitiesScreen(
                 cycleId = cycleId,
+                selectedStageCode = stageCode.ifBlank { null },
                 onBack = { navController.popBackStack() },
                 onLogActivity = { prefillData ->
-                    // Navigate to activity form with pre-filled context
-                    // Encode prefill data in the cycleId route for now
-                    // The contextValues will include cycle_id + prefill fields
-                    val activityType = prefillData["activity_type"] ?: ""
-                    val inputName = prefillData["input_name"] ?: ""
+                    val activityType = Uri.encode(prefillData["activity_type"] ?: "")
+                    val inputName = Uri.encode(prefillData["input_name"] ?: "")
+                    val activityDate = Uri.encode(prefillData["activity_date"] ?: "")
+                    val targetStageCode = Uri.encode(prefillData["stage_code"] ?: stageCode)
                     navController.navigate(
-                        Routes.ACTIVITY_LOG + "?cycleId=$cycleId&activityType=$activityType&inputName=$inputName"
+                        Routes.ACTIVITY_LOG + "?cycleId=${Uri.encode(cycleId)}&stageCode=$targetStageCode&activityType=$activityType&inputName=$inputName&activityDate=$activityDate"
                     )
                 },
                 onLogCustomActivity = {
-                    navController.navigate(Routes.ACTIVITY_LOG + "?cycleId=$cycleId")
+                    navController.navigate(
+                        Routes.ACTIVITY_LOG + "?cycleId=${Uri.encode(cycleId)}&stageCode=${Uri.encode(stageCode)}"
+                    )
                 }
             )
         }
 
         composable(
-            Routes.ACTIVITY_LOG + "?cycleId={cycleId}&activityType={activityType}&inputName={inputName}",
+            Routes.ACTIVITY_LOG + "?cycleId={cycleId}&stageCode={stageCode}&activityType={activityType}&inputName={inputName}&activityDate={activityDate}",
             arguments = listOf(
                 androidx.navigation.navArgument("cycleId") {
+                    type = androidx.navigation.NavType.StringType
+                    defaultValue = ""
+                },
+                androidx.navigation.navArgument("stageCode") {
                     type = androidx.navigation.NavType.StringType
                     defaultValue = ""
                 },
@@ -243,15 +257,23 @@ fun AppNavigation() {
                 androidx.navigation.navArgument("inputName") {
                     type = androidx.navigation.NavType.StringType
                     defaultValue = ""
+                },
+                androidx.navigation.navArgument("activityDate") {
+                    type = androidx.navigation.NavType.StringType
+                    defaultValue = ""
                 }
             )
         ) { backStackEntry ->
             val cycleId = backStackEntry.arguments?.getString("cycleId") ?: ""
+            val stageCode = backStackEntry.arguments?.getString("stageCode") ?: ""
             val activityType = backStackEntry.arguments?.getString("activityType") ?: ""
             val inputName = backStackEntry.arguments?.getString("inputName") ?: ""
+            val activityDate = backStackEntry.arguments?.getString("activityDate") ?: ""
             val context = mutableMapOf("crop_cycle_id" to cycleId)
+            if (stageCode.isNotBlank()) context["stage_code"] = stageCode
             if (activityType.isNotBlank()) context["activity_type"] = activityType
             if (inputName.isNotBlank()) context["input_name"] = inputName
+            if (activityDate.isNotBlank()) context["activity_date"] = activityDate
             DynamicFormScreen(
                 formId = "activity_log",
                 contextValues = context,
@@ -300,8 +322,8 @@ fun AppNavigation() {
             StageTimelineScreen(
                 cycleId = cycleId,
                 onBack = { navController.popBackStack() },
-                onNavigateToActivityLog = { cId ->
-                    navController.navigate(Routes.STAGE_ACTIVITIES + "?cycleId=$cId")
+                onNavigateToActivityLog = { cId, stageCode ->
+                    navController.navigate(Routes.STAGE_ACTIVITIES + "?cycleId=${Uri.encode(cId)}&stageCode=${Uri.encode(stageCode)}")
                 }
             )
         }

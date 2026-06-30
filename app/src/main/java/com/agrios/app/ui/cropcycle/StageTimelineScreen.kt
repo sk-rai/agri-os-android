@@ -41,7 +41,7 @@ private const val TAG = "StageTimeline"
 fun StageTimelineScreen(
     cycleId: String,
     onBack: () -> Unit,
-    onNavigateToActivityLog: ((cycleId: String) -> Unit)? = null
+    onNavigateToActivityLog: ((cycleId: String, stageCode: String) -> Unit)? = null
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
@@ -211,7 +211,7 @@ fun StageTimelineScreen(
                                 }
                             },
                             onLogActivity = {
-                                onNavigateToActivityLog?.invoke(cycleId)
+                                onNavigateToActivityLog?.invoke(cycleId, stage.code)
                             }
                         )
                     }

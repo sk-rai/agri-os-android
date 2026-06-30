@@ -39,6 +39,7 @@ private const val TAG = "StageActivities"
 @Composable
 fun StageActivitiesScreen(
     cycleId: String,
+    selectedStageCode: String? = null,
     onBack: () -> Unit,
     onLogActivity: (prefillData: Map<String, String>) -> Unit,
     onLogCustomActivity: () -> Unit
@@ -112,21 +113,20 @@ fun StageActivitiesScreen(
         }
     }
 
-    // Find active stage
-    val activeStage = cycle?.stages?.find {
-        it.status == "IN_PROGRESS" || it.status == "ACTIVE" || it.status == "STARTED"
-    }
-    val activeStageCode = activeStage?.code
-    val stageStartDate = activeStage?.expectedStartDate
+    // Prefer the stage explicitly tapped from the timeline; fallback to active stage.
+    val targetStage = cycle?.stages?.find { it.code == selectedStageCode }
+        ?: cycle?.stages?.find { it.status == "IN_PROGRESS" || it.status == "ACTIVE" || it.status == "STARTED" }
+    val targetStageCode = targetStage?.code
+    val stageStartDate = targetStage?.expectedStartDate
 
-    // Get cycle-aware recommendations for the active stage
-    val recommendations = allRecommendations.filter { it.stageCode == activeStageCode }
+    // Get cycle-aware recommendations for the selected/target stage.
+    val recommendations = allRecommendations.filter { it.stageCode == targetStageCode }
 
     // Debug
-    LaunchedEffect(cycle, allRecommendations) {
-        Log.d(TAG, "Active stage: code='$activeStageCode', status='${activeStage?.status}'")
+    LaunchedEffect(cycle, allRecommendations, selectedStageCode) {
+        Log.d(TAG, "Selected stage: code='$selectedStageCode'; target code='$targetStageCode', status='${targetStage?.status}'")
         Log.d(TAG, "Recommendation stage codes: ${allRecommendations.map { it.stageCode }.distinct()}")
-        Log.d(TAG, "Recommendations count for '$activeStageCode': ${recommendations.size}")
+        Log.d(TAG, "Recommendations count for '$targetStageCode': ${recommendations.size}")
     }
 
     Scaffold(
@@ -134,7 +134,7 @@ fun StageActivitiesScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "${activeStage?.getDisplayName() ?: LanguageManager.localize("Activities", "गतिविधियाँ")}"
+                        "${targetStage?.getDisplayName() ?: LanguageManager.localize("Activities", "गतिविधियाँ")}"
                     )
                 },
                 navigationIcon = {
@@ -161,14 +161,14 @@ fun StageActivitiesScreen(
                 }
                 else -> {
                     // Stage info header
-                    if (activeStage != null) {
+                    if (targetStage != null) {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
-                                    "🌱 ${activeStage.getDisplayName()} — ${cycle?.cropCode ?: ""}",
+                                    "🌱 ${targetStage.getDisplayName()} — ${cycle?.cropCode ?: ""}",
                                     style = MaterialTheme.typography.titleSmall
                                 )
                                 if (stageStartDate != null) {
@@ -226,7 +226,8 @@ fun StageActivitiesScreen(
                                             // Pre-fill the activity form
                                             val prefill = mutableMapOf(
                                                 "activity_type" to rec.activityType,
-                                                "input_name" to rec.inputName
+                                                "input_name" to rec.inputName,
+                                                "stage_code" to rec.stageCode
                                             )
                                             if (rec.typicalQuantity != null) {
                                                 prefill["quantity_hint"] = rec.typicalQuantity
