@@ -102,7 +102,7 @@ data class CycleRecommendedActivitiesResponseDto(
     @SerializedName("crop_code") val cropCode: String? = null,
     @SerializedName("season_code") val seasonCode: String? = null,
     @SerializedName("planned_sowing_date") val plannedSowingDate: String? = null,
-    @SerializedName("recommended_activities") val recommendedActivities: List<CycleRecommendedActivityDto> = emptyList()
+    @SerializedName("recommendations") val recommendedActivities: List<CycleRecommendedActivityDto> = emptyList()
 )
 
 data class CycleRecommendedActivityDto(
