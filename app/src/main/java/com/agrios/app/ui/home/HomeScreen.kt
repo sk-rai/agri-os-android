@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.sync.SyncManager
@@ -54,6 +55,7 @@ fun HomeScreen(
     var activeCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
     var isLoadingCycles by remember { mutableStateOf(false) }
     var cycleLoadMessage by remember { mutableStateOf<String?>(null) }
+    var cachedCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
 
     val api = remember {
         val okHttpClient = OkHttpClient.Builder()
@@ -79,6 +81,7 @@ fun HomeScreen(
         val farmerId = farmer?.id
         if (farmerId.isNullOrBlank()) {
             activeCycles = emptyList()
+            cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
             return@LaunchedEffect
         }
 
@@ -90,12 +93,18 @@ fun HomeScreen(
             }
             if (response.isSuccessful) {
                 activeCycles = response.body().orEmpty()
+                activeCycles.forEach { CropCycleCache.upsert(AgriOsApp.instance, it) }
+                cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
             } else {
                 activeCycles = emptyList()
-                cycleLoadMessage = "Could not load active crop cycles (${response.code()})"
+                cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
+                if (response.code() != 405) {
+                    cycleLoadMessage = "Could not load active crop cycles (${response.code()})"
+                }
             }
         } catch (e: Exception) {
             activeCycles = emptyList()
+            cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
             cycleLoadMessage = e.message
         } finally {
             isLoadingCycles = false
@@ -207,7 +216,7 @@ fun HomeScreen(
                     }
                 }
 
-                activeCycles.forEach { cycle ->
+                (activeCycles.ifEmpty { cachedCycles }).forEach { cycle ->
                     val currentStage = cycle.stages.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
                         ?: cycle.stages.firstOrNull { it.status.equals("PENDING", ignoreCase = true) }
                     ElevatedCard(
@@ -239,7 +248,7 @@ fun HomeScreen(
                     }
                 }
 
-                if (cycleLoadMessage != null && activeCycles.isEmpty()) {
+                if (cycleLoadMessage != null && activeCycles.isEmpty() && cachedCycles.isEmpty()) {
                     Text(
                         cycleLoadMessage!!,
                         style = MaterialTheme.typography.bodySmall,

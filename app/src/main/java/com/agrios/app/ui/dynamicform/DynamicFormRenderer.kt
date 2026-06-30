@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.util.LanguageManager
@@ -44,6 +45,7 @@ private fun resolveLabel(map: Map<String, String>?, lang: String): String {
 @Composable
 fun DynamicFormRenderer(
     schema: FormSchemaDto,
+    formId: String? = null,
     formValues: MutableMap<String, Any?>,
     onValueChange: (fieldId: String, value: Any?) -> Unit,
     enabled: Boolean = true,
@@ -63,6 +65,7 @@ fun DynamicFormRenderer(
                     lang = lang,
                     enabled = enabled,
                     dynamicOptions = dynamicOptions[field.id],
+                    formId = formId,
                     onValueChange = { newValue ->
                         onValueChange(field.id, newValue)
                         schema.fields.filter { it.dependsOn == field.id }.forEach { dep ->
@@ -90,6 +93,7 @@ private fun RenderField(
     lang: String,
     enabled: Boolean,
     dynamicOptions: List<Pair<String, String>>?,
+    formId: String? = null,
     onValueChange: (Any?) -> Unit
 ) {
     val label = resolveLabel(field.label, lang) + if (field.required) " *" else ""
@@ -160,7 +164,15 @@ private fun RenderField(
             if (field.source == "local_parcels") {
                 val db = AgriOsApp.instance.database
                 val parcels by db.parcelDao().observeAll().collectAsState(initial = emptyList())
-                val parcelItems = parcels.map { it.id to "${it.reportedArea} ${it.reportedAreaUnit} (${it.ownershipType})" }
+                val unavailableParcelIds = remember(formId) {
+                    if (formId == "crop_cycle_create") CropCycleCache.getUnavailableParcelIds(AgriOsApp.instance) else emptySet()
+                }
+                val eligibleParcels = if (formId == "crop_cycle_create") {
+                    parcels.filterNot { it.id in unavailableParcelIds }
+                } else {
+                    parcels
+                }
+                val parcelItems = eligibleParcels.map { it.id to "${it.reportedArea} ${it.reportedAreaUnit} (${it.ownershipType})" }
                 SearchableDropdown(
                     label = label,
                     items = parcelItems,

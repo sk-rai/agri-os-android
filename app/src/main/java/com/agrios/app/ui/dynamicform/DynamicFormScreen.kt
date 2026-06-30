@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.sync.SyncWorker
@@ -232,6 +233,7 @@ fun DynamicFormScreen(
                     // Render the form
                     DynamicFormRenderer(
                         schema = schema!!,
+                        formId = formId,
                         formValues = formValues,
                         onValueChange = { fieldId, value ->
                             formValues[fieldId] = value
@@ -355,6 +357,7 @@ fun DynamicFormScreen(
                                                 Log.d(TAG, "Crop cycle created: ${cycleResponse?.id}, inferred stage: ${cycleResponse?.inferredCurrentStage}")
                                                 createdCycleId = cycleResponse?.id
                                                 createdCycleResponse = cycleResponse
+                                                cycleResponse?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
                                             } else {
                                                 val errorBody = response.errorBody()?.string()
                                                 Log.e(TAG, "Crop cycle creation failed: ${response.code()} $errorBody")

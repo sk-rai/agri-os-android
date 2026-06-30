@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.util.LanguageManager
@@ -76,6 +77,7 @@ fun StageTimelineScreen(
                 val response = api.getCropCycle(cycleId)
                 if (response.isSuccessful) {
                     cycle = response.body()
+                    cycle?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
                     // Fetch template for recommended activities
                     val cropCode = cycle?.cropCode
                     val season = cycle?.seasonCode
@@ -199,7 +201,10 @@ fun StageTimelineScreen(
                                             if (resp.isSuccessful) {
                                                 // Reload cycle
                                                 val reloadResp = api.getCropCycle(cycleId)
-                                                if (reloadResp.isSuccessful) cycle = reloadResp.body()
+                                                if (reloadResp.isSuccessful) {
+                                                    cycle = reloadResp.body()
+                                                    cycle?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
+                                                }
                                                 actionMessage = "✅ ${stage.getDisplayName()} → $newStatus"
                                             } else {
                                                 actionMessage = "❌ ${resp.code()}: ${resp.message()}"
