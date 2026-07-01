@@ -86,6 +86,9 @@ class SyncWorker(
         )
 
         return try {
+            val requeued = ProfileSyncRepair.enqueueOneTimeMaterializationRepair(applicationContext, db)
+            if (requeued > 0) Log.d(TAG, "Requeued $requeued profile sync events for backend materialization")
+
             // First, fix any previously failed items with bad payloads
             val fixed = syncManager.fixAndRetryFailedItems()
             if (fixed > 0) Log.d(TAG, "Auto-fixed $fixed failed items")

@@ -19,11 +19,13 @@ import com.agrios.app.data.remote.dto.FormSchemaDto
 import com.agrios.app.data.remote.dto.resolve
 import com.agrios.app.ui.components.SearchableDropdown
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -66,6 +68,7 @@ fun DynamicFormRenderer(
                     enabled = enabled,
                     dynamicOptions = dynamicOptions[field.id],
                     formId = formId,
+                    formValues = formValues,
                     onValueChange = { newValue ->
                         onValueChange(field.id, newValue)
                         schema.fields.filter { it.dependsOn == field.id }.forEach { dep ->
@@ -94,6 +97,7 @@ private fun RenderField(
     enabled: Boolean,
     dynamicOptions: List<Pair<String, String>>?,
     formId: String? = null,
+    formValues: Map<String, Any?> = emptyMap(),
     onValueChange: (Any?) -> Unit
 ) {
     val label = resolveLabel(field.label, lang) + if (field.required) " *" else ""
@@ -164,15 +168,32 @@ private fun RenderField(
             if (field.source == "local_parcels") {
                 val db = AgriOsApp.instance.database
                 val parcels by db.parcelDao().observeAll().collectAsState(initial = emptyList())
-                val unavailableParcelIds = remember(formId) {
+                val season = (formValues["season_code"] ?: formValues["season"])?.toString()
+                var backendEligibleItems by remember(formId, season) { mutableStateOf<List<Pair<String, String>>?>(null) }
+                var backendEligibilityLoaded by remember(formId, season) { mutableStateOf(false) }
+
+                LaunchedEffect(formId, season) {
+                    if (formId == "crop_cycle_create") {
+                        backendEligibilityLoaded = false
+                        backendEligibleItems = loadEligibleParcelOptions(season)
+                        backendEligibilityLoaded = true
+                    }
+                }
+
+                val unavailableParcelIds = remember(formId, backendEligibilityLoaded) {
                     if (formId == "crop_cycle_create") CropCycleCache.getUnavailableParcelIds(AgriOsApp.instance) else emptySet()
                 }
-                val eligibleParcels = if (formId == "crop_cycle_create") {
+                val localEligibleParcels = if (formId == "crop_cycle_create") {
                     parcels.filterNot { it.id in unavailableParcelIds }
                 } else {
                     parcels
                 }
-                val parcelItems = eligibleParcels.map { it.id to "${it.reportedArea} ${it.reportedAreaUnit} (${it.ownershipType})" }
+                val localParcelItems = localEligibleParcels.map { it.id to "${it.reportedArea} ${it.reportedAreaUnit} (${it.ownershipType})" }
+                val parcelItems = if (formId == "crop_cycle_create" && backendEligibilityLoaded) {
+                    backendEligibleItems ?: localParcelItems
+                } else {
+                    localParcelItems
+                }
                 SearchableDropdown(
                     label = label,
                     items = parcelItems,
@@ -363,4 +384,59 @@ fun validateForm(schema: FormSchemaDto, formValues: Map<String, Any?>): Map<Stri
         }
     }
     return errors
+}
+
+
+private suspend fun loadEligibleParcelOptions(season: String?): List<Pair<String, String>>? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val db = AgriOsApp.instance.database
+            val farmerId = db.farmerDao().getFirst()?.id ?: return@withContext null
+            val okHttp = OkHttpClient.Builder()
+                .addInterceptor(AuthInterceptor(db.authDao()))
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .build()
+
+            val params = mutableListOf("farmer_id=" + URLEncoder.encode(farmerId, "UTF-8"))
+            if (!season.isNullOrBlank()) params += "season=" + URLEncoder.encode(season, "UTF-8")
+            val fullUrl = ApiConfig.BASE_URL.trimEnd('/') + "/crop-cycles/eligible-parcels?" + params.joinToString("&")
+            val request = okhttp3.Request.Builder().url(fullUrl).build()
+            val response = okHttp.newCall(request).execute()
+
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Eligible parcels load failed: ${response.code} for $fullUrl")
+                return@withContext null
+            }
+
+            val body = response.body?.string() ?: return@withContext emptyList()
+            val root = JsonParser.parseString(body)
+            val array = when {
+                root.isJsonArray -> root.asJsonArray
+                root.isJsonObject && root.asJsonObject.has("eligible_parcels") -> root.asJsonObject.getAsJsonArray("eligible_parcels")
+                root.isJsonObject && root.asJsonObject.has("parcels") -> root.asJsonObject.getAsJsonArray("parcels")
+                else -> return@withContext emptyList()
+            }
+
+            array.mapNotNull { element ->
+                val item = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                val status = listOf("eligibility_status", "eligibility", "status")
+                    .firstNotNullOfOrNull { key -> item.get(key)?.takeIf { !it.isJsonNull }?.asString }
+                    ?.uppercase(Locale.US)
+                if (status == "COMPLETED_THIS_SEASON") return@mapNotNull null
+                if (status != null && status != "ELIGIBLE") return@mapNotNull null
+
+                val id = listOf("parcel_id", "id", "value")
+                    .firstNotNullOfOrNull { key -> item.get(key)?.takeIf { !it.isJsonNull }?.asString }
+                    ?: return@mapNotNull null
+                val labelValue = listOf("display_name", "label", "name", "survey_number")
+                    .firstNotNullOfOrNull { key -> item.get(key)?.takeIf { !it.isJsonNull }?.asString }
+                    ?: id
+                id to labelValue
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Eligible parcels load error: ${e.message}")
+            null
+        }
+    }
 }

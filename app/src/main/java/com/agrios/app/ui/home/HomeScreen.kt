@@ -1,6 +1,8 @@
 package com.agrios.app.ui.home
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -53,6 +55,7 @@ fun HomeScreen(
     val hasProfile = farmers.isNotEmpty()
     val farmer = farmers.firstOrNull()
     var activeCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
+    var completedCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
     var isLoadingCycles by remember { mutableStateOf(false) }
     var cycleLoadMessage by remember { mutableStateOf<String?>(null) }
     var cachedCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
@@ -81,6 +84,7 @@ fun HomeScreen(
         val farmerId = farmer?.id
         if (farmerId.isNullOrBlank()) {
             activeCycles = emptyList()
+            completedCycles = emptyList()
             cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
             return@LaunchedEffect
         }
@@ -88,22 +92,36 @@ fun HomeScreen(
         isLoadingCycles = true
         cycleLoadMessage = null
         try {
-            val response = withContext(Dispatchers.IO) {
+            val activeResponse = withContext(Dispatchers.IO) {
                 api.getCropCycles(farmerId = farmerId, status = "ACTIVE")
             }
-            if (response.isSuccessful) {
-                activeCycles = response.body().orEmpty()
+            val completedResponse = withContext(Dispatchers.IO) {
+                api.getCropCycles(farmerId = farmerId, status = "COMPLETED")
+            }
+
+            if (activeResponse.isSuccessful) {
+                activeCycles = activeResponse.body().orEmpty()
                 activeCycles.forEach { CropCycleCache.upsert(AgriOsApp.instance, it) }
-                cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
             } else {
                 activeCycles = emptyList()
-                cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
-                if (response.code() != 405) {
-                    cycleLoadMessage = "Could not load active crop cycles (${response.code()})"
+                if (activeResponse.code() != 405) {
+                    cycleLoadMessage = "Could not load active crop cycles (${activeResponse.code()})"
                 }
             }
+
+            if (completedResponse.isSuccessful) {
+                completedCycles = completedResponse.body().orEmpty()
+                completedCycles.forEach { CropCycleCache.upsert(AgriOsApp.instance, it) }
+            } else {
+                completedCycles = emptyList()
+                if (completedResponse.code() != 405 && cycleLoadMessage == null) {
+                    cycleLoadMessage = "Could not load completed crop cycles (${completedResponse.code()})"
+                }
+            }
+            cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
         } catch (e: Exception) {
             activeCycles = emptyList()
+            completedCycles = emptyList()
             cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
             cycleLoadMessage = e.message
         } finally {
@@ -175,7 +193,8 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (hasProfile && farmer != null) {
@@ -216,7 +235,10 @@ fun HomeScreen(
                     }
                 }
 
-                (activeCycles.ifEmpty { cachedCycles }).forEach { cycle ->
+                val runningCycles = activeCycles
+                    .ifEmpty { cachedCycles.filter { !it.status.equals("COMPLETED", ignoreCase = true) } }
+                    .dedupeForHome()
+                runningCycles.forEach { cycle ->
                     val currentStage = cycle.stages.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
                         ?: cycle.stages.firstOrNull { it.status.equals("PENDING", ignoreCase = true) }
                     ElevatedCard(
@@ -256,6 +278,25 @@ fun HomeScreen(
                     )
                 }
 
+                val historyCycles = completedCycles.ifEmpty { cachedCycles.filter { it.status.equals("COMPLETED", ignoreCase = true) } }
+                if (historyCycles.isNotEmpty()) {
+                    Text("Completed Crop Cycles", style = MaterialTheme.typography.titleSmall)
+                    historyCycles.forEach { cycle ->
+                        ElevatedCard(
+                            onClick = { onNavigateToStageTimeline(cycle.id) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("Completed ${cycle.cropName ?: cycle.cropCode}", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    listOfNotNull(cycle.seasonCode, cycle.expectedHarvestDate?.let { "Harvest: $it" }).joinToString(" \u2022 "),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Start Crop Cycle
                 ElevatedCard(
                     onClick = onNavigateToCropCycle,
@@ -277,12 +318,6 @@ fun HomeScreen(
                             )
                         }
                     }
-                }
-
-                // Add another parcel (secondary action)
-                HorizontalDivider()
-                TextButton(onClick = onNavigateToParcelRegister) {
-                    Text("+ ${LanguageManager.localize("Add another land parcel", "एक और भूखंड जोड़ें")}")
                 }
 
             } else {
@@ -361,4 +396,34 @@ fun HomeScreen(
             }
         }
     }
+}
+
+
+private fun List<CropCycleResponseDto>.dedupeForHome(): List<CropCycleResponseDto> {
+    return groupBy { cycle ->
+        listOf(cycle.parcelId ?: cycle.id, cycle.cropCode, cycle.seasonCode).joinToString("|")
+    }.values.map { cycles ->
+        cycles.maxWith(
+            compareBy<CropCycleResponseDto> { it.homeProgressScore() }
+                .thenBy { it.createdAt ?: "" }
+        )
+    }.sortedWith(
+        compareByDescending<CropCycleResponseDto> { it.homeProgressScore() }
+            .thenByDescending { it.createdAt ?: "" }
+    )
+}
+
+private fun CropCycleResponseDto.homeProgressScore(): Int {
+    val activeIndex = stages.indexOfFirst { stage ->
+        stage.status.equals("ACTIVE", ignoreCase = true) ||
+            stage.status.equals("IN_PROGRESS", ignoreCase = true) ||
+            stage.status.equals("STARTED", ignoreCase = true)
+    }
+    val completedCount = stages.count { it.status.equals("COMPLETED", ignoreCase = true) }
+    val statusBonus = when {
+        status.equals("COMPLETED", ignoreCase = true) -> 10_000
+        status.equals("ACTIVE", ignoreCase = true) -> 1_000
+        else -> 0
+    }
+    return statusBonus + completedCount * 100 + activeIndex.coerceAtLeast(0)
 }

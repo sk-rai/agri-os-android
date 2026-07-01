@@ -315,7 +315,8 @@ private fun StageTimelineItem(
 
             // Action buttons
             val isActive = stage.status == "IN_PROGRESS" || stage.status == "ACTIVE" || stage.status == "STARTED"
-            if (stage.status == "PENDING" || isActive) {
+            val isCompleted = stage.status.equals("COMPLETED", ignoreCase = true)
+            if (stage.status == "PENDING" || isActive || isCompleted) {
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (stage.status == "PENDING") {
@@ -323,13 +324,13 @@ private fun StageTimelineItem(
                             onClick = { onAdvance("START") },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
-                            Text(LanguageManager.localize("Start", "शुरू"), style = MaterialTheme.typography.labelSmall)
+                            Text(LanguageManager.localize("Start", "????"), style = MaterialTheme.typography.labelSmall)
                         }
                         TextButton(
                             onClick = { onAdvance("SKIP") },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
-                            Text(LanguageManager.localize("Skip", "छोड़ें"), style = MaterialTheme.typography.labelSmall)
+                            Text(LanguageManager.localize("Skip", "??????"), style = MaterialTheme.typography.labelSmall)
                         }
                     }
                     if (isActive) {
@@ -337,56 +338,20 @@ private fun StageTimelineItem(
                             onClick = { onAdvance("COMPLETE") },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
-                            Text(LanguageManager.localize("Complete", "पूरा"), style = MaterialTheme.typography.labelSmall)
+                            Text(LanguageManager.localize("Complete", "????"), style = MaterialTheme.typography.labelSmall)
                         }
+                    }
+                    if (isActive || isCompleted) {
                         OutlinedButton(
                             onClick = { onLogActivity() },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
-                            Text(LanguageManager.localize("📋 Log Activity", "📋 गतिविधि दर्ज"), style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                if (isCompleted) LanguageManager.localize("View Activities", "View Activities")
+                                else LanguageManager.localize("Activities", "Activities"),
+                                style = MaterialTheme.typography.labelSmall
+                            )
                         }
-                    }
-                }
-            }
-
-            // Recommended activities (from template)
-            val isStageActive = stage.status == "IN_PROGRESS" || stage.status == "ACTIVE" || stage.status == "STARTED"
-            if (isStageActive && recommendations.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    LanguageManager.localize("📅 Recommended Activities", "📅 अनुशंसित गतिविधियाँ"),
-                    style = MaterialTheme.typography.labelMedium
-                )
-                val lang = if (LanguageManager.isHindi()) "hi" else "en"
-                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
-                recommendations.forEach { rec ->
-                    val recommendedDate = if (stageStartDate != null) {
-                        try {
-                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-                            val start = sdf.parse(stageStartDate)
-                            val cal = java.util.Calendar.getInstance()
-                            cal.time = start!!
-                            cal.add(java.util.Calendar.DAY_OF_YEAR, rec.dayOffset)
-                            sdf.format(cal.time)
-                        } catch (_: Exception) { "Day ${rec.dayOffset}" }
-                    } else "Day ${rec.dayOffset}"
-
-                    val isOverdue = recommendedDate < today && recommendedDate.length == 10
-                    val icon = when {
-                        rec.isCritical && isOverdue -> "🚨"
-                        isOverdue -> "⚠️"
-                        rec.isCritical -> "❗"
-                        else -> "•"
-                    }
-                    val desc = rec.description?.get(lang) ?: rec.description?.get("en") ?: ""
-
-                    Text(
-                        "$icon $recommendedDate: ${rec.inputName}${if (rec.typicalQuantity != null) " (${rec.typicalQuantity})" else ""}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (desc.isNotBlank()) {
-                        Text("  $desc", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

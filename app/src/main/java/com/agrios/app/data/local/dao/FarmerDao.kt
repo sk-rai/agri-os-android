@@ -13,6 +13,12 @@ interface FarmerDao {
     @Query("SELECT * FROM farmers_local ORDER BY created_at DESC")
     fun observeAll(): Flow<List<FarmerEntity>>
 
+    @Query("SELECT * FROM farmers_local ORDER BY created_at DESC")
+    suspend fun getAll(): List<FarmerEntity>
+
+    @Query("SELECT * FROM farmers_local ORDER BY created_at DESC LIMIT 1")
+    suspend fun getFirst(): FarmerEntity?
+
     @Query("SELECT * FROM farmers_local WHERE id = :id")
     suspend fun getById(id: String): FarmerEntity?
 
