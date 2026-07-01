@@ -125,5 +125,5 @@ interface AgriOsApi {
         @Path("cycleId") cycleId: String,
         @Path("stageId") stageId: String,
         @Body request: StageUpdateDto
-    ): Response<CropStageDto>
+    ): Response<StageTransitionResponseDto>
 }

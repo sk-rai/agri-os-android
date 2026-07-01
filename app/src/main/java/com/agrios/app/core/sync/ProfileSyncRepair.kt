@@ -21,21 +21,29 @@ import java.util.UUID
 object ProfileSyncRepair {
     private const val TAG = "ProfileSyncRepair"
     private const val PREFS_NAME = "profile_sync_repair"
-    private const val KEY_REQUEUED_V1 = "requeued_profile_materialization_v1"
+    private const val KEY_REQUEUED_V1 = "requeued_profile_materialization_v4"
 
     suspend fun enqueueOneTimeMaterializationRepair(context: Context, db: AppDatabase): Int {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_REQUEUED_V1, false)) return 0
+        if (prefs.getBoolean(KEY_REQUEUED_V1, false)) {
+            Log.d(TAG, "Skipping profile materialization repair: already completed for key=$KEY_REQUEUED_V1")
+            return 0
+        }
 
         val farmers = db.farmerDao().getAll()
         val parcels = db.parcelDao().getAll()
-        if (farmers.isEmpty() && parcels.isEmpty()) return 0
+        Log.d(TAG, "Profile materialization repair check: farmers=${farmers.size}, parcels=${parcels.size}, key=$KEY_REQUEUED_V1")
+        if (farmers.isEmpty() && parcels.isEmpty()) {
+            Log.d(TAG, "Skipping profile materialization repair: no local farmer/parcel rows found")
+            return 0
+        }
 
         val gson = Gson()
         val now = System.currentTimeMillis()
         var count = 0
 
         farmers.forEach { farmer ->
+            Log.d(TAG, "Queueing FARMER materialization event: id=${farmer.id}, mobile=${farmer.mobileNumber}")
             db.syncQueueDao().enqueue(
                 SyncQueueEntity(
                     eventId = UUID.randomUUID().toString(),
@@ -67,6 +75,7 @@ object ProfileSyncRepair {
         }
 
         parcels.forEach { parcel ->
+            Log.d(TAG, "Queueing PARCEL materialization event: id=${parcel.id}, farmerId=${parcel.farmerId}, ownership=${parcel.ownershipType}")
             db.syncQueueDao().enqueue(
                 SyncQueueEntity(
                     eventId = UUID.randomUUID().toString(),

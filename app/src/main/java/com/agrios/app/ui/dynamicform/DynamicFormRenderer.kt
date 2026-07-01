@@ -194,12 +194,25 @@ private fun RenderField(
                 } else {
                     localParcelItems
                 }
-                SearchableDropdown(
-                    label = label,
-                    items = parcelItems,
-                    selectedId = selectedId,
-                    onSelect = { id, _ -> onValueChange(id) }
-                )
+                if (formId == "crop_cycle_create" && backendEligibilityLoaded && parcelItems.isEmpty()) {
+                    OutlinedTextField(
+                        value = "",
+                        onValueChange = {},
+                        label = { Text(label) },
+                        placeholder = { Text(LanguageManager.localize("No eligible parcels available", "No eligible parcels available")) },
+                        supportingText = { Text(LanguageManager.localize("Sync farmer/land or choose a different season/year", "Sync farmer/land or choose a different season/year")) },
+                        enabled = false,
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    SearchableDropdown(
+                        label = label,
+                        items = parcelItems,
+                        selectedId = selectedId,
+                        onSelect = { id, _ -> onValueChange(id) }
+                    )
+                }
             } else if (options.isNotEmpty()) {
                 SearchableDropdown(
                     label = label,

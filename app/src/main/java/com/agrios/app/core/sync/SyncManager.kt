@@ -27,7 +27,7 @@ class SyncManager(
 ) {
     companion object {
         private const val TAG = "SyncManager"
-        private const val BATCH_SIZE = 20
+        private const val BATCH_SIZE = 100
         private const val INITIAL_BACKOFF_MS = 30_000L // 30 seconds
         private const val MAX_BACKOFF_MS = 86_400_000L // 24 hours
     }
@@ -156,11 +156,13 @@ class SyncManager(
                 continue
             }
             val depIds = item.dependencyIds.split(",").filter { it.isNotBlank() }
-            // Check if all dependencies are synced
+            // Check if all dependencies are synced.
+            // A dependency is satisfied when at least one event for that entity_id
+            // has reached SYNCED. Older duplicate/failed repair events for the same
+            // entity must not keep child rows blocked forever.
             val unsyncedDeps = depIds.filter { depId ->
-                // A dependency is unsynced if there's a queue item with that entityId
-                // that is NOT in SYNCED status
-                allItems.any { it.entityId == depId && it.syncStatus != SyncStatus.SYNCED.name }
+                val depItems = allItems.filter { it.entityId == depId }
+                depItems.isNotEmpty() && depItems.none { it.syncStatus == SyncStatus.SYNCED.name }
             }
             if (unsyncedDeps.isEmpty()) {
                 eligible.add(item)

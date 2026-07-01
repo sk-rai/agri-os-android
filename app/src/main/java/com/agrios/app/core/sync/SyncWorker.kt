@@ -86,7 +86,9 @@ class SyncWorker(
         )
 
         return try {
+            Log.d(TAG, "Running profile materialization repair before queue processing")
             val requeued = ProfileSyncRepair.enqueueOneTimeMaterializationRepair(applicationContext, db)
+            Log.d(TAG, "Profile materialization repair result: requeued=$requeued")
             if (requeued > 0) Log.d(TAG, "Requeued $requeued profile sync events for backend materialization")
 
             // First, fix any previously failed items with bad payloads

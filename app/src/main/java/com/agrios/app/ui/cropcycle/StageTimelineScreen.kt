@@ -134,6 +134,7 @@ fun StageTimelineScreen(
                 }
                 cycle != null -> {
                     val c = cycle!!
+                    val isCycleCompleted = c.status.equals("COMPLETED", ignoreCase = true)
 
                     // Header info
                     Card(modifier = Modifier.fillMaxWidth()) {
@@ -154,11 +155,23 @@ fun StageTimelineScreen(
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
-                            if (c.inferredCurrentStage != null) {
+                            Text(
+                                "Status: ${c.status}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isCycleCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
+                            )
+                            if (!isCycleCompleted && c.inferredCurrentStage != null) {
                                 Text(
-                                    "📍 ${LanguageManager.localize("Current stage", "वर्तमान चरण")}: ${c.inferredCurrentStage}",
+                                    "Current stage: ${c.inferredCurrentStage}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            if (isCycleCompleted) {
+                                Text(
+                                    "Completed crop cycle - view only",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -187,6 +200,7 @@ fun StageTimelineScreen(
                             isLast = index == c.stages.lastIndex,
                             recommendations = recommendations,
                             stageStartDate = stage.expectedStartDate,
+                            isCycleCompleted = isCycleCompleted,
                             onAdvance = { newStatus ->
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
@@ -199,13 +213,18 @@ fun StageTimelineScreen(
                                                 request = StageUpdateDto(action = newStatus)
                                             )
                                             if (resp.isSuccessful) {
-                                                // Reload cycle
-                                                val reloadResp = api.getCropCycle(cycleId)
-                                                if (reloadResp.isSuccessful) {
-                                                    cycle = reloadResp.body()
-                                                    cycle?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
+                                                val updatedCycle = resp.body()?.cropCycle
+                                                if (updatedCycle != null) {
+                                                    cycle = updatedCycle
+                                                    CropCycleCache.upsert(AgriOsApp.instance, updatedCycle)
+                                                } else {
+                                                    val reloadResp = api.getCropCycle(cycleId)
+                                                    if (reloadResp.isSuccessful) {
+                                                        cycle = reloadResp.body()
+                                                        cycle?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
+                                                    }
                                                 }
-                                                actionMessage = "✅ ${stage.getDisplayName()} → $newStatus"
+                                                actionMessage = "Updated ${stage.getDisplayName()} -> $newStatus"
                                             } else {
                                                 actionMessage = "❌ ${resp.code()}: ${resp.message()}"
                                             }
@@ -232,6 +251,7 @@ private fun StageTimelineItem(
     isLast: Boolean,
     recommendations: List<RecommendedActivityDto> = emptyList(),
     stageStartDate: String? = null,
+    isCycleCompleted: Boolean = false,
     onAdvance: (status: String) -> Unit,
     onLogActivity: () -> Unit = {}
 ) {
@@ -314,12 +334,12 @@ private fun StageTimelineItem(
             }
 
             // Action buttons
-            val isActive = stage.status == "IN_PROGRESS" || stage.status == "ACTIVE" || stage.status == "STARTED"
+            val isActive = !isCycleCompleted && (stage.status == "IN_PROGRESS" || stage.status == "ACTIVE" || stage.status == "STARTED")
             val isCompleted = stage.status.equals("COMPLETED", ignoreCase = true)
-            if (stage.status == "PENDING" || isActive || isCompleted) {
+            if ((!isCycleCompleted && stage.status == "PENDING") || isActive || isCompleted) {
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (stage.status == "PENDING") {
+                    if (!isCycleCompleted && stage.status == "PENDING") {
                         OutlinedButton(
                             onClick = { onAdvance("START") },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)

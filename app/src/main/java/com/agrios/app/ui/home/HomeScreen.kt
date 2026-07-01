@@ -153,6 +153,10 @@ fun HomeScreen(
                     result.accepted > 0 -> "✅ ${result.accepted} ${LanguageManager.localize("synced", "सिंक हुए")}"
                     result.failed > 0 -> "❌ ${result.failed} ${LanguageManager.localize("failed", "विफल")}"
                     result.conflicts > 0 -> "⚠️ ${result.conflicts} ${LanguageManager.localize("conflicts", "विरोध")}"
+                    pendingCount > 0 -> LanguageManager.localize(
+                        "Still waiting - parent records/dependencies may need to sync first",
+                        "अभी प्रतीक्षा में - पहले मूल रिकॉर्ड/निर्भरताएं सिंक हो सकती हैं"
+                    )
                     else -> LanguageManager.localize("All synced", "सब सिंक हो गया")
                 }
             } catch (e: Exception) {
@@ -235,9 +239,8 @@ fun HomeScreen(
                     }
                 }
 
-                val runningCycles = activeCycles
-                    .ifEmpty { cachedCycles.filter { !it.status.equals("COMPLETED", ignoreCase = true) } }
-                    .dedupeForHome()
+                val displayCycles = (activeCycles + completedCycles + cachedCycles).dedupeForHome()
+                val runningCycles = displayCycles.filterNot { it.status.equals("COMPLETED", ignoreCase = true) }
                 runningCycles.forEach { cycle ->
                     val currentStage = cycle.stages.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
                         ?: cycle.stages.firstOrNull { it.status.equals("PENDING", ignoreCase = true) }
@@ -278,7 +281,7 @@ fun HomeScreen(
                     )
                 }
 
-                val historyCycles = completedCycles.ifEmpty { cachedCycles.filter { it.status.equals("COMPLETED", ignoreCase = true) } }
+                val historyCycles = displayCycles.filter { it.status.equals("COMPLETED", ignoreCase = true) }
                 if (historyCycles.isNotEmpty()) {
                     Text("Completed Crop Cycles", style = MaterialTheme.typography.titleSmall)
                     historyCycles.forEach { cycle ->
@@ -383,12 +386,14 @@ fun HomeScreen(
                             if (lastSyncMessage != null) {
                                 Text(lastSyncMessage!!, style = MaterialTheme.typography.bodySmall)
                             }
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = { runSyncNow() },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(LanguageManager.localize("Sync Now", "अभी सिंक करें"))
+                            if (pendingCount > 0 || conflictCount > 0) {
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { runSyncNow() },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(LanguageManager.localize("Sync Now", "\u0905\u092d\u0940 \u0938\u093f\u0902\u0915 \u0915\u0930\u0947\u0902"))
+                                }
                             }
                         }
                     }
@@ -421,8 +426,8 @@ private fun CropCycleResponseDto.homeProgressScore(): Int {
     }
     val completedCount = stages.count { it.status.equals("COMPLETED", ignoreCase = true) }
     val statusBonus = when {
-        status.equals("COMPLETED", ignoreCase = true) -> 10_000
-        status.equals("ACTIVE", ignoreCase = true) -> 1_000
+        status.equals("COMPLETED", ignoreCase = true) -> 30_000
+        status.equals("ACTIVE", ignoreCase = true) -> 20_000
         else -> 0
     }
     return statusBonus + completedCount * 100 + activeIndex.coerceAtLeast(0)

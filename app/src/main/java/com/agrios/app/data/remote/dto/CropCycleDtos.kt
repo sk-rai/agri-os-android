@@ -85,6 +85,13 @@ data class StageUpdateDto(
     @SerializedName("skip_reason") val skipReason: String? = null
 )
 
+// --- Stage transition response (PATCH /crop-cycles/{cycleId}/stages/{stageId}) ---
+data class StageTransitionResponseDto(
+    @SerializedName("stage") val stage: CropStageDto? = null,
+    @SerializedName("crop_cycle") val cropCycle: CropCycleResponseDto? = null,
+    @SerializedName("auto_completed_stage_codes") val autoCompletedStageCodes: List<String> = emptyList()
+)
+
 // --- Recommended Activity (from template) ---
 data class RecommendedActivityDto(
     @SerializedName("day_offset") val dayOffset: Int = 0,

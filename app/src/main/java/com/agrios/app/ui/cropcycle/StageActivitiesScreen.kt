@@ -118,6 +118,8 @@ fun StageActivitiesScreen(
         ?: cycle?.stages?.find { it.status == "IN_PROGRESS" || it.status == "ACTIVE" || it.status == "STARTED" }
     val targetStageCode = targetStage?.code
     val stageStartDate = targetStage?.expectedStartDate
+    val isReadOnly = cycle?.status.equals("COMPLETED", ignoreCase = true) ||
+        targetStage?.status.equals("COMPLETED", ignoreCase = true)
 
     // Get cycle-aware recommendations for the selected/target stage.
     val recommendations = allRecommendations.filter { it.stageCode == targetStageCode }
@@ -221,7 +223,7 @@ fun StageActivitiesScreen(
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
+                                    .clickable(enabled = !isReadOnly && !isLogged) {
                                         if (!isLogged) {
                                             // Pre-fill the activity form
                                             val prefill = mutableMapOf(
@@ -291,12 +293,20 @@ fun StageActivitiesScreen(
 
                     Spacer(Modifier.height(16.dp))
 
-                    // Custom activity button
-                    OutlinedButton(
-                        onClick = onLogCustomActivity,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(LanguageManager.localize("+ Log Custom Activity", "+ कस्टम गतिविधि दर्ज करें"))
+                    if (isReadOnly) {
+                        Text(
+                            "Completed stage - activities are view only",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        // Custom activity button
+                        OutlinedButton(
+                            onClick = onLogCustomActivity,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(LanguageManager.localize("+ Log Custom Activity", "+ Log Custom Activity"))
+                        }
                     }
                 }
             }

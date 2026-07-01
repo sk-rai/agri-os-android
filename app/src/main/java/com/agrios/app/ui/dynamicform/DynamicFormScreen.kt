@@ -274,6 +274,15 @@ fun DynamicFormScreen(
                                 validationErrors = errors
                                 return@Button
                             }
+                            if (formId == "crop_cycle_create" && formValues["parcel_id"]?.toString().isNullOrBlank()) {
+                                validationErrors = mapOf(
+                                    "parcel_id" to LanguageManager.localize(
+                                        "Select an eligible parcel before starting a crop cycle",
+                                        "Select an eligible parcel before starting a crop cycle"
+                                    )
+                                )
+                                return@Button
+                            }
                             validationErrors = emptyMap()
                             saveError = null
                             isSaving = true
