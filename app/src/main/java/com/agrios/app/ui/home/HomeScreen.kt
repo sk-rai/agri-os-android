@@ -59,6 +59,7 @@ fun HomeScreen(
     var isLoadingCycles by remember { mutableStateOf(false) }
     var cycleLoadMessage by remember { mutableStateOf<String?>(null) }
     var cachedCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
+    var useCachedCycleFallback by remember { mutableStateOf(false) }
 
     val api = remember {
         val okHttpClient = OkHttpClient.Builder()
@@ -86,6 +87,7 @@ fun HomeScreen(
             activeCycles = emptyList()
             completedCycles = emptyList()
             cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
+            useCachedCycleFallback = true
             return@LaunchedEffect
         }
 
@@ -119,10 +121,12 @@ fun HomeScreen(
                 }
             }
             cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
+            useCachedCycleFallback = false
         } catch (e: Exception) {
             activeCycles = emptyList()
             completedCycles = emptyList()
             cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
+            useCachedCycleFallback = true
             cycleLoadMessage = e.message
         } finally {
             isLoadingCycles = false
@@ -239,7 +243,7 @@ fun HomeScreen(
                     }
                 }
 
-                val displayCycles = (activeCycles + completedCycles + cachedCycles).dedupeForHome()
+                val displayCycles = (activeCycles + completedCycles + if (useCachedCycleFallback) cachedCycles else emptyList()).dedupeForHome()
                 val runningCycles = displayCycles.filterNot { it.status.equals("COMPLETED", ignoreCase = true) }
                 runningCycles.forEach { cycle ->
                     val currentStage = cycle.stages.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
@@ -273,7 +277,7 @@ fun HomeScreen(
                     }
                 }
 
-                if (cycleLoadMessage != null && activeCycles.isEmpty() && cachedCycles.isEmpty()) {
+                if (cycleLoadMessage != null && activeCycles.isEmpty() && completedCycles.isEmpty() && cachedCycles.isEmpty()) {
                     Text(
                         cycleLoadMessage!!,
                         style = MaterialTheme.typography.bodySmall,
