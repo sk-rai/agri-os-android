@@ -12,12 +12,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.geo.GeoJson
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.core.util.UnitConverter
 import com.agrios.app.core.util.VillageIdUtil
 import com.agrios.app.data.local.entity.*
+import com.agrios.app.ui.geo.GpsPointCaptureWidget
+import com.agrios.app.ui.geo.GpsPolygonWalkingWidget
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -54,6 +58,15 @@ fun ParcelRegisterScreen(
     var gpsMode by remember { mutableStateOf("NONE") } // NONE, PIN_DROP, GPS_WALK
     var centroidLat by remember { mutableStateOf("") }
     var centroidLng by remember { mutableStateOf("") }
+    var geometryGeoJson by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(gpsMode) {
+        if (gpsMode == "NONE") {
+            geometryGeoJson = null
+            centroidLat = ""
+            centroidLng = ""
+        }
+    }
 
     var isSaving by remember { mutableStateOf(false) }
     var showSuccess by remember { mutableStateOf(false) }
@@ -252,47 +265,28 @@ fun ParcelRegisterScreen(
                 }
             }
 
-            // GPS coordinate input (for PIN_DROP)
             if (gpsMode == "PIN_DROP") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = centroidLat,
-                        onValueChange = { centroidLat = it },
-                        label = { Text("Lat") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = centroidLng,
-                        onValueChange = { centroidLng = it },
-                        label = { Text("Lng") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Text(
-                    LanguageManager.localize("Tip: Use phone's GPS or enter manually", "सुझाव: फोन का GPS उपयोग करें या मैन्युअल दर्ज करें"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                GpsPointCaptureWidget(
+                    label = "GPS point",
+                    value = geometryGeoJson,
+                    enabled = true,
+                    draftKey = "parcel:${selectedFarmerId}:pin_drop",
+                    onValueChange = { geoJson ->
+                        geometryGeoJson = geoJson
+                        val point = GeoJson.parsePoint(geoJson)
+                        centroidLat = point?.lat?.toString() ?: ""
+                        centroidLng = point?.lng?.toString() ?: ""
+                    }
                 )
             }
 
             if (gpsMode == "GPS_WALK") {
-                Text(
-                    LanguageManager.localize("🚶 Walk around your field boundary. GPS will record the path.", "🚶 अपने खेत की सीमा के चारों ओर चलें। GPS रास्ता रिकॉर्ड करेगा।"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                // GPS walk will be implemented with location services
-                Text(
-                    LanguageManager.localize("(Coming soon - use Pin Drop for now)", "(जल्द आ रहा है - अभी पिन ड्रॉप उपयोग करें)"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                GpsPolygonWalkingWidget(
+                    label = "GPS boundary walk",
+                    value = geometryGeoJson,
+                    enabled = true,
+                    draftKey = "parcel:${selectedFarmerId}:gps_walk",
+                    onValueChange = { geoJson -> geometryGeoJson = geoJson }
                 )
             }
 
@@ -319,8 +313,10 @@ fun ParcelRegisterScreen(
                         val parcelId = UUID.randomUUID().toString()
                         val authState = db.authDao().getAuthState()
                         val farmer = db.farmerDao().getById(selectedFarmerId)
-                        val lat = centroidLat.toDoubleOrNull()
-                        val lng = centroidLng.toDoubleOrNull()
+                        val point = GeoJson.parsePoint(geometryGeoJson)
+                        val lat = point?.lat ?: centroidLat.toDoubleOrNull()
+                        val lng = point?.lng ?: centroidLng.toDoubleOrNull()
+                        val geometryElement = geometryGeoJson?.takeIf { it.isNotBlank() }?.let { JsonParser.parseString(it) }
 
                         val parcel = ParcelEntity(
                             id = parcelId,
@@ -351,6 +347,8 @@ fun ParcelRegisterScreen(
                             "reported_area_unit" to selectedUnit,
                             "ownership_type" to ownershipType,
                             "geometry_source" to gpsMode,
+                            "geometry" to geometryElement,
+                            "geojson" to geometryElement,
                             "centroid_lat" to lat,
                             "centroid_lng" to lng
                         ))

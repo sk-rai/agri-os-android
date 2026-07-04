@@ -18,6 +18,9 @@ import com.agrios.app.data.remote.dto.FormFieldDto
 import com.agrios.app.data.remote.dto.FormSchemaDto
 import com.agrios.app.data.remote.dto.resolve
 import com.agrios.app.ui.components.SearchableDropdown
+import com.agrios.app.ui.geo.GpsPointCaptureWidget
+import com.agrios.app.ui.geo.GpsPolygonWalkingWidget
+import com.agrios.app.ui.geo.GeometryPreviewWidget
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
@@ -280,6 +283,50 @@ private fun RenderField(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(label, style = MaterialTheme.typography.bodyMedium)
                 Switch(checked = checked, onCheckedChange = { if (enabled) onValueChange(it) }, enabled = enabled)
+            }
+        }
+
+        "GPS_POINT" -> {
+            GpsPointCaptureWidget(
+                label = label,
+                value = value as? String,
+                enabled = enabled,
+                draftKey = "${formId ?: "dynamic"}:${field.id}",
+                onValueChange = onValueChange
+            )
+        }
+
+        "GPS_POLYGON" -> {
+            GpsPolygonWalkingWidget(
+                label = label,
+                value = value as? String,
+                enabled = enabled,
+                draftKey = "${formId ?: "dynamic"}:${field.id}",
+                onValueChange = onValueChange
+            )
+        }
+
+        "PHOTO" -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(label, style = MaterialTheme.typography.labelLarge)
+                    Text("Photo capture placeholder - backend workflow field recognized", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
+        "SECTION" -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(resolveLabel(field.label, lang), style = MaterialTheme.typography.titleSmall)
+                    hint?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
             }
         }
 

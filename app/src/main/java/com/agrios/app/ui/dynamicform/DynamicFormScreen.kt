@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
 import com.agrios.app.core.cache.CropCycleCache
+import com.agrios.app.core.geo.GeoJson
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.sync.SyncWorker
@@ -23,6 +24,7 @@ import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.FormSchemaDto
 import com.agrios.app.ui.cropcycle.StageInferenceDialog
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -293,7 +295,11 @@ fun DynamicFormScreen(
                                     val now = System.currentTimeMillis()
 
                                     // Build payload (filter out null values)
-                                    val payload = formValues.filter { it.value != null && it.value.toString().isNotBlank() }
+                                    val payload = formValues
+                                        .filter { it.value != null && it.value.toString().isNotBlank() }
+                                        .mapValues { (_, fieldValue) ->
+                                            if (GeoJson.isGeoJson(fieldValue)) JsonParser.parseString(fieldValue.toString()) else fieldValue
+                                        }
 
                                     // Route to correct endpoint based on form type
                                     if (formId == "activity_log") {
