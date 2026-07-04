@@ -8,6 +8,7 @@ import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.SyncBatchRequestDto
 import com.agrios.app.data.remote.dto.SyncEventDto
 import com.agrios.app.core.util.VillageIdUtil
+import com.agrios.app.data.repository.GeometryRepository
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlin.math.min
@@ -56,8 +57,16 @@ class SyncManager(
             return SyncResult(0, 0, 0)
         }
 
+        val geometryItems = eligible.filter { it.entityType == GeometryRepository.ENTITY_TYPE_PARCEL_GEOMETRY }
+        val syncEventItems = eligible.filterNot { it.entityType == GeometryRepository.ENTITY_TYPE_PARCEL_GEOMETRY }
+        val geometryResult = processParcelGeometryItems(geometryItems)
+
+        if (syncEventItems.isEmpty()) {
+            return geometryResult
+        }
+
         // Build batch payload
-        val events = eligible.map { item ->
+        val events = syncEventItems.map { item ->
             val payloadMap: MutableMap<String, Any?> = gson.fromJson(
                 item.payload,
                 object : TypeToken<MutableMap<String, Any?>>() {}.type
@@ -94,7 +103,7 @@ class SyncManager(
 
         return try {
             // Mark as syncing
-            eligible.forEach { syncQueueDao.updateStatus(it.eventId, SyncStatus.SYNCING.name) }
+            syncEventItems.forEach { syncQueueDao.updateStatus(it.eventId, SyncStatus.SYNCING.name) }
 
             // Send batch to server
             val response = api.syncEvents(SyncBatchRequestDto(events))
@@ -102,7 +111,7 @@ class SyncManager(
             if (response.isSuccessful) {
                 val body = response.body()!!
                 Log.d(TAG, "✅ Server response: accepted=${body.accepted.size}, conflicts=${body.conflicts.size}, failed=${body.failed.size}")
-                handleSyncResponse(body.accepted, body.conflicts, body.failed, eligible)
+                handleSyncResponse(body.accepted, body.conflicts, body.failed, syncEventItems)
                 val result = SyncResult(
                     accepted = body.accepted.size,
                     conflicts = body.conflicts.size,
@@ -114,25 +123,29 @@ class SyncManager(
                     Log.d(TAG, "Items accepted — running follow-up pass for unblocked dependents")
                     val followUp = processQueue()
                     return SyncResult(
-                        accepted = result.accepted + followUp.accepted,
-                        conflicts = result.conflicts + followUp.conflicts,
-                        failed = result.failed + followUp.failed
+                        accepted = geometryResult.accepted + result.accepted + followUp.accepted,
+                        conflicts = geometryResult.conflicts + result.conflicts + followUp.conflicts,
+                        failed = geometryResult.failed + result.failed + followUp.failed
                     )
                 }
-                result
+                SyncResult(
+                    accepted = geometryResult.accepted + result.accepted,
+                    conflicts = geometryResult.conflicts + result.conflicts,
+                    failed = geometryResult.failed + result.failed
+                )
             } else {
                 // Server error — log full details for debugging
                 val errorBody = try { response.errorBody()?.string() } catch (_: Exception) { null }
                 Log.e(TAG, "❌ Server rejected sync: HTTP ${response.code()} ${response.message()}")
                 Log.e(TAG, "❌ Response body: $errorBody")
-                Log.e(TAG, "❌ Request had ${events.size} events for entities: ${eligible.map { "${it.entityType}:${it.entityId}" }}")
-                markBatchForRetry(eligible, "HTTP ${response.code()}: ${errorBody ?: response.message()}")
-                SyncResult(0, 0, eligible.size)
+                Log.e(TAG, "Request had ${events.size} events for entities: ${syncEventItems.map { "${it.entityType}:${it.entityId}" }}")
+                markBatchForRetry(syncEventItems, "HTTP ${response.code()}: ${errorBody ?: response.message()}")
+                SyncResult(geometryResult.accepted, geometryResult.conflicts, geometryResult.failed + syncEventItems.size)
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Sync network error: ${e.javaClass.simpleName}: ${e.message}", e)
-            markBatchForRetry(eligible, "${e.javaClass.simpleName}: ${e.message}")
-            SyncResult(0, 0, eligible.size)
+            markBatchForRetry(syncEventItems, "${e.javaClass.simpleName}: ${e.message}")
+            SyncResult(geometryResult.accepted, geometryResult.conflicts, geometryResult.failed + syncEventItems.size)
         }
     }
 
@@ -145,6 +158,39 @@ class SyncManager(
      * dependencyIds stores the entityId of the parent (e.g., parcel depends on farmer entityId).
      * We check if any queue item with that entityId is still unsynced.
      */
+    private suspend fun processParcelGeometryItems(items: List<SyncQueueEntity>): SyncResult {
+        if (items.isEmpty()) return SyncResult(0, 0, 0)
+        var accepted = 0
+        var failed = 0
+        items.forEach { item ->
+            try {
+                syncQueueDao.updateStatus(item.eventId, SyncStatus.SYNCING.name)
+                val result = GeometryRepository.resultFromQueuePayload(item.payload)
+                val response = api.updateParcelGeometry(item.entityId, GeometryRepository.requestFromResult(result))
+                if (response.isSuccessful) {
+                    syncQueueDao.markSynced(item.eventId)
+                    accepted++
+                    Log.d(TAG, "Parcel geometry synced: parcelId=${item.entityId}, source=${result.geometrySource}")
+                } else {
+                    val errorBody = try { response.errorBody()?.string() } catch (_: Exception) { null }
+                    val error = "HTTP ${response.code()}: ${errorBody ?: response.message()}"
+                    if (response.code() in 400..499) {
+                        syncQueueDao.markFailed(item.eventId, error)
+                    } else {
+                        markBatchForRetry(listOf(item), error)
+                    }
+                    failed++
+                    Log.e(TAG, "Parcel geometry sync failed: parcelId=${item.entityId}, $error")
+                }
+            } catch (e: Exception) {
+                markBatchForRetry(listOf(item), "${e.javaClass.simpleName}: ${e.message}")
+                failed++
+                Log.e(TAG, "Parcel geometry sync error: parcelId=${item.entityId}, ${e.message}", e)
+            }
+        }
+        return SyncResult(accepted, 0, failed)
+    }
+
     private suspend fun filterByDependencies(items: List<SyncQueueEntity>): List<SyncQueueEntity> {
         // Get ALL items in queue (not just pending) to check dependency status
         val allItems = syncQueueDao.getAllForDependencyCheck()

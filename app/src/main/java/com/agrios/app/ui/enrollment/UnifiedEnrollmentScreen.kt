@@ -26,6 +26,7 @@ import com.agrios.app.core.util.VillageIdUtil
 import com.agrios.app.data.local.entity.*
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.ui.components.SearchableDropdown
+import com.agrios.app.ui.geo.GpsPolygonWalkingWidget
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -50,6 +51,7 @@ data class ParcelFormData(
     var gpsMode: String = "NONE",
     var lat: String = "",
     var lng: String = "",
+    var geometryGeoJson: String? = null,
     // Season crops (per parcel)
     var kharifCrops: Set<String> = emptySet(),
     var rabiCrops: Set<String> = emptySet(),
@@ -368,6 +370,8 @@ fun UnifiedEnrollmentScreen(
                                         "village_name_manual" to VillageIdUtil.getSyncVillageNameManual(villageId, selectedVillageName),
                                         "reported_area" to area, "reported_area_unit" to parcel.unit,
                                         "ownership_type" to parcel.ownership, "geometry_source" to parcel.gpsMode,
+                                        "geometry" to parcel.geometryGeoJson,
+                                        "geojson" to parcel.geometryGeoJson,
                                         "irrigation_source" to parcel.irrigationSource.ifBlank { null },
                                         "survey_number" to parcel.surveyNumber.ifBlank { null },
                                         "annual_rent" to parcel.annualRent.toDoubleOrNull(),
@@ -571,9 +575,20 @@ private fun ParcelSection(
             }
 
             AnimatedVisibility(visible = parcel.gpsMode == "GPS_WALK") {
+                GpsPolygonWalkingWidget(
+                    label = LanguageManager.localize("Walk around field boundary", "??? ?? ???? ????"),
+                    value = parcel.geometryGeoJson,
+                    enabled = !isLocked,
+                    draftKey = "enrollment:${parcel.id}:geometry",
+                    onValueChange = { onUpdate(parcel.copy(geometryGeoJson = it)) }
+                )
                 Text(
-                    LanguageManager.localize("🚶 Walk around field boundary (coming soon)", "🚶 खेत की सीमा चलें (जल्द आ रहा)"),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary
+                    LanguageManager.localize(
+                        "Boundary will sync when you save the farmer profile.",
+                        "????? ???????? ?????? ?? ???? ???? ?????"
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 

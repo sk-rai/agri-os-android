@@ -14,10 +14,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.geo.GeoJson
 import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.local.entity.*
+import com.agrios.app.data.repository.GeometryRepository
+import com.agrios.app.ui.geo.GpsPointCaptureWidget
+import com.agrios.app.ui.geo.GpsPolygonWalkingWidget
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -45,6 +49,12 @@ fun FarmerProfileScreen(
     // Edit state for parcel survey numbers
     var editingParcelId by remember { mutableStateOf<String?>(null) }
     var editSurveyNumber by remember { mutableStateOf("") }
+
+    // Reusable geometry capture state for existing parcels
+    var editingGeometryParcelId by remember { mutableStateOf<String?>(null) }
+    var geometryMode by remember { mutableStateOf("PIN_DROP") }
+    var geometryGeoJson by remember { mutableStateOf<String?>(null) }
+    var geometryMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(farmerId) {
         farmer = db.farmerDao().getById(farmerId)
@@ -274,7 +284,127 @@ fun FarmerProfileScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        }
+
+
+                            Text(
+                                "${LanguageManager.localize("Geometry", "GPS")}: ${parcel.geometrySource ?: "NONE"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            if (editingGeometryParcelId == parcel.id) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilterChip(
+                                        selected = geometryMode == "PIN_DROP",
+                                        onClick = {
+                                            geometryMode = "PIN_DROP"
+                                            geometryGeoJson = null
+                                            geometryMessage = null
+                                        },
+                                        label = { Text(LanguageManager.localize("Point", "?????")) }
+                                    )
+                                    FilterChip(
+                                        selected = geometryMode == "GPS_WALK",
+                                        onClick = {
+                                            geometryMode = "GPS_WALK"
+                                            geometryGeoJson = null
+                                            geometryMessage = null
+                                        },
+                                        label = { Text(LanguageManager.localize("Walk", "????")) }
+                                    )
+                                }
+
+                                if (geometryMode == "GPS_WALK") {
+                                    GpsPolygonWalkingWidget(
+                                        label = LanguageManager.localize("Parcel boundary", "??? ?? ????"),
+                                        value = geometryGeoJson,
+                                        enabled = true,
+                                        draftKey = "parcel:${parcel.id}:geometry",
+                                        onValueChange = { geometryGeoJson = it }
+                                    )
+                                } else {
+                                    GpsPointCaptureWidget(
+                                        label = LanguageManager.localize("Parcel GPS point", "??? GPS ?????"),
+                                        value = geometryGeoJson,
+                                        enabled = true,
+                                        draftKey = "parcel:${parcel.id}:geometry",
+                                        onValueChange = { geometryGeoJson = it }
+                                    )
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = {
+                                            val capturedGeometry = geometryGeoJson
+                                            if (capturedGeometry.isNullOrBlank()) {
+                                                geometryMessage = LanguageManager.localize(
+                                                    "Capture GPS before saving",
+                                                    "?????? ?? ???? GPS ?????? ????"
+                                                )
+                                                return@Button
+                                            }
+
+                                            scope.launch {
+                                                val point = GeoJson.parsePoint(capturedGeometry)
+                                                db.parcelDao().update(
+                                                    parcel.copy(
+                                                        geometrySource = geometryMode,
+                                                        gpsLat = point?.lat,
+                                                        gpsLng = point?.lng,
+                                                        updatedAt = System.currentTimeMillis()
+                                                    )
+                                                )
+                                                GeometryRepository.enqueueParcelGeometry(
+                                                    syncQueueDao = db.syncQueueDao(),
+                                                    parcelId = parcel.id,
+                                                    result = GeometryRepository.resultForSource(
+                                                        geometrySource = geometryMode,
+                                                        geoJson = capturedGeometry
+                                                    ),
+                                                    dependencyIds = parcel.id
+                                                )
+                                                SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+                                                editingGeometryParcelId = null
+                                                geometryGeoJson = null
+                                                geometryMessage = LanguageManager.localize(
+                                                    "Geometry queued for sync",
+                                                    "GPS ???? ?? ??? ???? ??? ??"
+                                                )
+                                            }
+                                        }
+                                    ) {
+                                        Text(LanguageManager.localize("Save GPS", "GPS ??????"))
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            editingGeometryParcelId = null
+                                            geometryGeoJson = null
+                                            geometryMessage = null
+                                        }
+                                    ) {
+                                        Text(LanguageManager.localize("Cancel", "???? ????"))
+                                    }
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = {
+                                        editingGeometryParcelId = parcel.id
+                                        geometryMode = parcel.geometrySource?.takeIf { it == "GPS_WALK" } ?: "PIN_DROP"
+                                        geometryGeoJson = null
+                                        geometryMessage = null
+                                    }
+                                ) {
+                                    Text(LanguageManager.localize("Update GPS", "GPS ????? ????"))
+                                }
+                            }
+
+                            if (geometryMessage != null) {
+                                Text(
+                                    geometryMessage!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }                        }
                     }
                 }
             }

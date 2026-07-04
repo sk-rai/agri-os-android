@@ -18,6 +18,7 @@ import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.core.util.UnitConverter
 import com.agrios.app.core.util.VillageIdUtil
 import com.agrios.app.data.local.entity.*
+import com.agrios.app.data.repository.GeometryRepository
 import com.agrios.app.ui.geo.GpsPointCaptureWidget
 import com.agrios.app.ui.geo.GpsPolygonWalkingWidget
 import com.google.gson.Gson
@@ -364,6 +365,19 @@ fun ParcelRegisterScreen(
                             dependencyIds = selectedFarmerId,
                             createdAt = now
                         ))
+
+                        val capturedGeometry = geometryGeoJson
+                        if (gpsMode != "NONE" && !capturedGeometry.isNullOrBlank()) {
+                            GeometryRepository.enqueueParcelGeometry(
+                                syncQueueDao = db.syncQueueDao(),
+                                parcelId = parcelId,
+                                result = GeometryRepository.resultForSource(
+                                    geometrySource = gpsMode,
+                                    geoJson = capturedGeometry
+                                ),
+                                dependencyIds = parcelId
+                            )
+                        }
 
                         isSaving = false
                         showSuccess = true

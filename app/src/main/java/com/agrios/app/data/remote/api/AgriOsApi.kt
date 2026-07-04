@@ -70,6 +70,12 @@ interface AgriOsApi {
     @GET("parcels")
     suspend fun getParcels(): Response<List<ParcelResponseDto>>
 
+    @PATCH("parcels/{parcelId}/geometry")
+    suspend fun updateParcelGeometry(
+        @Path("parcelId") parcelId: String,
+        @Body body: ParcelGeometryUpdateRequest
+    ): Response<ParcelGeometryUpdateResponseDto>
+
     // --- Sync ---
     @POST("sync/events")
     suspend fun syncEvents(@Body request: SyncBatchRequestDto): Response<SyncBatchResponseDto>

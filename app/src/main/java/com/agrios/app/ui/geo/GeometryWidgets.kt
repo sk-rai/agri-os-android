@@ -236,9 +236,16 @@ fun GpsPolygonWalkingWidget(
                 message = "Last vertex removed"
             }) { Text("Undo") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            points.forEachIndexed { index, point ->
-                AssistChip(onClick = {}, label = { Text("${index + 1}: ${point.lat}, ${point.lng}") })
+        if (points.isNotEmpty()) {
+            Text("Vertices (${points.size})", style = MaterialTheme.typography.labelMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                points.forEachIndexed { index, point ->
+                    Text(
+                        "${index + 1}. ${"%.7f".format(point.lat)}, ${"%.7f".format(point.lng)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
         GeometryPreviewWidget(value ?: GeoJson.polygon(points))
@@ -263,7 +270,11 @@ fun GeometryPreviewWidget(geoJson: String?) {
             Spacer(Modifier.height(4.dp))
             Text(GeoJson.previewText(geoJson), style = MaterialTheme.typography.bodySmall)
             if (!geoJson.isNullOrBlank()) {
-                Text(geoJson, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "GeoJSON ready for sync",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
