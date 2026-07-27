@@ -22,6 +22,7 @@ import com.agrios.app.data.local.entity.SyncQueueEntity
 import com.agrios.app.data.local.entity.SyncStatus
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.FormSchemaDto
+import com.agrios.app.data.repository.BackendBootstrapRepository
 import com.agrios.app.ui.cropcycle.StageInferenceDialog
 import com.google.gson.Gson
 import com.google.gson.JsonParser
@@ -51,6 +52,19 @@ fun DynamicFormScreen(
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
+    val api = remember {
+        val okHttp = OkHttpClient.Builder()
+            .addInterceptor(AuthInterceptor(db.authDao()))
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+        Retrofit.Builder()
+            .baseUrl(ApiConfig.BASE_URL)
+            .client(okHttp)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(AgriOsApi::class.java)
+    }
 
     // Schema state
     var schema by remember { mutableStateOf<FormSchemaDto?>(null) }
@@ -82,43 +96,22 @@ fun DynamicFormScreen(
         isLoading = true
         loadError = null
         try {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val okHttp = OkHttpClient.Builder()
-                    .addInterceptor(AuthInterceptor(db.authDao()))
-                    .connectTimeout(15, TimeUnit.SECONDS)
-                    .readTimeout(15, TimeUnit.SECONDS)
-                    .build()
-
-                val fullUrl = "${ApiConfig.BASE_URL}forms/$formId"
-                Log.d(TAG, "Loading schema from: $fullUrl")
-                val request = okhttp3.Request.Builder().url(fullUrl).build()
-                val response = okHttp.newCall(request).execute()
-
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (body != null) {
-                        Log.d(TAG, "Raw schema response (first 500 chars): ${body.take(500)}")
-                        schema = Gson().fromJson(body, FormSchemaDto::class.java)
-                        Log.d(TAG, "Schema loaded: ${schema?.formId}, ${schema?.fields?.size} fields")
-                        // Apply default values
-                        schema?.fields?.forEach { field ->
-                            if (formValues[field.id] == null && field.defaultValue != null) {
-                                formValues[field.id] = when {
-                                    field.defaultValue == "today" -> {
-                                        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
-                                    }
-                                    else -> field.defaultValue
-                                }
-                            }
+            val loadedSchema = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                BackendBootstrapRepository(api).loadFormSchema(formId).getOrThrow()
+            }
+            schema = loadedSchema
+            Log.d(TAG, "Schema loaded: ${loadedSchema.formId}, ${loadedSchema.fields.size} fields")
+            // Apply default values
+            loadedSchema.fields.forEach { field ->
+                if (formValues[field.id] == null && field.defaultValue != null) {
+                    formValues[field.id] = when {
+                        field.defaultValue == "today" -> {
+                            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
                         }
-                    } else {
-                        loadError = "Empty response"
+                        else -> field.defaultValue
                     }
-                } else {
-                    loadError = "HTTP ${response.code}: ${response.message}"
-                    Log.e(TAG, "Schema load failed: $loadError")
                 }
-            } // end withContext
+            }
         } catch (e: Exception) {
             loadError = e.message ?: "Network error"
             Log.e(TAG, "Schema load error", e)

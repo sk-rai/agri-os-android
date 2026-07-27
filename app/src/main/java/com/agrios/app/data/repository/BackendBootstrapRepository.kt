@@ -3,10 +3,14 @@ package com.agrios.app.data.repository
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.AppConfigBootstrapDto
 import com.agrios.app.data.remote.dto.AuthModeBootstrapDto
+import com.agrios.app.data.remote.dto.FormEndpointHintDto
+import com.agrios.app.data.remote.dto.FormSchemaDto
 import com.agrios.app.data.remote.dto.GeographyHierarchyProfileDto
 import com.agrios.app.data.remote.dto.PinCodeVillageLookupDto
 import com.agrios.app.data.remote.dto.ProfileContractDto
 import com.agrios.app.data.remote.dto.SeasonLandUnitsMetadataDto
+import com.agrios.app.data.remote.dto.WorkflowConfigDto
+import com.agrios.app.data.remote.dto.WorkflowSummaryDto
 import com.google.gson.JsonElement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -38,6 +42,45 @@ class BackendBootstrapRepository(
 
     suspend fun loadFormOptions(): Result<JsonElement> = withContext(Dispatchers.IO) {
         runCatching { api.getFormOptions().bodyOrThrow("form options") }
+    }
+
+    suspend fun loadFormSchema(formId: String): Result<FormSchemaDto> = withContext(Dispatchers.IO) {
+        runCatching { api.getFormSchema(formId).bodyOrThrow("form schema $formId") }
+    }
+
+    suspend fun loadWorkflows(): Result<List<WorkflowSummaryDto>> = withContext(Dispatchers.IO) {
+        runCatching { api.getWorkflows().bodyOrThrow("workflows") }
+    }
+
+    suspend fun loadWorkflow(workflowId: String): Result<WorkflowConfigDto> = withContext(Dispatchers.IO) {
+        runCatching { api.getWorkflow(workflowId).bodyOrThrow("workflow $workflowId") }
+    }
+
+    suspend fun resolveProfileFormHint(
+        profileFormKey: String,
+        projectId: String? = null
+    ): Result<FormEndpointHintDto?> = withContext(Dispatchers.IO) {
+        runCatching {
+            val appConfig = api.getAppBootstrap(projectId).bodyOrThrow("app bootstrap")
+            appConfig.profileForms[profileFormKey]
+                ?: appConfig.forms.firstOrNull { hint ->
+                    hint.formId == profileFormKey ||
+                        hint.endpoint?.trimEnd('/')?.endsWith("/$profileFormKey") == true
+                }
+        }
+    }
+
+    suspend fun loadProfileFormSchema(
+        profileFormKey: String,
+        projectId: String? = null
+    ): Result<FormSchemaDto> = withContext(Dispatchers.IO) {
+        runCatching {
+            val hint = resolveProfileFormHint(profileFormKey, projectId).getOrThrow()
+            val formId = hint?.formId
+                ?: hint?.endpoint?.trimEnd('/')?.substringAfterLast('/')
+                ?: profileFormKey
+            api.getFormSchema(formId).bodyOrThrow("profile form schema $formId")
+        }
     }
 
     suspend fun loadOptionSet(optionSet: String, projectId: String? = null): Result<JsonElement> =

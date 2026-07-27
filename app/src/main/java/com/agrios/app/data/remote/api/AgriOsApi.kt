@@ -124,10 +124,24 @@ interface AgriOsApi {
         @Query("project_id") projectId: String? = null
     ): Response<com.google.gson.JsonElement>
 
+    @GET("forms/{formId}")
+    suspend fun getFormSchema(
+        @Path("formId") formId: String
+    ): Response<FormSchemaDto>
+
     @GET("forms/metadata/season-land-units")
     suspend fun getSeasonLandUnitsMetadata(
         @Query("project_id") projectId: String? = null
     ): Response<SeasonLandUnitsMetadataDto>
+
+    // --- Backend-configured workflows ---
+    @GET("workflows")
+    suspend fun getWorkflows(): Response<List<WorkflowSummaryDto>>
+
+    @GET("workflows/{workflowId}")
+    suspend fun getWorkflow(
+        @Path("workflowId") workflowId: String
+    ): Response<WorkflowConfigDto>
 
     // --- Sync ---
     @POST("sync/events")
