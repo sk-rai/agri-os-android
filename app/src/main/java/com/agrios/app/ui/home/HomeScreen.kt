@@ -24,6 +24,7 @@ import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.local.entity.FarmerEntity
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
+import com.agrios.app.data.repository.ProfileHydrationRepository
 import com.agrios.app.ui.components.SyncStatusBadge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,6 +61,9 @@ fun HomeScreen(
     var cycleLoadMessage by remember { mutableStateOf<String?>(null) }
     var cachedCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
     var useCachedCycleFallback by remember { mutableStateOf(false) }
+    var isHydratingProfile by remember { mutableStateOf(false) }
+    var hydrationAttempted by remember { mutableStateOf(false) }
+    var hydrationMessage by remember { mutableStateOf<String?>(null) }
 
     val api = remember {
         val okHttpClient = OkHttpClient.Builder()
@@ -79,6 +83,28 @@ fun HomeScreen(
     // Trigger sync on screen entry
     LaunchedEffect(Unit) {
         SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+    }
+
+    LaunchedEffect(hasProfile) {
+        if (!hasProfile && !hydrationAttempted) {
+            hydrationAttempted = true
+            isHydratingProfile = true
+            hydrationMessage = null
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    ProfileHydrationRepository(
+                        context = AgriOsApp.instance,
+                        db = db,
+                        api = api
+                    ).hydrateAfterLogin()
+                }
+                hydrationMessage = result.message
+            } catch (e: Exception) {
+                hydrationMessage = e.message
+            } finally {
+                isHydratingProfile = false
+            }
+        }
     }
 
     LaunchedEffect(farmer?.id) {
@@ -205,7 +231,17 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (hasProfile && farmer != null) {
+            if (isHydratingProfile) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Text(LanguageManager.localize("Restoring farmer profile...", "????? ???????? ???? ?? ??? ???..."))
+                    }
+                }
+            } else if (hasProfile && farmer != null) {
                 // ═══════════ PROFILE EXISTS — show farmer info + crop actions ═══════════
 
                 // Farmer info header (tappable)

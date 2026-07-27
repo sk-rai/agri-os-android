@@ -13,6 +13,7 @@ data class CropCycleResponseDto(
     @SerializedName("farmer_id") val farmerId: String? = null,
     @SerializedName("planned_sowing_date") val plannedSowingDate: String? = null,
     @SerializedName("expected_harvest_date") val expectedHarvestDate: String? = null,
+    @SerializedName("actual_harvest_date") val actualHarvestDate: String? = null,
     @SerializedName("inferred_current_stage") val inferredCurrentStage: String? = null,
     @SerializedName("seed_source") val seedSource: String? = null,
     @SerializedName("variety") val variety: String? = null,

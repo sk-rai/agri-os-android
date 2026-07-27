@@ -63,6 +63,14 @@ interface AgriOsApi {
     @GET("farmers")
     suspend fun getFarmers(): Response<List<FarmerResponseDto>>
 
+    @GET("farmers/me/profile")
+    suspend fun getMyFarmerProfile(): Response<FarmerProfileHydrationDto>
+
+    @GET("farmers/by-mobile/{mobile}")
+    suspend fun getFarmerProfileByMobile(
+        @Path(value = "mobile", encoded = true) mobile: String
+    ): Response<FarmerProfileHydrationDto>
+
     // --- Parcels ---
     @POST("parcels")
     suspend fun createParcel(@Body request: CreateParcelDto): Response<ParcelResponseDto>
