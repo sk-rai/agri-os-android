@@ -432,9 +432,16 @@ private suspend fun loadDynamicOptions(source: String, formValues: Map<String, A
                 .readTimeout(15, TimeUnit.SECONDS)
                 .build()
 
-            val fullUrl = if (url.startsWith("/")) ApiConfig.BASE_URL.trimEnd('/') + url.removePrefix("/api/v1") else url
+            val fullUrl = resolveDynamicSourceUrl(url)
             val request = okhttp3.Request.Builder().url(fullUrl).build()
-            val response = okHttp.newCall(request).execute()
+            var response = okHttp.newCall(request).execute()
+            if (!response.isSuccessful) {
+                val fallbackUrl = resolveDynamicSourceUrl(normalizeLegacyDynamicSource(url))
+                if (fallbackUrl != fullUrl) {
+                    response.close()
+                    response = okHttp.newCall(okhttp3.Request.Builder().url(fallbackUrl).build()).execute()
+                }
+            }
 
             if (response.isSuccessful) {
                 val body = response.body?.string() ?: return@withContext null
@@ -447,6 +454,22 @@ private suspend fun loadDynamicOptions(source: String, formValues: Map<String, A
             Log.w(TAG, "Dynamic options load error: ${e.message}")
             null
         }
+    }
+}
+
+private fun resolveDynamicSourceUrl(url: String): String {
+    return if (url.startsWith("/")) {
+        ApiConfig.BASE_URL.trimEnd('/') + url.removePrefix("/api/v1")
+    } else {
+        url
+    }
+}
+
+private fun normalizeLegacyDynamicSource(url: String): String {
+    return when {
+        url.startsWith("/api/v1/geography/") -> url.replaceFirst("/api/v1/geography/", "/api/v1/master-data/geography/")
+        url.startsWith("/geography/") -> url.replaceFirst("/geography/", "/master-data/geography/")
+        else -> url
     }
 }
 
