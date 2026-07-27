@@ -110,12 +110,7 @@ fun DynamicFormScreen(
             // Apply default values
             loadedSchema.fields.forEach { field ->
                 if (formValues[field.id] == null && field.defaultValue != null) {
-                    formValues[field.id] = when {
-                        field.defaultValue == "today" -> {
-                            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
-                        }
-                        else -> field.defaultValue
-                    }
+                    formValues[field.id] = coerceDefaultValue(field.type, field.defaultValue)
                 }
             }
         } catch (e: Exception) {
@@ -464,6 +459,22 @@ private fun resolveProfileEntityType(formId: String, schema: FormSchemaDto): Str
         "soil_profile" -> "SOIL_PROFILE"
         "crop_cycle_create" -> "CROP_CYCLE"
         else -> schema.entityType
+    }
+}
+
+private fun coerceDefaultValue(fieldType: String, defaultValue: String?): Any? {
+    if (defaultValue == null) return null
+    return when (fieldType) {
+        "boolean" -> defaultValue.equals("true", ignoreCase = true)
+        "number" -> defaultValue.toDoubleOrNull() ?: defaultValue
+        "date" -> {
+            if (defaultValue == "today") {
+                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            } else {
+                defaultValue
+            }
+        }
+        else -> defaultValue
     }
 }
 

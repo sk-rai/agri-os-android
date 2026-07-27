@@ -303,7 +303,11 @@ private fun RenderField(
         }
 
         "boolean" -> {
-            val checked = (value as? Boolean) ?: false
+            val checked = when (value) {
+                is Boolean -> value
+                is String -> value.equals("true", ignoreCase = true)
+                else -> false
+            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(label, style = MaterialTheme.typography.bodyMedium)
                 Switch(checked = checked, onCheckedChange = { if (enabled) onValueChange(it) }, enabled = enabled)
