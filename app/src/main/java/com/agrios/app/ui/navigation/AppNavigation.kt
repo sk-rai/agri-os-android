@@ -1,13 +1,22 @@
 package com.agrios.app.ui.navigation
 
 import android.net.Uri
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.network.ApiConfig
+import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.util.LanguageManager
+import com.agrios.app.data.remote.api.AgriOsApi
+import com.agrios.app.data.repository.BackendBootstrapRepository
 import com.agrios.app.ui.auth.AuthScreen
 import com.agrios.app.ui.auth.AuthViewModel
 import com.agrios.app.ui.auth.LanguageSetupScreen
@@ -22,6 +31,10 @@ import com.agrios.app.ui.home.MasterDataLoadingScreen
 import com.agrios.app.ui.parcel.ParcelRegisterScreen
 import com.agrios.app.ui.settings.SettingsScreen
 import com.agrios.app.ui.soil.SoilProfileScreen
+import okhttp3.OkHttpClient
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 
 object Routes {
     const val LANGUAGE_SETUP = "language_setup"
@@ -116,12 +129,24 @@ fun AppNavigation() {
         }
 
         composable(Routes.FARMER_ENROLL) {
-            FarmerEnrollScreen(
+            BackendDrivenProfileFormGate(
+                formId = "farmer_registration",
+                featureFlag = "backend_driven_farmer_forms",
                 onBack = { navController.popBackStack() },
-                onNavigateToParcel = { farmerId ->
-                    navController.navigate(Routes.PARCEL_REGISTER + "?farmerId=$farmerId") {
+                onSuccess = {
+                    navController.navigate(Routes.HOME) {
                         popUpTo(Routes.FARMER_ENROLL) { inclusive = true }
                     }
+                },
+                fallback = {
+                    FarmerEnrollScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToParcel = { farmerId ->
+                            navController.navigate(Routes.PARCEL_REGISTER + "?farmerId=$farmerId") {
+                                popUpTo(Routes.FARMER_ENROLL) { inclusive = true }
+                            }
+                        }
+                    )
                 }
             )
         }
@@ -145,24 +170,49 @@ fun AppNavigation() {
             })
         ) { backStackEntry ->
             val farmerId = backStackEntry.arguments?.getString("farmerId") ?: ""
-            ParcelRegisterScreen(
+            BackendDrivenProfileFormGate(
+                formId = "parcel_registration",
+                featureFlag = "backend_driven_parcel_forms",
+                contextValues = mapOf("farmer_id" to farmerId).filterValues { it.isNotBlank() },
                 onBack = { navController.popBackStack() },
-                preselectedFarmerId = farmerId,
-                onNavigateToSoilProfile = { parcelId, fId ->
-                    navController.navigate(Routes.SOIL_PROFILE + "?parcelId=$parcelId&farmerId=$fId") {
+                onSuccess = {
+                    navController.navigate(Routes.HOME) {
                         popUpTo(Routes.PARCEL_REGISTER + "?farmerId={farmerId}") { inclusive = true }
                     }
+                },
+                fallback = {
+                    ParcelRegisterScreen(
+                        onBack = { navController.popBackStack() },
+                        preselectedFarmerId = farmerId,
+                        onNavigateToSoilProfile = { parcelId, fId ->
+                            navController.navigate(Routes.SOIL_PROFILE + "?parcelId=$parcelId&farmerId=$fId") {
+                                popUpTo(Routes.PARCEL_REGISTER + "?farmerId={farmerId}") { inclusive = true }
+                            }
+                        }
+                    )
                 }
             )
         }
 
         composable(Routes.PARCEL_REGISTER) {
-            ParcelRegisterScreen(
+            BackendDrivenProfileFormGate(
+                formId = "parcel_registration",
+                featureFlag = "backend_driven_parcel_forms",
                 onBack = { navController.popBackStack() },
-                onNavigateToSoilProfile = { parcelId, fId ->
-                    navController.navigate(Routes.SOIL_PROFILE + "?parcelId=$parcelId&farmerId=$fId") {
+                onSuccess = {
+                    navController.navigate(Routes.HOME) {
                         popUpTo(Routes.PARCEL_REGISTER) { inclusive = true }
                     }
+                },
+                fallback = {
+                    ParcelRegisterScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToSoilProfile = { parcelId, fId ->
+                            navController.navigate(Routes.SOIL_PROFILE + "?parcelId=$parcelId&farmerId=$fId") {
+                                popUpTo(Routes.PARCEL_REGISTER) { inclusive = true }
+                            }
+                        }
+                    )
                 }
             )
         }
@@ -182,10 +232,22 @@ fun AppNavigation() {
         ) { backStackEntry ->
             val parcelId = backStackEntry.arguments?.getString("parcelId") ?: ""
             val farmerId = backStackEntry.arguments?.getString("farmerId") ?: ""
-            SoilProfileScreen(
-                parcelId = parcelId,
-                farmerId = farmerId,
-                onBack = { navController.popBackStack() }
+            BackendDrivenProfileFormGate(
+                formId = "soil_profile",
+                featureFlag = "backend_driven_soil_forms",
+                contextValues = mapOf(
+                    "parcel_id" to parcelId,
+                    "farmer_id" to farmerId
+                ).filterValues { it.isNotBlank() },
+                onBack = { navController.popBackStack() },
+                onSuccess = { navController.popBackStack() },
+                fallback = {
+                    SoilProfileScreen(
+                        parcelId = parcelId,
+                        farmerId = farmerId,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
             )
         }
 
@@ -326,6 +388,67 @@ fun AppNavigation() {
                     navController.navigate(Routes.STAGE_ACTIVITIES + "?cycleId=${Uri.encode(cId)}&stageCode=${Uri.encode(stageCode)}")
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun BackendDrivenProfileFormGate(
+    formId: String,
+    featureFlag: String,
+    contextValues: Map<String, String> = emptyMap(),
+    onBack: () -> Unit,
+    onSuccess: () -> Unit,
+    fallback: @Composable () -> Unit
+) {
+    val db = AgriOsApp.instance.database
+    var useBackendForm by remember(formId, featureFlag) { mutableStateOf<Boolean?>(null) }
+
+    val api = remember {
+        val okHttp = OkHttpClient.Builder()
+            .addInterceptor(AuthInterceptor(db.authDao()))
+            .connectTimeout(ApiConfig.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(ApiConfig.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(ApiConfig.WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .build()
+        Retrofit.Builder()
+            .baseUrl(ApiConfig.BASE_URL)
+            .client(okHttp)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(AgriOsApi::class.java)
+    }
+
+    LaunchedEffect(formId, featureFlag) {
+        useBackendForm = try {
+            val hint = BackendBootstrapRepository(api).resolveProfileFormHint(formId).getOrNull()
+            val appConfig = api.getAppBootstrap().body()
+            val flagEnabled = appConfig?.featureFlags?.get(featureFlag) == true
+            val formEnabled = hint?.enabled != false
+            flagEnabled && formEnabled
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    when (useBackendForm) {
+        true -> DynamicFormScreen(
+            formId = formId,
+            contextValues = contextValues,
+            onBack = onBack,
+            onSuccess = onSuccess
+        )
+
+        false -> fallback()
+
+        null -> Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = androidx.compose.ui.Alignment.Center
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator()
+                Text("Loading profile form...")
+            }
         }
     }
 }
