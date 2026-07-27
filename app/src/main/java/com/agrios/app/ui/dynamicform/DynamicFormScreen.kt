@@ -27,6 +27,7 @@ import com.agrios.app.data.local.entity.SyncQueueEntity
 import com.agrios.app.data.local.entity.SyncStatus
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.FormSchemaDto
+import com.agrios.app.data.remote.dto.LandIntelligenceContextDto
 import com.agrios.app.data.repository.BackendBootstrapRepository
 import com.agrios.app.data.repository.GeometryRepository
 import com.agrios.app.ui.cropcycle.StageInferenceDialog
@@ -86,6 +87,7 @@ fun DynamicFormScreen(
     var createdCycleId by remember { mutableStateOf<String?>(null) }
     var createdCycleResponse by remember { mutableStateOf<com.agrios.app.data.remote.dto.CropCycleResponseDto?>(null) }
     var showInferenceDialog by remember { mutableStateOf(false) }
+    var landIntelligenceContext by remember { mutableStateOf<LandIntelligenceContextDto?>(null) }
 
     // Pre-fill context values
     LaunchedEffect(contextValues) {
@@ -121,6 +123,26 @@ fun DynamicFormScreen(
         }
     }
 
+    val landPinCode = formValues["pin_code"]?.toString()?.filter { it.isDigit() }?.takeIf { it.length == 6 }
+    val landDistrictLgdCode = formValues["district_lgd_code"]?.toString()?.takeIf { it.isNotBlank() }
+    val landStateLgdCode = formValues["state_lgd_code"]?.toString()?.takeIf { it.isNotBlank() }
+    val landCropCode = resolveLandIntelligenceCropCode(formValues)
+    val landSeasonCode = resolveLandIntelligenceSeasonCode(formValues)
+    LaunchedEffect(formId, landPinCode, landDistrictLgdCode, landStateLgdCode, landCropCode, landSeasonCode) {
+        if (formId in setOf("farmer_registration", "parcel_registration", "soil_profile") &&
+            listOf(landPinCode, landDistrictLgdCode, landStateLgdCode).any { !it.isNullOrBlank() }
+        ) {
+            landIntelligenceContext = BackendBootstrapRepository(api).loadLandIntelligenceContext(
+                stateLgdCode = landStateLgdCode,
+                districtLgdCode = landDistrictLgdCode,
+                pinCode = landPinCode,
+                cropCode = landCropCode,
+                seasonCode = landSeasonCode
+            ).getOrNull()
+        } else {
+            landIntelligenceContext = null
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -226,6 +248,7 @@ fun DynamicFormScreen(
                 }
 
                 schema != null -> {
+                    landIntelligenceContext?.let { LandIntelligenceGuidanceCard(it) }
                     // Render the form
                     DynamicFormRenderer(
                         schema = schema!!,
@@ -647,4 +670,74 @@ private fun Map<String, Any?>.intValue(key: String): Int? {
 private fun Map<String, Any?>.geoJsonValue(key: String): String? {
     val value = this[key] ?: return null
     return value.toString().takeIf { GeoJson.isGeoJson(it) }
+}
+
+private fun resolveLandIntelligenceCropCode(formValues: Map<String, Any?>): String? {
+    return formValues.stringValue("crop_code")
+        ?: formValues.stringValue("primary_crop_code")
+        ?: formValues.stringValue("current_crop_code")
+        ?: formValues.firstListValue("kharif_crops")
+        ?: formValues.firstListValue("rabi_crops")
+        ?: formValues.firstListValue("zaid_crops")
+}
+
+private fun resolveLandIntelligenceSeasonCode(formValues: Map<String, Any?>): String? {
+    formValues.stringValue("season_code")?.let { return it }
+    if (formValues.firstListValue("kharif_crops") != null) return "KHARIF"
+    if (formValues.firstListValue("rabi_crops") != null) return "RABI"
+    if (formValues.firstListValue("zaid_crops") != null) return "ZAID"
+    return null
+}
+
+private fun Map<String, Any?>.firstListValue(key: String): String? {
+    val value = this[key] ?: return null
+    return when (value) {
+        is List<*> -> value.firstOrNull()?.toString()?.takeIf { it.isNotBlank() }
+        else -> value.toString().takeIf { it.isNotBlank() }
+    }
+}
+
+@Composable
+private fun LandIntelligenceGuidanceCard(context: LandIntelligenceContextDto) {
+    val suitability = context.cropSuitability
+    val guidance = context.soilCaptureGuidance
+    val firstRegion = context.climateContext?.regions?.firstOrNull()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text("Land intelligence guidance", style = MaterialTheme.typography.titleSmall)
+            firstRegion?.regionName?.let { regionName ->
+                Text("Region: $regionName", style = MaterialTheme.typography.bodySmall)
+            }
+            context.climateContext?.mappingPrecision?.let { precision ->
+                Text("Mapping precision: $precision", style = MaterialTheme.typography.bodySmall)
+            }
+            if (suitability?.inputProvided == true) {
+                Text(
+                    "Crop suitability: ${suitability.status ?: "UNKNOWN"}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            guidance?.message?.let { message ->
+                Text(message, style = MaterialTheme.typography.bodySmall)
+            }
+            suitability?.warnings?.forEach { warning ->
+                val severity = warning.severity?.takeIf { it.isNotBlank() } ?: "INFO"
+                val message = warning.message?.takeIf { it.isNotBlank() } ?: warning.code ?: return@forEach
+                Text("$severity: $message", style = MaterialTheme.typography.bodySmall)
+            }
+            if (suitability?.requiresConfirmation == true) {
+                Text(
+                    "Please confirm irrigation, local practice, and farmer observation before continuing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+    }
 }

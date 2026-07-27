@@ -6,6 +6,7 @@ import com.agrios.app.data.remote.dto.AuthModeBootstrapDto
 import com.agrios.app.data.remote.dto.FormEndpointHintDto
 import com.agrios.app.data.remote.dto.FormSchemaDto
 import com.agrios.app.data.remote.dto.GeographyHierarchyProfileDto
+import com.agrios.app.data.remote.dto.LandIntelligenceContextDto
 import com.agrios.app.data.remote.dto.PinCodeVillageLookupDto
 import com.agrios.app.data.remote.dto.ProfileContractDto
 import com.agrios.app.data.remote.dto.SeasonLandUnitsMetadataDto
@@ -92,6 +93,27 @@ class BackendBootstrapRepository(
         withContext(Dispatchers.IO) {
             runCatching { api.getVillagesByPinCode(pinCode).bodyOrThrow("PIN-code village lookup") }
         }
+
+    suspend fun loadLandIntelligenceContext(
+        stateLgdCode: String? = null,
+        districtLgdCode: String? = null,
+        pinCode: String? = null,
+        cropCode: String? = null,
+        seasonCode: String? = null,
+        projectId: String? = null
+    ): Result<LandIntelligenceContextDto> = withContext(Dispatchers.IO) {
+        runCatching {
+            api.getLandIntelligenceContext(
+                stateLgdCode = stateLgdCode,
+                districtLgdCode = districtLgdCode,
+                pinCode = pinCode,
+                cropCode = cropCode,
+                seasonCode = seasonCode,
+                projectId = projectId
+            ).bodyOrThrow("land intelligence context")
+        }
+    }
+
 
     private fun <T> Response<T>.bodyOrThrow(label: String): T {
         if (isSuccessful) {
