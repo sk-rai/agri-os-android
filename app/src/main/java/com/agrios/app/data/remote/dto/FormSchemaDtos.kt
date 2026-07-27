@@ -1,5 +1,6 @@
 package com.agrios.app.data.remote.dto
 
+import com.google.gson.JsonElement
 import com.google.gson.annotations.SerializedName
 
 /**
@@ -18,6 +19,8 @@ data class FormSchemaDto(
     @SerializedName("description") val description: Map<String, String>? = null,
     @SerializedName("entity_type") val entityType: String = "CROP_CYCLE",
     @SerializedName("fields") val fields: List<FormFieldDto> = emptyList(),
+    @SerializedName("submit_endpoint") val submitEndpoint: String? = null,
+    @SerializedName("submit_method") val submitMethod: String? = null,
     @SerializedName("submit_label") val submitLabel: Map<String, String>? = null
 ) {
     fun resolveTitle(lang: String): String = title[lang] ?: title["en"] ?: ""
@@ -47,7 +50,14 @@ data class FormFieldDto(
     @SerializedName("default_value") val defaultValue: String? = null,
     @SerializedName("validation") val validation: FormFieldValidationDto? = null,
     @SerializedName("depends_on") val dependsOn: String? = null,
-    @SerializedName("depends_on_value") val dependsOnValue: String? = null
+    @SerializedName("depends_on_value") val dependsOnValue: String? = null,
+    @SerializedName("canonical_field") val canonicalField: String? = null,
+    @SerializedName("android_hint") val androidHint: JsonElement? = null,
+    @SerializedName("capture_modes") val captureModes: List<String>? = null,
+    @SerializedName("output_format") val outputFormat: String? = null,
+    @SerializedName("accuracy_required_meters") val accuracyRequiredMeters: Double? = null,
+    @SerializedName("allow_offline_capture") val allowOfflineCapture: Boolean? = null,
+    @SerializedName("min_points") val minPoints: Int? = null
 )
 
 data class FormFieldOptionDto(
@@ -61,5 +71,6 @@ data class FormFieldValidationDto(
     @SerializedName("min_length") val minLength: Int? = null,
     @SerializedName("max_length") val maxLength: Int? = null,
     @SerializedName("pattern") val pattern: String? = null,
-    @SerializedName("pattern_error") val patternError: Map<String, String>? = null
+    @SerializedName("pattern_error") val patternError: Map<String, String>? = null,
+    @SerializedName("required_when") val requiredWhen: JsonElement? = null
 )

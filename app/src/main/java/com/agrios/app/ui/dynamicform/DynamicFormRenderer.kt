@@ -351,7 +351,7 @@ private fun RenderField(
     }
 }
 
-private fun isFieldVisible(field: FormFieldDto, formValues: Map<String, Any?>): Boolean {
+internal fun isFieldVisible(field: FormFieldDto, formValues: Map<String, Any?>): Boolean {
     if (field.dependsOn == null) return true
     val dependencyValue = formValues[field.dependsOn]
     if (dependencyValue == null || dependencyValue == "") return false
@@ -414,36 +414,7 @@ private suspend fun loadDynamicOptions(source: String, formValues: Map<String, A
  * Validate all form fields against schema rules.
  */
 fun validateForm(schema: FormSchemaDto, formValues: Map<String, Any?>): Map<String, String> {
-    val errors = mutableMapOf<String, String>()
-    val lang = if (LanguageManager.isHindi()) "hi" else "en"
-
-    schema.fields.forEach { field ->
-        if (!isFieldVisible(field, formValues)) return@forEach
-        val value = formValues[field.id]
-
-        if (field.required && (value == null || value.toString().isBlank())) {
-            errors[field.id] = "${resolveLabel(field.label, lang)} ${LanguageManager.localize("is required", "आवश्यक है")}"
-            return@forEach
-        }
-        if (value == null || value.toString().isBlank()) return@forEach
-
-        val validation = field.validation
-        if (validation != null && field.type == "number") {
-            val numVal = value.toString().toDoubleOrNull()
-            if (numVal != null) {
-                if (validation.min != null && numVal < validation.min) errors[field.id] = "${resolveLabel(field.label, lang)}: min ${validation.min}"
-                if (validation.max != null && numVal > validation.max) errors[field.id] = "${resolveLabel(field.label, lang)}: max ${validation.max}"
-            }
-        }
-        if (validation?.pattern != null && field.type == "text") {
-            val regex = Regex(validation.pattern)
-            if (!regex.matches(value.toString())) {
-                errors[field.id] = resolveLabel(validation.patternError, lang).takeIf { it.isNotBlank() }
-                    ?: "${resolveLabel(field.label, lang)} ${LanguageManager.localize("format invalid", "प्रारूप अमान्य")}"
-            }
-        }
-    }
-    return errors
+    return FormValidation.validate(schema, formValues).associate { it.fieldId to it.message }
 }
 
 

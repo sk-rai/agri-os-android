@@ -20,6 +20,14 @@ interface AgriOsApi {
     @POST("auth/device")
     suspend fun authenticateDevice(@Body request: DeviceAuthDto): Response<AuthResponseDto>
 
+    @GET("auth/mode-bootstrap")
+    suspend fun getModeBootstrap(): Response<AuthModeBootstrapDto>
+
+    @GET("app-config/bootstrap")
+    suspend fun getAppBootstrap(
+        @Query("project_id") projectId: String? = null
+    ): Response<AppConfigBootstrapDto>
+
     // --- Master Data ---
     @POST("master-data/sync")
     suspend fun syncMasterData(@Body request: MasterDataSyncRequestDto): Response<MasterDataSyncResponseDto>
@@ -47,6 +55,16 @@ interface AgriOsApi {
         @Query("limit") limit: Int = 20
     ): Response<List<GeographyVillageDto>>
 
+    @GET("master-data/geography/hierarchy-profile")
+    suspend fun getGeographyHierarchyProfile(
+        @Query("country_code") countryCode: String? = null
+    ): Response<GeographyHierarchyProfileDto>
+
+    @GET("master-data/geography/villages/by-pin-code")
+    suspend fun getVillagesByPinCode(
+        @Query("pin_code") pinCode: String
+    ): Response<PinCodeVillageLookupDto>
+
     @GET("master-data/crops/categories")
     suspend fun getCropCategories(): Response<List<CropCategoryDto>>
 
@@ -62,6 +80,13 @@ interface AgriOsApi {
 
     @GET("farmers")
     suspend fun getFarmers(): Response<List<FarmerResponseDto>>
+
+    @GET("farmers/profile-readiness")
+    suspend fun getProfileReadiness(
+        @Query("project_id") projectId: String? = null,
+        @Query("section") section: String? = null,
+        @Query("section_status") sectionStatus: String? = null
+    ): Response<com.google.gson.JsonElement>
 
     @GET("farmers/me/profile")
     suspend fun getMyFarmerProfile(): Response<FarmerProfileHydrationDto>
@@ -83,6 +108,26 @@ interface AgriOsApi {
         @Path("parcelId") parcelId: String,
         @Body body: ParcelGeometryUpdateRequest
     ): Response<ParcelGeometryUpdateResponseDto>
+
+    // --- Backend-driven forms/options/contracts ---
+    @GET("forms/profile-contract")
+    suspend fun getProfileContract(
+        @Query("project_id") projectId: String? = null
+    ): Response<ProfileContractDto>
+
+    @GET("forms/options")
+    suspend fun getFormOptions(): Response<com.google.gson.JsonElement>
+
+    @GET("forms/options/{optionSet}")
+    suspend fun getFormOptionSet(
+        @Path("optionSet") optionSet: String,
+        @Query("project_id") projectId: String? = null
+    ): Response<com.google.gson.JsonElement>
+
+    @GET("forms/metadata/season-land-units")
+    suspend fun getSeasonLandUnitsMetadata(
+        @Query("project_id") projectId: String? = null
+    ): Response<SeasonLandUnitsMetadataDto>
 
     // --- Sync ---
     @POST("sync/events")

@@ -28,8 +28,10 @@ class AuthInterceptor(private val authDao: AuthDao) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
 
-        // Skip auth injection for auth endpoints
-        if (originalRequest.url.encodedPath.contains("/auth/")) {
+        // Skip auth injection only for login/device-auth endpoints. Authenticated
+        // bootstrap endpoints such as /auth/mode-bootstrap still need headers.
+        val path = originalRequest.url.encodedPath
+        if (path.contains("/auth/otp/") || path.endsWith("/auth/device")) {
             return chain.proceed(originalRequest)
         }
 
