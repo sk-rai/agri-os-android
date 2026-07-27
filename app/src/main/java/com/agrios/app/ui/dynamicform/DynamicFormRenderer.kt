@@ -21,9 +21,8 @@ import com.agrios.app.ui.components.SearchableDropdown
 import com.agrios.app.ui.geo.GpsPointCaptureWidget
 import com.agrios.app.ui.geo.GpsPolygonWalkingWidget
 import com.agrios.app.ui.geo.GeometryPreviewWidget
-import com.google.gson.Gson
+import com.google.gson.JsonElement
 import com.google.gson.JsonParser
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,6 +62,17 @@ fun DynamicFormRenderer(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         schema.fields.forEach { field ->
             val isVisible = isFieldVisible(field, formValues)
+            LaunchedEffect(field.id, field.source, isVisible, formValues[field.dependsOn]) {
+                if (
+                    isVisible &&
+                    field.source != null &&
+                    !field.source.startsWith("local_") &&
+                    dynamicOptions[field.id] == null
+                ) {
+                    val options = loadDynamicOptions(field.source, formValues)
+                    if (options != null) dynamicOptions[field.id] = options
+                }
+            }
             AnimatedVisibility(visible = isVisible) {
                 RenderField(
                     field = field,
@@ -397,7 +407,14 @@ private fun resolveDefaultDate(defaultValue: String?): String {
 private suspend fun loadDynamicOptions(source: String, formValues: Map<String, Any?>): List<Pair<String, String>>? {
     if (source.startsWith("local_")) return null
 
-    var url = source
+    var url = when {
+        source.startsWith("profile_options.") -> {
+            val optionSet = source.substringAfter("profile_options.")
+            "/api/v1/forms/options/$optionSet"
+        }
+        source == "soil_inference" -> return null
+        else -> source
+    }
     val variableRegex = Regex("\\{(\\w+)\\}")
     variableRegex.findAll(source).forEach { match ->
         val fieldId = match.groupValues[1]
@@ -421,12 +438,7 @@ private suspend fun loadDynamicOptions(source: String, formValues: Map<String, A
 
             if (response.isSuccessful) {
                 val body = response.body?.string() ?: return@withContext null
-                val items: List<Map<String, Any?>> = Gson().fromJson(body, object : TypeToken<List<Map<String, Any?>>>() {}.type)
-                items.mapNotNull { item ->
-                    val id = (item["id"] ?: item["code"] ?: item["value"])?.toString() ?: return@mapNotNull null
-                    val name = (item["canonical_name"] ?: item["name"] ?: item["label"] ?: item["display_name"])?.toString() ?: id
-                    id to name
-                }
+                parseDynamicOptionItems(body)
             } else {
                 Log.w(TAG, "Dynamic options load failed: ${response.code} for $fullUrl")
                 null
@@ -436,6 +448,40 @@ private suspend fun loadDynamicOptions(source: String, formValues: Map<String, A
             null
         }
     }
+}
+
+private fun parseDynamicOptionItems(body: String): List<Pair<String, String>> {
+    val root = JsonParser.parseString(body)
+    val array = when {
+        root.isJsonArray -> root.asJsonArray
+        root.isJsonObject && root.asJsonObject.has("options") -> root.asJsonObject.getAsJsonArray("options")
+        root.isJsonObject && root.asJsonObject.has("items") -> root.asJsonObject.getAsJsonArray("items")
+        root.isJsonObject && root.asJsonObject.has("values") -> root.asJsonObject.getAsJsonArray("values")
+        root.isJsonObject && root.asJsonObject.has("crops") -> root.asJsonObject.getAsJsonArray("crops")
+        root.isJsonObject && root.asJsonObject.has("villages") -> root.asJsonObject.getAsJsonArray("villages")
+        else -> return emptyList()
+    }
+    return array.mapNotNull { element ->
+        val item = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+        val id = listOf("id", "code", "value", "crop_code", "village_id")
+            .firstNotNullOfOrNull { key -> item.get(key)?.takeIf { !it.isJsonNull }?.asString }
+            ?: return@mapNotNull null
+        val labelElement = listOf("label", "display_label", "display_name", "canonical_name", "name", "crop_name", "village_name")
+            .firstNotNullOfOrNull { key -> item.get(key)?.takeIf { !it.isJsonNull } }
+        id to resolveDynamicOptionLabel(labelElement, id)
+    }
+}
+
+private fun resolveDynamicOptionLabel(labelElement: JsonElement?, fallback: String): String {
+    if (labelElement == null || labelElement.isJsonNull) return fallback
+    if (labelElement.isJsonPrimitive) return labelElement.asString
+    if (labelElement.isJsonObject) {
+        val obj = labelElement.asJsonObject
+        return obj.get("en")?.takeIf { !it.isJsonNull }?.asString
+            ?: obj.entrySet().firstOrNull()?.value?.takeIf { !it.isJsonNull }?.asString
+            ?: fallback
+    }
+    return fallback
 }
 
 /**
