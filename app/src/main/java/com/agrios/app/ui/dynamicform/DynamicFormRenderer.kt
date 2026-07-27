@@ -168,7 +168,31 @@ private fun RenderField(
             val options = dynamicOptions ?: field.options?.map { it.value to resolveLabel(it.label, lang) } ?: emptyList()
             val selectedId = (value as? String) ?: ""
 
-            if (field.source == "local_parcels") {
+            if (field.source == "local_farmers") {
+                val db = AgriOsApp.instance.database
+                val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
+                val farmerItems = farmers.map { farmer ->
+                    farmer.id to (farmer.displayName ?: farmer.mobileNumber)
+                }
+                if (farmerItems.isEmpty()) {
+                    OutlinedTextField(
+                        value = "",
+                        onValueChange = {},
+                        label = { Text(label) },
+                        placeholder = { Text(LanguageManager.localize("No farmers available", "No farmers available")) },
+                        enabled = false,
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    SearchableDropdown(
+                        label = label,
+                        items = farmerItems,
+                        selectedId = selectedId,
+                        onSelect = { id, _ -> onValueChange(id) }
+                    )
+                }
+            } else if (field.source == "local_parcels") {
                 val db = AgriOsApp.instance.database
                 val parcels by db.parcelDao().observeAll().collectAsState(initial = emptyList())
                 val season = (formValues["season_code"] ?: formValues["season"])?.toString()

@@ -15,14 +15,20 @@ import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.geo.GeoJson
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
+import com.agrios.app.core.database.AppDatabase
 import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.LanguageManager
+import com.agrios.app.core.util.UnitConverter
+import com.agrios.app.data.local.entity.FarmerEntity
+import com.agrios.app.data.local.entity.ParcelEntity
+import com.agrios.app.data.local.entity.SoilProfileEntity
 import com.agrios.app.data.local.entity.SyncPriority
 import com.agrios.app.data.local.entity.SyncQueueEntity
 import com.agrios.app.data.local.entity.SyncStatus
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.FormSchemaDto
 import com.agrios.app.data.repository.BackendBootstrapRepository
+import com.agrios.app.data.repository.GeometryRepository
 import com.agrios.app.ui.cropcycle.StageInferenceDialog
 import com.google.gson.Gson
 import com.google.gson.JsonParser
@@ -284,7 +290,7 @@ fun DynamicFormScreen(
 
                             scope.launch {
                                 try {
-                                    val entityType = schema!!.entityType
+                                    val entityType = resolveProfileEntityType(formId, schema!!)
                                     val now = System.currentTimeMillis()
 
                                     // Build payload (filter out null values)
@@ -372,6 +378,39 @@ fun DynamicFormScreen(
                                                 throw Exception("HTTP ${response.code()}: ${errorBody ?: response.message()}")
                                             }
                                         }
+                                    } else if (entityType in setOf("FARMER", "PARCEL", "SOIL_PROFILE")) {
+                                        val entityId = saveProfileFormLocally(
+                                            db = db,
+                                            entityType = entityType,
+                                            payload = payload,
+                                            now = now
+                                        )
+                                        val dependencyIds = when (entityType) {
+                                            "PARCEL" -> payload["farmer_id"]?.toString()
+                                            "SOIL_PROFILE" -> listOfNotNull(
+                                                payload["parcel_id"]?.toString(),
+                                                payload["farmer_id"]?.toString()
+                                            ).joinToString(",").ifBlank { null }
+                                            else -> null
+                                        }
+                                        db.syncQueueDao().enqueue(SyncQueueEntity(
+                                            eventId = UUID.randomUUID().toString(),
+                                            entityType = entityType,
+                                            entityId = entityId,
+                                            operation = "CREATE",
+                                            payload = Gson().toJson(payload),
+                                            syncStatus = SyncStatus.PENDING.name,
+                                            priority = SyncPriority.HIGH.name,
+                                            dependencyIds = dependencyIds,
+                                            createdAt = now
+                                        ))
+                                        enqueueGeometryIfPresent(
+                                            entityType = entityType,
+                                            entityId = entityId,
+                                            payload = payload,
+                                            dependencyIds = entityId
+                                        )
+                                        SyncWorker.triggerImmediateSync(AgriOsApp.instance)
                                     } else {
                                         // For other entity types, use sync queue
                                         val entityId = UUID.randomUUID().toString()
@@ -416,4 +455,185 @@ fun DynamicFormScreen(
             }
         }
     }
+}
+
+private fun resolveProfileEntityType(formId: String, schema: FormSchemaDto): String {
+    return when (formId) {
+        "farmer_registration" -> "FARMER"
+        "parcel_registration" -> "PARCEL"
+        "soil_profile" -> "SOIL_PROFILE"
+        "crop_cycle_create" -> "CROP_CYCLE"
+        else -> schema.entityType
+    }
+}
+
+private suspend fun saveProfileFormLocally(
+    db: AppDatabase,
+    entityType: String,
+    payload: Map<String, Any?>,
+    now: Long
+): String {
+    val authState = db.authDao().getAuthState()
+    val actorId = authState?.userId ?: "unknown"
+    return when (entityType) {
+        "FARMER" -> {
+            val farmerId = payload.stringValue("id") ?: UUID.randomUUID().toString()
+            val villageId = payload.stringValue("village_id") ?: ""
+            val enrollmentPoint = payload.geoJsonValue("enrollment_location")
+                ?: payload.geoJsonValue("enrollment_gps")
+            val point = GeoJson.parsePoint(enrollmentPoint)
+            db.farmerDao().insert(
+                FarmerEntity(
+                    id = farmerId,
+                    mobileNumber = payload.stringValue("mobile_number") ?: "",
+                    villageId = villageId,
+                    villageName = payload.stringValue("village_name_manual"),
+                    primaryCropCode = payload.stringValue("primary_crop_code"),
+                    displayName = payload.stringValue("display_name"),
+                    fatherName = payload.stringValue("father_name"),
+                    age = payload.intValue("age"),
+                    gender = payload.stringValue("gender"),
+                    aadhaarNumber = payload.stringValue("aadhaar_number"),
+                    assistanceMode = payload.stringValue("assistance_mode") ?: "DEALER_ASSISTED",
+                    syncStatus = SyncStatus.PENDING.name,
+                    createdAt = now,
+                    updatedAt = now,
+                    actorId = actorId,
+                    gpsLat = point?.lat ?: payload.doubleValue("enrollment_gps_lat"),
+                    gpsLng = point?.lng ?: payload.doubleValue("enrollment_gps_lng")
+                )
+            )
+            farmerId
+        }
+
+        "PARCEL" -> {
+            val parcelId = payload.stringValue("id") ?: UUID.randomUUID().toString()
+            val farmerId = payload.stringValue("farmer_id")
+                ?: db.farmerDao().getFirst()?.id
+                ?: throw IllegalStateException("Missing farmer_id for parcel")
+            val farmer = db.farmerDao().getById(farmerId)
+            val area = payload.doubleValue("reported_area")
+                ?: throw IllegalStateException("Missing reported_area for parcel")
+            val unit = payload.stringValue("reported_area_unit") ?: "BIGHA"
+            val pinDrop = payload.geoJsonValue("parcel_location")
+            val boundary = payload.geoJsonValue("parcel_boundary")
+            val point = GeoJson.parsePoint(pinDrop)
+            val geometrySource = when {
+                !boundary.isNullOrBlank() -> "GPS_WALK"
+                !pinDrop.isNullOrBlank() -> "PIN_DROP"
+                else -> payload.stringValue("geometry_source") ?: "NONE"
+            }
+            db.parcelDao().insert(
+                ParcelEntity(
+                    id = parcelId,
+                    farmerId = farmerId,
+                    villageId = payload.stringValue("village_id") ?: farmer?.villageId ?: "",
+                    villageName = payload.stringValue("village_name_manual") ?: farmer?.villageName,
+                    reportedArea = area,
+                    reportedAreaUnit = unit,
+                    areaHectares = UnitConverter.toHectares(area, unit),
+                    geometrySource = geometrySource,
+                    gpsLat = point?.lat ?: payload.doubleValue("centroid_lat"),
+                    gpsLng = point?.lng ?: payload.doubleValue("centroid_lng"),
+                    ownershipType = payload.stringValue("ownership_type") ?: "OWNED",
+                    irrigationSource = payload.stringValue("irrigation_source"),
+                    surveyNumber = payload.stringValue("survey_number"),
+                    annualRent = payload.doubleValue("annual_rent"),
+                    sharePercentage = payload.intValue("share_percentage"),
+                    sharecropPercentage = payload.intValue("sharecrop_percentage"),
+                    syncStatus = SyncStatus.PENDING.name,
+                    createdAt = now,
+                    updatedAt = now,
+                    actorId = actorId
+                )
+            )
+            parcelId
+        }
+
+        "SOIL_PROFILE" -> {
+            val soilProfileId = payload.stringValue("id") ?: UUID.randomUUID().toString()
+            val parcelId = payload.stringValue("parcel_id")
+                ?: throw IllegalStateException("Missing parcel_id for soil profile")
+            val farmerId = payload.stringValue("farmer_id")
+                ?: db.parcelDao().getById(parcelId)?.farmerId
+                ?: throw IllegalStateException("Missing farmer_id for soil profile")
+            db.soilProfileDao().insert(
+                SoilProfileEntity(
+                    id = soilProfileId,
+                    parcelId = parcelId,
+                    farmerId = farmerId,
+                    soilTypeCode = payload.stringValue("soil_type_code"),
+                    soilTexture = payload.stringValue("soil_texture"),
+                    soilColor = payload.stringValue("soil_color"),
+                    ph = payload.doubleValue("ph"),
+                    nitrogenN = payload.doubleValue("nitrogen_n"),
+                    phosphorusP = payload.doubleValue("phosphorus_p"),
+                    potassiumK = payload.doubleValue("potassium_k"),
+                    sulphurS = payload.doubleValue("sulphur_s"),
+                    zincZn = payload.doubleValue("zinc_zn"),
+                    ironFe = payload.doubleValue("iron_fe"),
+                    copperCu = payload.doubleValue("copper_cu"),
+                    manganeseMn = payload.doubleValue("manganese_mn"),
+                    boronB = payload.doubleValue("boron_bo") ?: payload.doubleValue("boron_b"),
+                    ec = payload.doubleValue("ec"),
+                    organicCarbonOc = payload.doubleValue("organic_carbon_oc"),
+                    shcCardNumber = payload.stringValue("shc_card_number"),
+                    dataSource = payload.stringValue("data_source") ?: "MANUAL",
+                    testDate = payload.stringValue("test_date"),
+                    syncStatus = SyncStatus.PENDING.name,
+                    createdAt = now,
+                    updatedAt = now,
+                    actorId = actorId
+                )
+            )
+            soilProfileId
+        }
+
+        else -> UUID.randomUUID().toString()
+    }
+}
+
+private suspend fun enqueueGeometryIfPresent(
+    entityType: String,
+    entityId: String,
+    payload: Map<String, Any?>,
+    dependencyIds: String?
+) {
+    if (entityType != "PARCEL") return
+    val boundary = payload.geoJsonValue("parcel_boundary")
+    val pinDrop = payload.geoJsonValue("parcel_location")
+    val geoJson = boundary ?: pinDrop ?: return
+    val source = if (boundary != null) "GPS_WALK" else "PIN_DROP"
+    GeometryRepository.enqueueParcelGeometry(
+        syncQueueDao = AgriOsApp.instance.database.syncQueueDao(),
+        parcelId = entityId,
+        result = GeometryRepository.resultForSource(
+            geometrySource = source,
+            geoJson = geoJson
+        ),
+        dependencyIds = dependencyIds
+    )
+}
+
+private fun Map<String, Any?>.stringValue(key: String): String? {
+    return this[key]?.toString()?.takeIf { it.isNotBlank() }
+}
+
+private fun Map<String, Any?>.doubleValue(key: String): Double? {
+    return when (val value = this[key]) {
+        is Number -> value.toDouble()
+        else -> value?.toString()?.toDoubleOrNull()
+    }
+}
+
+private fun Map<String, Any?>.intValue(key: String): Int? {
+    return when (val value = this[key]) {
+        is Number -> value.toInt()
+        else -> value?.toString()?.toIntOrNull()
+    }
+}
+
+private fun Map<String, Any?>.geoJsonValue(key: String): String? {
+    val value = this[key] ?: return null
+    return value.toString().takeIf { GeoJson.isGeoJson(it) }
 }
