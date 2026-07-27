@@ -115,7 +115,7 @@ fun AppNavigation() {
 
         composable(Routes.HOME) {
             HomeScreen(
-                onNavigateToFarmerEnroll = { navController.navigate(Routes.UNIFIED_ENROLL) },
+                onNavigateToFarmerEnroll = { navController.navigate(Routes.FARMER_ENROLL) },
                 onNavigateToParcelRegister = { navController.navigate(Routes.PARCEL_REGISTER) },
                 onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                 onNavigateToCropCycle = { navController.navigate(Routes.CROP_CYCLE_CREATE) },
@@ -134,7 +134,7 @@ fun AppNavigation() {
                 featureFlag = "backend_driven_farmer_forms",
                 onBack = { navController.popBackStack() },
                 onSuccess = {
-                    navController.navigate(Routes.HOME) {
+                    navController.navigate(Routes.PARCEL_REGISTER) {
                         popUpTo(Routes.FARMER_ENROLL) { inclusive = true }
                     }
                 },
