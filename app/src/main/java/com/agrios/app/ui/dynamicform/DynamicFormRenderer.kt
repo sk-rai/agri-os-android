@@ -289,7 +289,7 @@ private fun RenderField(
         }
 
         "multi_select" -> {
-            val options = field.options ?: emptyList()
+            val options = dynamicOptions ?: field.options?.map { it.value to resolveLabel(it.label, lang) } ?: emptyList()
             @Suppress("UNCHECKED_CAST")
             val selectedValues = (value as? List<String>) ?: emptyList()
             Column {
@@ -297,14 +297,14 @@ private fun RenderField(
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     options.forEach { option ->
                         FilterChip(
-                            selected = option.value in selectedValues,
+                            selected = option.first in selectedValues,
                             onClick = {
                                 if (enabled) {
-                                    val newList = if (option.value in selectedValues) selectedValues - option.value else selectedValues + option.value
+                                    val newList = if (option.first in selectedValues) selectedValues - option.first else selectedValues + option.first
                                     onValueChange(newList)
                                 }
                             },
-                            label = { Text(resolveLabel(option.label, lang), style = MaterialTheme.typography.labelSmall) },
+                            label = { Text(option.second, style = MaterialTheme.typography.labelSmall) },
                             enabled = enabled
                         )
                     }
@@ -486,7 +486,7 @@ private fun parseDynamicOptionItems(body: String): List<Pair<String, String>> {
     }
     return array.mapNotNull { element ->
         val item = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
-        val id = listOf("id", "code", "value", "crop_code", "village_id")
+        val id = listOf("value", "crop_code", "code", "village_id", "id")
             .firstNotNullOfOrNull { key -> item.get(key)?.takeIf { !it.isJsonNull }?.asString }
             ?: return@mapNotNull null
         val labelElement = listOf("label", "display_label", "display_name", "canonical_name", "name", "crop_name", "village_name")
