@@ -1,0 +1,18 @@
+appId: com.agrios.app
+name: Farmer profile shows parcels and geometry status
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: ".*barack obama.*"
+    timeout: 30000
+- tapOn: ".*barack obama.*"
+- extendedWaitUntil:
+    visible: "Farmer Profile"
+    timeout: 20000
+- assertVisible: ".*Land Parcels.*"
+- assertVisible: "5.0 Biswa \\(Owned\\)"
+- assertVisible: "5.0 Biswa \\(Leased\\)"
+- assertVisible: "Geometry:.*"
+- assertVisible: "Update GPS"
+- takeScreenshot: "02-farmer-profile-parcels"

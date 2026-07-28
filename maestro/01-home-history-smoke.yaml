@@ -1,0 +1,17 @@
+appId: com.agrios.app
+name: Home shows hydrated profile and completed crop history
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: "Agri-OS"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: ".*barack obama.*"
+    timeout: 30000
+- assertVisible: "Crop Management"
+- assertVisible: "Completed Crop Cycles"
+- assertVisible:
+    text: "Completed .*"
+- assertVisible: "Start Crop Cycle"
+- takeScreenshot: "01-home-history"

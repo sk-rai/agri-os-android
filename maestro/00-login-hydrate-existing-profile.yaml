@@ -1,0 +1,33 @@
+appId: com.agrios.app
+name: Login and hydrate existing backend profile
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 20000
+- takeScreenshot: "00-00-language"
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- takeScreenshot: "00-01-auth-start"
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000001"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- takeScreenshot: "00-02-otp"
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*barack obama.*"
+    timeout: 60000
+- assertVisible: "Completed Crop Cycles"
+- assertVisible: "Start Crop Cycle"
+- takeScreenshot: "00-03-home-hydrated"

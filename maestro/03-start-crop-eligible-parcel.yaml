@@ -1,0 +1,16 @@
+appId: com.agrios.app
+name: Start crop cycle handles current-season eligibility
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: ".*barack obama.*"
+    timeout: 30000
+- tapOn: "Start Crop Cycle"
+- extendedWaitUntil:
+    visible: "Start Crop Cycle"
+    timeout: 20000
+- assertVisible: "Select Parcel.*"
+- tapOn: "Select Parcel.*"
+- assertVisible: "Sync farmer/land or choose a different season/year"
+- takeScreenshot: "03-no-current-season-eligible-parcel"
