@@ -5,10 +5,18 @@ name: Backend dynamic form shows land intelligence guidance
 # It starts from a clean app state with a new test mobile so Android enters
 # the backend-configured enrollment path, then checks that PIN/geography input
 # can surface backend-provided land-intelligence guidance.
+# Prerequisite: backend /api/v1/app-config/bootstrap must enable
+# backend_driven_farmer_forms / backend_driven_parcel_forms / backend_driven_soil_forms.
+# If those flags are false, Android should fall back to the legacy enrollment screen.
 - launchApp:
     clearState: true
 - extendedWaitUntil:
-    visible: "Agri-OS"
+    visible: ".*Agri-OS"
+    timeout: 20000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
     timeout: 20000
 - tapOn:
     text: "Mobile Number.*"
@@ -43,4 +51,3 @@ name: Backend dynamic form shows land intelligence guidance
     visible: "Land intelligence guidance"
     timeout: 30000
 - takeScreenshot: "04-land-intelligence-guidance"
-

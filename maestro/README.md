@@ -39,6 +39,16 @@ Optional / more fragile while backend forms continue changing:
 maestro test maestro\04-dynamic-land-intelligence-guidance.yaml
 ```
 
+`04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
+
+```json
+"backend_driven_farmer_forms": true,
+"backend_driven_parcel_forms": true,
+"backend_driven_soil_forms": true
+```
+
+If those flags are `false`, Android correctly falls back to the legacy enrollment/profile screens and this flow should not be expected to pass.
+
 ## Screenshots
 
 Each flow uses `takeScreenshot`. Maestro stores screenshots in its run artifacts and prints their location in the terminal output. Please share the failed screenshot plus the terminal failure text if something breaks.
