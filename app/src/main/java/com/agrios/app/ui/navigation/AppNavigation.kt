@@ -12,6 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.network.AndroidDynamicTestContext
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.util.LanguageManager
@@ -403,6 +404,7 @@ private fun BackendDrivenProfileFormGate(
 ) {
     val db = AgriOsApp.instance.database
     var useBackendForm by remember(formId, featureFlag) { mutableStateOf<Boolean?>(null) }
+    var backendProjectId by remember(formId, featureFlag) { mutableStateOf<String?>(null) }
 
     val api = remember {
         val okHttp = OkHttpClient.Builder()
@@ -421,8 +423,12 @@ private fun BackendDrivenProfileFormGate(
 
     LaunchedEffect(formId, featureFlag) {
         useBackendForm = try {
-            val hint = BackendBootstrapRepository(api).resolveProfileFormHint(formId).getOrNull()
-            val appConfig = api.getAppBootstrap().body()
+            val projectId = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                AndroidDynamicTestContext.projectIdFor(db.authDao())
+            }
+            backendProjectId = projectId
+            val hint = BackendBootstrapRepository(api).resolveProfileFormHint(formId, projectId).getOrNull()
+            val appConfig = api.getAppBootstrap(projectId).body()
             val flagEnabled = appConfig?.featureFlags?.get(featureFlag) == true
             val formEnabled = hint?.enabled != false
             flagEnabled && formEnabled
@@ -434,6 +440,7 @@ private fun BackendDrivenProfileFormGate(
     when (useBackendForm) {
         true -> DynamicFormScreen(
             formId = formId,
+            projectId = backendProjectId,
             contextValues = contextValues,
             onBack = onBack,
             onSuccess = onSuccess

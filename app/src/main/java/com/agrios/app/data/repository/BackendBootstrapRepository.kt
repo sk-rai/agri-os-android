@@ -45,8 +45,8 @@ class BackendBootstrapRepository(
         runCatching { api.getFormOptions().bodyOrThrow("form options") }
     }
 
-    suspend fun loadFormSchema(formId: String): Result<FormSchemaDto> = withContext(Dispatchers.IO) {
-        runCatching { api.getFormSchema(formId).bodyOrThrow("form schema $formId") }
+    suspend fun loadFormSchema(formId: String, projectId: String? = null): Result<FormSchemaDto> = withContext(Dispatchers.IO) {
+        runCatching { api.getFormSchema(formId, projectId).bodyOrThrow("form schema $formId") }
     }
 
     suspend fun loadWorkflows(): Result<List<WorkflowSummaryDto>> = withContext(Dispatchers.IO) {
@@ -80,7 +80,7 @@ class BackendBootstrapRepository(
             val formId = hint?.formId
                 ?: hint?.endpoint?.trimEnd('/')?.substringAfterLast('/')
                 ?: profileFormKey
-            api.getFormSchema(formId).bodyOrThrow("profile form schema $formId")
+            api.getFormSchema(formId, projectId).bodyOrThrow("profile form schema $formId")
         }
     }
 

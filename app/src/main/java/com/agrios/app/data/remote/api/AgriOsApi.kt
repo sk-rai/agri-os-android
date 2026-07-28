@@ -136,7 +136,8 @@ interface AgriOsApi {
 
     @GET("forms/{formId}")
     suspend fun getFormSchema(
-        @Path("formId") formId: String
+        @Path("formId") formId: String,
+        @Query("project_id") projectId: String? = null
     ): Response<FormSchemaDto>
 
     @GET("forms/metadata/season-land-units")

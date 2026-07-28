@@ -38,7 +38,7 @@ class AuthInterceptor(private val authDao: AuthDao) : Interceptor {
         val authState = runBlocking { authDao.getAuthState() }
 
         val request = if (authState?.jwt != null) {
-            val tenantId = authState.tenantId?.takeIf { it.isNotBlank() } ?: DEFAULT_TENANT_ID
+            val tenantId = AndroidDynamicTestContext.effectiveTenantId(authState, DEFAULT_TENANT_ID)
             val actorId = authState.userId ?: ""
 
             if (authState.tenantId.isNullOrBlank()) {

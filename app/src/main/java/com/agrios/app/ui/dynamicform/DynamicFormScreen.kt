@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
 import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.geo.GeoJson
+import com.agrios.app.core.network.AndroidDynamicTestContext
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.database.AppDatabase
@@ -52,6 +53,7 @@ private const val TAG = "DynamicFormScreen"
 @Composable
 fun DynamicFormScreen(
     formId: String,
+    projectId: String? = null,
     contextValues: Map<String, String> = emptyMap(), // Pre-filled values (e.g., parcel_id, farmer_id)
     onBack: () -> Unit,
     onSuccess: () -> Unit,
@@ -88,6 +90,7 @@ fun DynamicFormScreen(
     var createdCycleResponse by remember { mutableStateOf<com.agrios.app.data.remote.dto.CropCycleResponseDto?>(null) }
     var showInferenceDialog by remember { mutableStateOf(false) }
     var landIntelligenceContext by remember { mutableStateOf<LandIntelligenceContextDto?>(null) }
+    var backendProjectId by remember(projectId) { mutableStateOf(projectId) }
 
     // Pre-fill context values
     LaunchedEffect(contextValues) {
@@ -99,13 +102,21 @@ fun DynamicFormScreen(
         }
     }
 
+    LaunchedEffect(projectId) {
+        if (projectId == null) {
+            backendProjectId = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                AndroidDynamicTestContext.projectIdFor(db.authDao())
+            }
+        }
+    }
+
     // Load schema from backend
-    LaunchedEffect(formId) {
+    LaunchedEffect(formId, backendProjectId) {
         isLoading = true
         loadError = null
         try {
             val loadedSchema = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                BackendBootstrapRepository(api).loadFormSchema(formId).getOrThrow()
+                BackendBootstrapRepository(api).loadFormSchema(formId, backendProjectId).getOrThrow()
             }
             schema = loadedSchema
             Log.d(TAG, "Schema loaded: ${loadedSchema.formId}, ${loadedSchema.fields.size} fields")
@@ -128,7 +139,7 @@ fun DynamicFormScreen(
     val landStateLgdCode = formValues["state_lgd_code"]?.toString()?.takeIf { it.isNotBlank() }
     val landCropCode = resolveLandIntelligenceCropCode(formValues)
     val landSeasonCode = resolveLandIntelligenceSeasonCode(formValues)
-    LaunchedEffect(formId, landPinCode, landDistrictLgdCode, landStateLgdCode, landCropCode, landSeasonCode) {
+    LaunchedEffect(formId, landPinCode, landDistrictLgdCode, landStateLgdCode, landCropCode, landSeasonCode, backendProjectId) {
         if (formId in setOf("farmer_registration", "parcel_registration", "soil_profile") &&
             listOf(landPinCode, landDistrictLgdCode, landStateLgdCode).any { !it.isNullOrBlank() }
         ) {
@@ -137,7 +148,8 @@ fun DynamicFormScreen(
                 districtLgdCode = landDistrictLgdCode,
                 pinCode = landPinCode,
                 cropCode = landCropCode,
-                seasonCode = landSeasonCode
+                seasonCode = landSeasonCode,
+                projectId = backendProjectId
             ).getOrNull()
         } else {
             landIntelligenceContext = null
