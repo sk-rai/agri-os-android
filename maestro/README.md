@@ -26,6 +26,12 @@ From repo root:
 
 ```powershell
 cd C:\Users\SANTOSH\Documents\FarmInt
+.\maestro\run-smoke.ps1
+```
+
+Or run individual flows:
+
+```powershell
 maestro test maestro\00-login-hydrate-existing-profile.yaml
 maestro test maestro\01-home-history-smoke.yaml
 maestro test maestro\02-farmer-profile-parcel-geometry.yaml
