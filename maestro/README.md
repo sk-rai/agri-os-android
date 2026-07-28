@@ -30,6 +30,7 @@ maestro test maestro\00-login-hydrate-existing-profile.yaml
 maestro test maestro\01-home-history-smoke.yaml
 maestro test maestro\02-farmer-profile-parcel-geometry.yaml
 maestro test maestro\03-start-crop-eligible-parcel.yaml
+maestro test maestro\05-completed-cycle-view-only.yaml
 ```
 
 Optional / more fragile while backend forms continue changing:
@@ -57,4 +58,3 @@ maestro hierarchy
 ```
 
 That prints the visible UI tree. Share it with me and I can tighten the selectors.
-

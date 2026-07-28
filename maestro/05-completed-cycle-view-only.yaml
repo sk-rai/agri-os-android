@@ -1,0 +1,21 @@
+appId: com.agrios.app
+name: Completed crop cycle opens read-only
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: ".*barack obama.*"
+    timeout: 30000
+- assertVisible: "Completed Crop Cycles"
+- tapOn:
+    text: "Completed Rice.*"
+- extendedWaitUntil:
+    visible: ".*Rice.*"
+    timeout: 20000
+- assertVisible: "Completed crop cycle - view only"
+- assertVisible: ".*Harvest.*"
+- assertVisible: "View Activities"
+- assertNotVisible: "Log Activity"
+- assertNotVisible: "Start"
+- takeScreenshot: "05-completed-cycle-view-only"
+
