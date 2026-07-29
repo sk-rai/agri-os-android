@@ -1,0 +1,83 @@
+appId: com.agrios.app
+name: Backend dynamic parcel form submits with location scope object
+---
+# Requires the backend dynamic profile test context to be reset before running:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
+#
+# This starts from the dynamic test farmer, opens Farmer Profile, then enters
+# backend Land Parcel and saves a minimum parcel. WSL should verify the synced
+# PARCEL payload contains:
+#   location_scope.scope_type=SINGLE_VILLAGE
+#   location_scope.village_name_manual=Android Dynamic Test Village
+#   location_scope.pin_code=560001
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 20000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- tapOn:
+    text: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+- extendedWaitUntil:
+    visible: "Farmer Profile"
+    timeout: 30000
+- tapOn:
+    text: "Add Land Parcel"
+- extendedWaitUntil:
+    visible: "Land Parcel|Loading profile form.*"
+    timeout: 60000
+- tapOn:
+    text: "Farmer \\*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 20000
+- tapOn:
+    text: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+- extendedWaitUntil:
+    visible: "Land Parcel"
+    timeout: 20000
+- tapOn:
+    text: "Village \\*"
+- inputText: "Android Dynamic Test Village"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Reported Area \\*"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Reported Area \\*"
+- inputText: "5"
+- hideKeyboard
+- assertVisible: "Bigha"
+- scrollUntilVisible:
+    element:
+      text: "Save Parcel|Save|Continue"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Save Parcel|Save|Continue"
+- extendedWaitUntil:
+    visible: ".*Saved.*"
+    timeout: 30000
+- assertVisible: "Syncing in background.*"
+- takeScreenshot: "07-dynamic-parcel-submit-saved"

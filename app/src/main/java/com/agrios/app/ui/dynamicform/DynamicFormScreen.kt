@@ -342,7 +342,8 @@ fun DynamicFormScreen(
                                         }
                                     val payload = normalizeProfileSubmitPayload(
                                         formId = formId,
-                                        payload = rawPayload
+                                        payload = rawPayload,
+                                        db = db
                                     )
 
                                     // Route to correct endpoint based on form type
@@ -654,20 +655,25 @@ private suspend fun saveProfileFormLocally(
     }
 }
 
-private fun normalizeProfileSubmitPayload(
+private suspend fun normalizeProfileSubmitPayload(
     formId: String,
-    payload: Map<String, Any?>
+    payload: Map<String, Any?>,
+    db: AppDatabase
 ): Map<String, Any?> {
     return when (formId) {
-        "parcel_registration" -> payload.withParcelLocationScope()
+        "parcel_registration" -> payload.withParcelLocationScope(db)
         else -> payload
     }
 }
 
-private fun Map<String, Any?>.withParcelLocationScope(): Map<String, Any?> {
+private suspend fun Map<String, Any?>.withParcelLocationScope(db: AppDatabase): Map<String, Any?> {
+    val farmerContext = db.resolveFarmerPayloadContext(stringValue("farmer_id"))
     val villageName = stringValue("village_name_manual")
+        ?: farmerContext["village_name_manual"]?.toString()
     val pinCode = stringValue("pin_code")
+        ?: farmerContext["pin_code"]?.toString()
     val villageId = stringValue("village_id")
+        ?: farmerContext["village_id"]?.toString()
 
     if (villageName.isNullOrBlank() && pinCode.isNullOrBlank() && villageId.isNullOrBlank()) {
         return this
@@ -683,6 +689,35 @@ private fun Map<String, Any?>.withParcelLocationScope(): Map<String, Any?> {
     return toMutableMap().apply {
         this["location_scope"] = locationScope
     }
+}
+
+private suspend fun AppDatabase.resolveFarmerPayloadContext(farmerId: String?): Map<String, Any?> {
+    if (farmerId.isNullOrBlank()) return emptyMap()
+
+    val farmer = farmerDao().getById(farmerId)
+    val fromLocal = mutableMapOf<String, Any?>()
+    farmer?.villageId?.takeIf { it.isNotBlank() }?.let { fromLocal["village_id"] = it }
+    farmer?.villageName?.takeIf { it.isNotBlank() }?.let { fromLocal["village_name_manual"] = it }
+
+    val queuedPayload = syncQueueDao().getAllForDependencyCheck()
+        .asSequence()
+        .filter { it.entityType == "FARMER" && it.entityId == farmerId }
+        .sortedByDescending { it.createdAt }
+        .mapNotNull { item ->
+            runCatching {
+                JsonParser.parseString(item.payload).asJsonObject
+            }.getOrNull()
+        }
+        .firstOrNull()
+
+    if (queuedPayload != null) {
+        listOf("village_id", "village_name_manual", "pin_code").forEach { key ->
+            if (!queuedPayload.has(key) || queuedPayload.get(key).isJsonNull) return@forEach
+            fromLocal[key] = queuedPayload.get(key).asString
+        }
+    }
+
+    return fromLocal
 }
 
 private suspend fun enqueueGeometryIfPresent(

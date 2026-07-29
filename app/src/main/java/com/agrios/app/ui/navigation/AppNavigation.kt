@@ -262,7 +262,10 @@ fun AppNavigation() {
             val farmerId = backStackEntry.arguments?.getString("farmerId") ?: ""
             FarmerProfileScreen(
                 farmerId = farmerId,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onNavigateToAddParcel = { fId ->
+                    navController.navigate(Routes.PARCEL_REGISTER + "?farmerId=$fId")
+                }
             )
         }
 

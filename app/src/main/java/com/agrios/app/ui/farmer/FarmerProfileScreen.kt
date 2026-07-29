@@ -31,7 +31,8 @@ import java.util.UUID
 fun FarmerProfileScreen(
     farmerId: String,
     onBack: () -> Unit,
-    onNavigateToParcel: ((parcelId: String) -> Unit)? = null
+    onNavigateToParcel: ((parcelId: String) -> Unit)? = null,
+    onNavigateToAddParcel: ((farmerId: String) -> Unit)? = null
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
@@ -210,6 +211,15 @@ fun FarmerProfileScreen(
             // ═══════════════════════════
             // PARCELS
             // ═══════════════════════════
+            onNavigateToAddParcel?.let { navigate ->
+                OutlinedButton(
+                    onClick = { navigate(farmerId) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(LanguageManager.localize("Add Land Parcel", "भूमि भूखंड जोड़ें"))
+                }
+            }
+
             Text(
                 "📍 ${LanguageManager.localize("Land Parcels", "भूमि भूखंड")} (${parcels.size})",
                 style = MaterialTheme.typography.titleSmall

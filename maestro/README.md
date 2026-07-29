@@ -44,6 +44,7 @@ Optional / more fragile while backend forms continue changing:
 ```powershell
 maestro test maestro\04-dynamic-land-intelligence-guidance.yaml
 maestro test maestro\06-dynamic-farmer-submit.yaml
+maestro test maestro\07-dynamic-parcel-submit.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -64,6 +65,20 @@ cd ~/projects/farmint/backend
 ```
 
 It verifies the first backend-driven profile submit gate: login with `9900000002`, render the backend Farmer Registration form, fill the minimum profile details, show land-intelligence guidance from PIN `560001`, and save the farmer locally for sync.
+
+`07-dynamic-parcel-submit.yaml` starts from the hydrated dynamic test farmer, opens Farmer Profile, continues into the backend Land Parcel form, fills a minimum parcel, and saves it. The key backend contract under test is that Android queues/syncs parcel location as an object:
+
+```json
+{
+  "location_scope": {
+    "scope_type": "SINGLE_VILLAGE",
+    "village_name_manual": "Android Dynamic Test Village",
+    "pin_code": "560001"
+  }
+}
+```
+
+Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 
 ## Screenshots
 
