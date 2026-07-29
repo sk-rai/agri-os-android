@@ -1,0 +1,73 @@
+appId: com.agrios.app
+name: Backend dynamic farmer form submits and queues profile sync
+---
+# Requires the backend dynamic profile test context to be reset before running:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
+#
+# This flow uses the dedicated dynamic-profile mobile 9900000002. Android maps
+# that authenticated session to tenant android-dynamic-test and project
+# 0f7e0a6b-8472-5d6d-8a14-a9d000000001.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 20000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: "Create Farm Profile|Farmer Enrollment|Loading profile form.*"
+    timeout: 60000
+- tapOn:
+    text: "Create Farm Profile"
+    optional: true
+- extendedWaitUntil:
+    visible: "Farmer Registration|Farmer Enrollment|Loading profile form.*"
+    timeout: 30000
+- tapOn:
+    text: "Farmer Name|display_name"
+    optional: true
+- inputText: "Dynamic Test Farmer"
+- hideKeyboard
+- tapOn:
+    text: "Village \\*"
+- inputText: "Dynamic Test Village"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "PIN Code|Pin Code|pin_code|PIN.*"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "PIN Code|Pin Code|pin_code|PIN.*"
+- inputText: "560001"
+- hideKeyboard
+- extendedWaitUntil:
+    visible: "Land intelligence guidance"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Save Farmer|Save|Continue"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Save Farmer|Save|Continue"
+- extendedWaitUntil:
+    visible: ".*Saved.*"
+    timeout: 30000
+- assertVisible: "Syncing in background.*"
+- takeScreenshot: "06-dynamic-farmer-submit-saved"

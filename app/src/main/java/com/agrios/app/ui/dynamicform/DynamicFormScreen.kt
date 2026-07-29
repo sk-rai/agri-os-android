@@ -102,6 +102,17 @@ fun DynamicFormScreen(
         }
     }
 
+    LaunchedEffect(formId) {
+        if (formId == "farmer_registration" && formValues["mobile_number"] == null) {
+            val mobileNumber = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                db.authDao().getAuthState()?.mobileNumber
+            }
+            if (!mobileNumber.isNullOrBlank()) {
+                formValues["mobile_number"] = mobileNumber
+            }
+        }
+    }
+
     LaunchedEffect(projectId) {
         if (projectId == null) {
             backendProjectId = withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -324,11 +335,15 @@ fun DynamicFormScreen(
                                     val now = System.currentTimeMillis()
 
                                     // Build payload (filter out null values)
-                                    val payload = formValues
+                                    val rawPayload = formValues
                                         .filter { it.value != null && it.value.toString().isNotBlank() }
                                         .mapValues { (_, fieldValue) ->
                                             if (GeoJson.isGeoJson(fieldValue)) JsonParser.parseString(fieldValue.toString()) else fieldValue
                                         }
+                                    val payload = normalizeProfileSubmitPayload(
+                                        formId = formId,
+                                        payload = rawPayload
+                                    )
 
                                     // Route to correct endpoint based on form type
                                     if (formId == "activity_log") {
@@ -636,6 +651,37 @@ private suspend fun saveProfileFormLocally(
         }
 
         else -> UUID.randomUUID().toString()
+    }
+}
+
+private fun normalizeProfileSubmitPayload(
+    formId: String,
+    payload: Map<String, Any?>
+): Map<String, Any?> {
+    return when (formId) {
+        "parcel_registration" -> payload.withParcelLocationScope()
+        else -> payload
+    }
+}
+
+private fun Map<String, Any?>.withParcelLocationScope(): Map<String, Any?> {
+    val villageName = stringValue("village_name_manual")
+    val pinCode = stringValue("pin_code")
+    val villageId = stringValue("village_id")
+
+    if (villageName.isNullOrBlank() && pinCode.isNullOrBlank() && villageId.isNullOrBlank()) {
+        return this
+    }
+
+    val locationScope = mutableMapOf<String, Any?>(
+        "scope_type" to "SINGLE_VILLAGE"
+    )
+    villageId?.let { locationScope["village_id"] = it }
+    villageName?.let { locationScope["village_name_manual"] = it }
+    pinCode?.let { locationScope["pin_code"] = it }
+
+    return toMutableMap().apply {
+        this["location_scope"] = locationScope
     }
 }
 

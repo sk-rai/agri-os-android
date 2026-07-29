@@ -43,6 +43,7 @@ Optional / more fragile while backend forms continue changing:
 
 ```powershell
 maestro test maestro\04-dynamic-land-intelligence-guidance.yaml
+maestro test maestro\06-dynamic-farmer-submit.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -54,6 +55,15 @@ maestro test maestro\04-dynamic-land-intelligence-guidance.yaml
 ```
 
 If those flags are `false`, Android correctly falls back to the legacy enrollment/profile screens and this flow should not be expected to pass.
+
+`06-dynamic-farmer-submit.yaml` also requires the backend dynamic profile test context to be reset before each repeatable run:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
+```
+
+It verifies the first backend-driven profile submit gate: login with `9900000002`, render the backend Farmer Registration form, fill the minimum profile details, show land-intelligence guidance from PIN `560001`, and save the farmer locally for sync.
 
 ## Screenshots
 
