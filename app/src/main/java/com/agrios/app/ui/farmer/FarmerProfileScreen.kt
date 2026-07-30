@@ -32,7 +32,8 @@ fun FarmerProfileScreen(
     farmerId: String,
     onBack: () -> Unit,
     onNavigateToParcel: ((parcelId: String) -> Unit)? = null,
-    onNavigateToAddParcel: ((farmerId: String) -> Unit)? = null
+    onNavigateToAddParcel: ((farmerId: String) -> Unit)? = null,
+    onNavigateToSoilProfile: ((parcelId: String, farmerId: String) -> Unit)? = null
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
@@ -294,6 +295,15 @@ fun FarmerProfileScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+
+                            onNavigateToSoilProfile?.let { navigate ->
+                                OutlinedButton(
+                                    onClick = { navigate(parcel.id, farmerId) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(LanguageManager.localize("Add Soil Profile", "à¤®à¤¿à¤Ÿà¥à¤Ÿà¥€ à¤ªà¥à¤°à¥‹à¤«à¤¼à¤¾à¤‡à¤² à¤œà¥‹à¤¡à¤¼à¥‡à¤‚"))
+                                }
+                            }
 
 
                             Text(

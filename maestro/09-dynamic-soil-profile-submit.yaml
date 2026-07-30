@@ -1,0 +1,94 @@
+appId: com.agrios.app
+name: Backend dynamic soil profile form submits for synced parcel
+---
+# Requires the backend dynamic profile test context and an existing synced farmer + parcel.
+# Recommended setup:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
+#   Run maestro/06-dynamic-farmer-submit.yaml
+#   Run maestro/07-dynamic-parcel-submit.yaml
+#   Wait for sync / ask WSL to confirm hydration returns the parcel.
+#
+# This flow logs in again with a clean Android state, hydrates the dynamic test
+# farmer + parcel from backend, opens Farmer Profile, and submits backend-driven
+# Soil Profile. WSL should verify sync replay/hydration includes:
+#   entity_type=SOIL_PROFILE
+#   farmer_id, parcel_id, project_id
+#   data_source=MANUAL
+#   ph, organic_carbon_oc, boron_b
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 20000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- tapOn:
+    text: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+- extendedWaitUntil:
+    visible: "Farmer Profile"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Add Soil Profile"
+    timeout: 30000
+- tapOn:
+    text: "Add Soil Profile"
+- extendedWaitUntil:
+    visible: "Soil Profile|Loading profile form.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "pH"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "pH"
+- inputText: "6.8"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Organic Carbon.*"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Organic Carbon.*"
+- inputText: "0.72"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Boron.*"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Boron.*"
+- inputText: "0.45"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Save Soil Profile|Save|Continue"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Save Soil Profile|Save|Continue"
+- extendedWaitUntil:
+    visible: ".*Saved.*"
+    timeout: 30000
+- assertVisible: "Syncing in background.*"
+- takeScreenshot: "09-dynamic-soil-profile-submit-saved"

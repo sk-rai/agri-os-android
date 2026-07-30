@@ -265,6 +265,9 @@ fun AppNavigation() {
                 onBack = { navController.popBackStack() },
                 onNavigateToAddParcel = { fId ->
                     navController.navigate(Routes.PARCEL_REGISTER + "?farmerId=$fId")
+                },
+                onNavigateToSoilProfile = { parcelId, fId ->
+                    navController.navigate(Routes.SOIL_PROFILE + "?parcelId=$parcelId&farmerId=$fId")
                 }
             )
         }
