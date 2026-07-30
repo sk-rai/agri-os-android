@@ -703,6 +703,7 @@ private suspend fun normalizeProfileSubmitPayload(
     val projectScopedPayload = payload.withDynamicProjectId(db)
     return when (formId) {
         "parcel_registration" -> projectScopedPayload.withParcelLocationScope(db)
+        "soil_profile" -> projectScopedPayload.withSoilProfileAliases()
         else -> projectScopedPayload
     }
 }
@@ -738,6 +739,17 @@ private suspend fun Map<String, Any?>.withParcelLocationScope(db: AppDatabase): 
     return toMutableMap().apply {
         this["location_scope"] = locationScope
     }
+}
+
+private fun Map<String, Any?>.withSoilProfileAliases(): Map<String, Any?> {
+    val normalized = toMutableMap()
+    if (!normalized.containsKey("boron_b")) {
+        normalized["boron_b"] = normalized["boron_bo"]
+    }
+    if (!normalized.containsKey("organic_carbon_oc")) {
+        normalized["organic_carbon_oc"] = normalized["organic_carbon"]
+    }
+    return normalized.filterValues { it != null }
 }
 
 private suspend fun AppDatabase.resolveFarmerPayloadContext(farmerId: String?): Map<String, Any?> {
