@@ -13,6 +13,7 @@ import com.agrios.app.AgriOsApp
 import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
+import com.agrios.app.core.network.AndroidDynamicTestContext
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.remote.dto.FormFieldDto
 import com.agrios.app.data.remote.dto.FormSchemaDto
@@ -23,6 +24,7 @@ import com.agrios.app.ui.geo.GpsPolygonWalkingWidget
 import com.agrios.app.ui.geo.GeometryPreviewWidget
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -450,6 +452,8 @@ private suspend fun loadDynamicOptions(source: String, formValues: Map<String, A
                 Log.w(TAG, "Dynamic options load failed: ${response.code} for $fullUrl")
                 null
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Dynamic options load error: ${e.message}")
             null
@@ -520,6 +524,7 @@ private suspend fun loadEligibleParcelOptions(season: String?): List<Pair<String
         try {
             val db = AgriOsApp.instance.database
             val farmerId = db.farmerDao().getFirst()?.id ?: return@withContext null
+            val projectId = AndroidDynamicTestContext.projectIdFor(db.authDao())
             val okHttp = OkHttpClient.Builder()
                 .addInterceptor(AuthInterceptor(db.authDao()))
                 .connectTimeout(15, TimeUnit.SECONDS)
@@ -528,6 +533,7 @@ private suspend fun loadEligibleParcelOptions(season: String?): List<Pair<String
 
             val params = mutableListOf("farmer_id=" + URLEncoder.encode(farmerId, "UTF-8"))
             if (!season.isNullOrBlank()) params += "season=" + URLEncoder.encode(season, "UTF-8")
+            if (!projectId.isNullOrBlank()) params += "project_id=" + URLEncoder.encode(projectId, "UTF-8")
             val fullUrl = ApiConfig.BASE_URL.trimEnd('/') + "/crop-cycles/eligible-parcels?" + params.joinToString("&")
             val request = okhttp3.Request.Builder().url(fullUrl).build()
             val response = okHttp.newCall(request).execute()
@@ -562,6 +568,8 @@ private suspend fun loadEligibleParcelOptions(season: String?): List<Pair<String
                     ?: id
                 id to labelValue
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Eligible parcels load error: ${e.message}")
             null

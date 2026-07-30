@@ -45,6 +45,7 @@ Optional / more fragile while backend forms continue changing:
 maestro test maestro\04-dynamic-land-intelligence-guidance.yaml
 maestro test maestro\06-dynamic-farmer-submit.yaml
 maestro test maestro\07-dynamic-parcel-submit.yaml
+maestro test maestro\08-dynamic-crop-cycle-create.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -79,6 +80,8 @@ It verifies the first backend-driven profile submit gate: login with `9900000002
 ```
 
 Android must not send `"location_scope": "SINGLE_VILLAGE"`.
+
+`08-dynamic-crop-cycle-create.yaml` starts from the hydrated dynamic test farmer and creates a Rice/KHARIF crop cycle for an eligible parcel. It validates that Android uses the dynamic tenant/project lane for eligible parcels and includes `project_id` during crop-cycle create. This flow depends on the profile/parcel state produced by `06` and `07`; after a backend reset, run `06 -> 07 -> 08`. It is intentionally stateful: after a successful create, backend should block that parcel for the same season/year as `HAS_ACTIVE_CYCLE`, so reset the backend dynamic context before repeating a clean create run.
 
 ## Screenshots
 

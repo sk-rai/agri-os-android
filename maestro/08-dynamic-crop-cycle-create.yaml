@@ -1,0 +1,85 @@
+appId: com.agrios.app
+name: Backend dynamic crop-cycle form creates a planned Rice cycle
+---
+# Requires an existing hydrated dynamic farmer and at least one eligible parcel
+# for mobile 9900000002. After a backend reset, run flow 06 first to create the
+# farmer, then flow 07 to create/sync a parcel, then run this flow.
+#
+# If this has already been run once, backend may correctly block the same parcel
+# as HAS_ACTIVE_CYCLE; reset the backend dynamic context and rerun 06 -> 07 -> 08
+# before repeating a clean create run:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
+#
+# Android should send project_id for the android-dynamic-test lane and then
+# submit POST /api/v1/crop-cycles with farmer_id, parcel_id, crop_code, season_code.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 20000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- tapOn: "Start Crop Cycle"
+- extendedWaitUntil:
+    visible: "Start Crop Cycle"
+    timeout: 30000
+- assertVisible: "Select Parcel.*"
+- tapOn:
+    text: "Select Parcel.*"
+- extendedWaitUntil:
+    visible: ".*Acre.*Owned.*|.*Bigha.*Owned.*"
+    timeout: 30000
+- tapOn:
+    text: ".*Acre.*Owned.*|.*Bigha.*Owned.*"
+- extendedWaitUntil:
+    visible: "Start Crop Cycle"
+    timeout: 10000
+- tapOn: "Kharif.*|Kharif \\(Jun-Oct\\)"
+- extendedWaitUntil:
+    visible: "Crop \\*"
+    timeout: 30000
+- tapOn:
+    text: "Crop \\*"
+- extendedWaitUntil:
+    visible: "Type to search.*"
+    timeout: 10000
+- tapOn: "Type to search.*"
+- inputText: "Rice"
+- hideKeyboard
+- extendedWaitUntil:
+    visible: "Rice \\(Paddy\\)"
+    timeout: 30000
+- tapOn:
+    text: "Rice \\(Paddy\\)"
+- extendedWaitUntil:
+    visible: "Start Crop Cycle"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: "Start Cycle|Start Crop Cycle"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Start Cycle|Start Crop Cycle"
+- extendedWaitUntil:
+    visible: ".*Saved.*|Crop Stage Detection|.*stages planned.*"
+    timeout: 45000
+- takeScreenshot: "08-dynamic-crop-cycle-created"

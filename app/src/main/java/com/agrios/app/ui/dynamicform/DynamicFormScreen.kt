@@ -34,6 +34,7 @@ import com.agrios.app.data.repository.GeometryRepository
 import com.agrios.app.ui.cropcycle.StageInferenceDialog
 import com.google.gson.Gson
 import com.google.gson.JsonParser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -137,6 +138,8 @@ fun DynamicFormScreen(
                     formValues[field.id] = coerceDefaultValue(field.type, field.defaultValue)
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             loadError = e.message ?: "Network error"
             Log.e(TAG, "Schema load error", e)
@@ -399,6 +402,9 @@ fun DynamicFormScreen(
                                             if (farmerId != null) {
                                                 enrichedPayload["farmer_id"] = farmerId
                                             }
+                                            AndroidDynamicTestContext.projectIdFor(db.authDao())?.let { projectId ->
+                                                enrichedPayload["project_id"] = projectId
+                                            }
                                             val okHttp = OkHttpClient.Builder()
                                                 .addInterceptor(AuthInterceptor(db.authDao()))
                                                 .connectTimeout(15, TimeUnit.SECONDS)
@@ -660,9 +666,18 @@ private suspend fun normalizeProfileSubmitPayload(
     payload: Map<String, Any?>,
     db: AppDatabase
 ): Map<String, Any?> {
+    val projectScopedPayload = payload.withDynamicProjectId(db)
     return when (formId) {
-        "parcel_registration" -> payload.withParcelLocationScope(db)
-        else -> payload
+        "parcel_registration" -> projectScopedPayload.withParcelLocationScope(db)
+        else -> projectScopedPayload
+    }
+}
+
+private suspend fun Map<String, Any?>.withDynamicProjectId(db: AppDatabase): Map<String, Any?> {
+    val projectId = AndroidDynamicTestContext.projectIdFor(db.authDao()) ?: return this
+    if (stringValue("project_id") == projectId) return this
+    return toMutableMap().apply {
+        this["project_id"] = projectId
     }
 }
 
