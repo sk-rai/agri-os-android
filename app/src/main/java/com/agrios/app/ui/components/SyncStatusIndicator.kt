@@ -41,8 +41,8 @@ fun SyncStatusIndicator(
 }
 
 @Composable
-fun SyncStatusBadge(pendingCount: Int, conflictCount: Int) {
-    if (pendingCount == 0 && conflictCount == 0) return
+fun SyncStatusBadge(pendingCount: Int, conflictCount: Int, failedCount: Int = 0) {
+    if (pendingCount == 0 && conflictCount == 0 && failedCount == 0) return
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -50,24 +50,33 @@ fun SyncStatusBadge(pendingCount: Int, conflictCount: Int) {
     ) {
         if (pendingCount > 0) {
             Text(
-                "🔄 $pendingCount",
+                "Waiting $pendingCount",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color(0xFF1565C0)
             )
         }
-        if (pendingCount > 0 && conflictCount > 0) {
+        if (pendingCount > 0 && (conflictCount > 0 || failedCount > 0)) {
             Spacer(Modifier.width(8.dp))
         }
         if (conflictCount > 0) {
             Text(
-                "⚠️ $conflictCount",
+                "Attention $conflictCount",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color(0xFFE65100)
             )
         }
+        if (conflictCount > 0 && failedCount > 0) {
+            Spacer(Modifier.width(8.dp))
+        }
+        if (failedCount > 0) {
+            Text(
+                "Failed $failedCount",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFFC62828)
+            )
+        }
     }
 }
-
 private data class SyncStatusConfig(
     val emoji: String,
     val label: String,

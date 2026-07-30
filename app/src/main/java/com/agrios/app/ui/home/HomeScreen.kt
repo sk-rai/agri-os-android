@@ -48,6 +48,7 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val pendingCount by db.syncQueueDao().observePendingCount().collectAsState(initial = 0)
     val conflictCount by db.syncQueueDao().observeConflictCount().collectAsState(initial = 0)
+    val failedCount by db.syncQueueDao().observeFailedCount().collectAsState(initial = 0)
     var isSyncing by remember { mutableStateOf(false) }
     var lastSyncMessage by remember { mutableStateOf<String?>(null) }
 
@@ -202,7 +203,7 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("Agri-OS") },
                 actions = {
-                    SyncStatusBadge(pendingCount = pendingCount, conflictCount = conflictCount)
+                    SyncStatusBadge(pendingCount = pendingCount, conflictCount = conflictCount, failedCount = failedCount)
                     IconButton(
                         onClick = { runSyncNow() },
                         enabled = !isSyncing
@@ -393,11 +394,11 @@ fun HomeScreen(
             }
 
             // Sync status card
-            if (pendingCount > 0 || conflictCount > 0 || isSyncing || lastSyncMessage != null) {
+            if (pendingCount > 0 || conflictCount > 0 || failedCount > 0 || isSyncing || lastSyncMessage != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (conflictCount > 0) MaterialTheme.colorScheme.errorContainer
+                        containerColor = if (conflictCount > 0 || failedCount > 0) MaterialTheme.colorScheme.errorContainer
                         else MaterialTheme.colorScheme.secondaryContainer
                     )
                 ) {
@@ -423,10 +424,13 @@ fun HomeScreen(
                             if (conflictCount > 0) {
                                 Text("⚠️ $conflictCount ${LanguageManager.localize("need attention", "ध्यान दें")}")
                             }
+                            if (failedCount > 0) {
+                                Text("Failed $failedCount sync items")
+                            }
                             if (lastSyncMessage != null) {
                                 Text(lastSyncMessage!!, style = MaterialTheme.typography.bodySmall)
                             }
-                            if (pendingCount > 0 || conflictCount > 0) {
+                            if (pendingCount > 0 || conflictCount > 0 || failedCount > 0) {
                                 Spacer(Modifier.height(8.dp))
                                 OutlinedButton(
                                     onClick = { runSyncNow() },

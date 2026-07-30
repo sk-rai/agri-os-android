@@ -55,6 +55,9 @@ interface SyncQueueDao {
     @Query("SELECT COUNT(*) FROM sync_queue WHERE sync_status = 'CONFLICTED'")
     fun observeConflictCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM sync_queue WHERE sync_status = 'FAILED'")
+    fun observeFailedCount(): Flow<Int>
+
     @Query("SELECT COUNT(*) FROM sync_queue WHERE sync_status = 'SYNCED'")
     suspend fun getSyncedCount(): Int
 
