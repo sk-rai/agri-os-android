@@ -71,6 +71,7 @@ class SyncManager(
                 item.payload,
                 object : TypeToken<MutableMap<String, Any?>>() {}.type
             )
+            val metadata = payloadMap.remove("_sync_metadata") as? Map<String, Any?>
 
             // Sanitize village_id: never send non-UUID strings to backend
             val villageId = payloadMap["village_id"] as? String
@@ -91,7 +92,8 @@ class SyncManager(
                 operation = item.operation,
                 payload = payloadMap,
                 version = item.version,
-                dependencyIds = item.dependencyIds?.split(",")?.filter { it.isNotBlank() }
+                dependencyIds = item.dependencyIds?.split(",")?.filter { it.isNotBlank() },
+                metadata = metadata
             )
         }
 
@@ -203,11 +205,11 @@ class SyncManager(
             }
             val depIds = item.dependencyIds.split(",").filter { it.isNotBlank() }
             // Check if all dependencies are synced.
-            // A dependency is satisfied when at least one event for that entity_id
-            // has reached SYNCED. Older duplicate/failed repair events for the same
-            // entity must not keep child rows blocked forever.
+            // A dependency can be an event_id or an entity_id. If the dependency is
+            // not present locally, let the backend decide whether it is committed
+            // server-side or should return DEPENDENCY_MISSING.
             val unsyncedDeps = depIds.filter { depId ->
-                val depItems = allItems.filter { it.entityId == depId }
+                val depItems = allItems.filter { it.entityId == depId || it.eventId == depId }
                 depItems.isNotEmpty() && depItems.none { it.syncStatus == SyncStatus.SYNCED.name }
             }
             if (unsyncedDeps.isEmpty()) {

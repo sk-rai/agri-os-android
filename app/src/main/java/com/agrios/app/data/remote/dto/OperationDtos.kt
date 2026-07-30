@@ -65,7 +65,9 @@ data class SyncBatchResponseDto(
 data class SyncConflictDto(
     @SerializedName("event_id") val eventId: String,
     @SerializedName("conflict_type") val conflictType: String,
-    @SerializedName("message") val message: String? = null
+    @SerializedName("message") val message: String? = null,
+    @SerializedName("resolution_strategy") val resolutionStrategy: String? = null,
+    @SerializedName("detail") val detail: String? = null
 )
 
 data class SyncFailedDto(
