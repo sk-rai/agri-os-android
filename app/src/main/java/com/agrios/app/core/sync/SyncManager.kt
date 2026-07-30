@@ -241,21 +241,35 @@ class SyncManager(
 
         // Handle failures
         failed.forEach { failure ->
-            Log.e(TAG, "❌ Server failed event: ${failure.eventId}, code=${failure.errorCode}, message=${failure.message}, retryable=${failure.retryable}")
+            Log.e(TAG, "Server failed event: ${failure.eventId}, code=${failure.errorCode}, detailCode=${failure.detailCode}, message=${failure.message}, retryable=${failure.retryable}")
             val item = items.find { it.eventId == failure.eventId }
             if (item != null) {
-                if (failure.retryable && item.retryCount < item.maxRetries) {
+                val errorDetail = listOfNotNull(failure.errorCode, failure.detailCode, failure.message)
+                    .joinToString(": ")
+                if (failure.isStaleLocalContextFailure()) {
+                    syncQueueDao.markFailed(failure.eventId, "STALE_LOCAL_CONTEXT: $errorDetail")
+                    Log.w(TAG, "Stale local context detected for ${failure.eventId}; refresh profile/parcels and rebuild local draft")
+                } else if (failure.retryable && item.retryCount < item.maxRetries) {
                     val nextRetry = calculateNextRetry(item.retryCount + 1)
-                    syncQueueDao.markForRetry(failure.eventId, nextRetry, "${failure.errorCode}: ${failure.message}")
-                    Log.d(TAG, "🔄 Retry scheduled: ${failure.eventId} (attempt ${item.retryCount + 1})")
+                    syncQueueDao.markForRetry(failure.eventId, nextRetry, errorDetail)
+                    Log.d(TAG, "Retry scheduled: ${failure.eventId} (attempt ${item.retryCount + 1})")
                 } else {
-                    syncQueueDao.markFailed(failure.eventId, "${failure.errorCode}: ${failure.message}")
-                    Log.e(TAG, "❌ Failed permanently: ${failure.eventId} — ${failure.errorCode}: ${failure.message}")
+                    syncQueueDao.markFailed(failure.eventId, errorDetail)
+                    Log.e(TAG, "Failed permanently: ${failure.eventId} - $errorDetail")
                 }
             }
         }
     }
 
+    private fun com.agrios.app.data.remote.dto.SyncFailedDto.isStaleLocalContextFailure(): Boolean {
+        return errorCode == "MATERIALIZATION_FAILED" && detailCode in setOf(
+            "PARCEL_FARMER_MISMATCH",
+            "PARCEL_PROJECT_MISMATCH",
+            "INVALID_PARCEL_FOR_FARMER",
+            "INVALID_FARMER_FOR_TENANT",
+            "INVALID_PROJECT_FOR_TENANT"
+        )
+    }
     private suspend fun markBatchForRetry(items: List<SyncQueueEntity>, error: String) {
         items.forEach { item ->
             if (item.retryCount < item.maxRetries) {

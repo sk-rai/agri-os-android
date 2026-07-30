@@ -73,6 +73,7 @@ data class SyncConflictDto(
 data class SyncFailedDto(
     @SerializedName("event_id") val eventId: String,
     @SerializedName("error_code") val errorCode: String,
+    @SerializedName("detail_code") val detailCode: String? = null,
     @SerializedName("message") val message: String? = null,
     @SerializedName("retryable") val retryable: Boolean = true
 )
