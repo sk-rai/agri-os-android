@@ -40,9 +40,18 @@ object ProfileSyncRepair {
 
         val gson = Gson()
         val now = System.currentTimeMillis()
+        val existingProfileSyncKeys = db.syncQueueDao()
+            .getAllForDependencyCheck()
+            .filter { it.entityType == "FARMER" || it.entityType == "PARCEL" }
+            .map { "${it.entityType}:${it.entityId}" }
+            .toSet()
         var count = 0
 
         farmers.forEach { farmer ->
+            if ("FARMER:${farmer.id}" in existingProfileSyncKeys) {
+                Log.d(TAG, "Skipping FARMER materialization repair: existing sync queue item found for id=${farmer.id}")
+                return@forEach
+            }
             Log.d(TAG, "Queueing FARMER materialization event: id=${farmer.id}, mobile=${farmer.mobileNumber}")
             db.syncQueueDao().enqueue(
                 SyncQueueEntity(
@@ -75,6 +84,10 @@ object ProfileSyncRepair {
         }
 
         parcels.forEach { parcel ->
+            if ("PARCEL:${parcel.id}" in existingProfileSyncKeys) {
+                Log.d(TAG, "Skipping PARCEL materialization repair: existing sync queue item found for id=${parcel.id}")
+                return@forEach
+            }
             Log.d(TAG, "Queueing PARCEL materialization event: id=${parcel.id}, farmerId=${parcel.farmerId}, ownership=${parcel.ownershipType}")
             db.syncQueueDao().enqueue(
                 SyncQueueEntity(
