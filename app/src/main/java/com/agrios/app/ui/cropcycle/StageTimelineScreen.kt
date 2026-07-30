@@ -20,7 +20,9 @@ import com.agrios.app.AgriOsApp
 import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
+import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.LanguageManager
+import com.agrios.app.data.repository.OfflineCropSyncRepository
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
 import com.agrios.app.data.remote.dto.CropStageDto
@@ -33,6 +35,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "StageTimeline"
@@ -228,6 +234,19 @@ fun StageTimelineScreen(
                                             } else {
                                                 actionMessage = "❌ ${resp.code()}: ${resp.message()}"
                                             }
+                                        } catch (e: IOException) {
+                                            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                                            OfflineCropSyncRepository.enqueueStageTransition(
+                                                syncQueueDao = db.syncQueueDao(),
+                                                cropCycleId = cycleId,
+                                                stageCode = stage.code,
+                                                action = newStatus,
+                                                dependencyIds = listOf(cycleId),
+                                                actualStartDate = if (newStatus == "START") today else null,
+                                                actualEndDate = if (newStatus == "COMPLETE") today else null
+                                            )
+                                            SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+                                            actionMessage = "Saved offline; syncing ${stage.getDisplayName()} -> $newStatus"
                                         } catch (e: Exception) {
                                             actionMessage = "❌ ${e.message}"
                                         }

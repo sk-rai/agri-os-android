@@ -31,6 +31,7 @@ import com.agrios.app.data.remote.dto.FormSchemaDto
 import com.agrios.app.data.remote.dto.LandIntelligenceContextDto
 import com.agrios.app.data.repository.BackendBootstrapRepository
 import com.agrios.app.data.repository.GeometryRepository
+import com.agrios.app.data.repository.OfflineCropSyncRepository
 import com.agrios.app.ui.cropcycle.StageInferenceDialog
 import com.google.gson.Gson
 import com.google.gson.JsonParser
@@ -41,6 +42,7 @@ import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -356,7 +358,8 @@ fun DynamicFormScreen(
                                         if (cycleId.isBlank()) {
                                             throw Exception("Missing crop_cycle_id for activity log")
                                         }
-                                        withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        try {
+                                            withContext(kotlinx.coroutines.Dispatchers.IO) {
                                             val okHttp = OkHttpClient.Builder()
                                                 .addInterceptor(AuthInterceptor(db.authDao()))
                                                 .connectTimeout(15, TimeUnit.SECONDS)
@@ -384,6 +387,23 @@ fun DynamicFormScreen(
                                                 Log.e(TAG, "Activity log failed: ${response.code} $errorBody")
                                                 throw Exception("HTTP ${response.code}: ${errorBody ?: response.message}")
                                             }
+                                            }
+                                        } catch (e: IOException) {
+                                            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                val offlinePayload = payload.toMutableMap()
+                                                offlinePayload.putIfAbsent("crop_cycle_id", cycleId)
+                                                contextValues["stage_code"]?.takeIf { it.isNotBlank() }?.let {
+                                                    offlinePayload.putIfAbsent("stage_code", it)
+                                                }
+                                                OfflineCropSyncRepository.enqueueActivityCreate(
+                                                    syncQueueDao = db.syncQueueDao(),
+                                                    activityId = UUID.randomUUID().toString(),
+                                                    payload = offlinePayload,
+                                                    dependencyIds = listOf(cycleId)
+                                                )
+                                                SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+                                                Log.d(TAG, "Activity queued for offline crop sync replay")
+                                            }
                                         }
                                     } else if (entityType == "CROP_CYCLE") {
                                         // Crop cycle creation — direct API call to get stages/inference
@@ -405,29 +425,43 @@ fun DynamicFormScreen(
                                             AndroidDynamicTestContext.projectIdFor(db.authDao())?.let { projectId ->
                                                 enrichedPayload["project_id"] = projectId
                                             }
-                                            val okHttp = OkHttpClient.Builder()
-                                                .addInterceptor(AuthInterceptor(db.authDao()))
-                                                .connectTimeout(15, TimeUnit.SECONDS)
-                                                .readTimeout(15, TimeUnit.SECONDS)
-                                                .build()
-                                            val api = Retrofit.Builder()
-                                                .baseUrl(ApiConfig.BASE_URL)
-                                                .client(okHttp)
-                                                .addConverterFactory(GsonConverterFactory.create())
-                                                .build()
-                                                .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
+                                            try {
+                                                val okHttp = OkHttpClient.Builder()
+                                                    .addInterceptor(AuthInterceptor(db.authDao()))
+                                                    .connectTimeout(15, TimeUnit.SECONDS)
+                                                    .readTimeout(15, TimeUnit.SECONDS)
+                                                    .build()
+                                                val api = Retrofit.Builder()
+                                                    .baseUrl(ApiConfig.BASE_URL)
+                                                    .client(okHttp)
+                                                    .addConverterFactory(GsonConverterFactory.create())
+                                                    .build()
+                                                    .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
 
-                                            val response = api.createCropCycle(enrichedPayload)
-                                            if (response.isSuccessful) {
-                                                val cycleResponse = response.body()
-                                                Log.d(TAG, "Crop cycle created: ${cycleResponse?.id}, inferred stage: ${cycleResponse?.inferredCurrentStage}")
-                                                createdCycleId = cycleResponse?.id
-                                                createdCycleResponse = cycleResponse
-                                                cycleResponse?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
-                                            } else {
-                                                val errorBody = response.errorBody()?.string()
-                                                Log.e(TAG, "Crop cycle creation failed: ${response.code()} $errorBody")
-                                                throw Exception("HTTP ${response.code()}: ${errorBody ?: response.message()}")
+                                                val response = api.createCropCycle(enrichedPayload)
+                                                if (response.isSuccessful) {
+                                                    val cycleResponse = response.body()
+                                                    Log.d(TAG, "Crop cycle created: ${cycleResponse?.id}, inferred stage: ${cycleResponse?.inferredCurrentStage}")
+                                                    createdCycleId = cycleResponse?.id
+                                                    createdCycleResponse = cycleResponse
+                                                    cycleResponse?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
+                                                } else {
+                                                    val errorBody = response.errorBody()?.string()
+                                                    Log.e(TAG, "Crop cycle creation failed: ${response.code()} $errorBody")
+                                                    throw Exception("HTTP ${response.code()}: ${errorBody ?: response.message()}")
+                                                }
+                                            } catch (e: IOException) {
+                                                val offlineCycleId = UUID.randomUUID().toString()
+                                                enrichedPayload.putIfAbsent("status", "PLANNED")
+                                                OfflineCropSyncRepository.enqueueCropCycleCreate(
+                                                    syncQueueDao = db.syncQueueDao(),
+                                                    cropCycleId = offlineCycleId,
+                                                    payload = enrichedPayload
+                                                )
+                                                SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+                                                createdCycleId = null
+                                                createdCycleResponse = null
+                                                Log.d(TAG, "Crop cycle queued for offline sync replay: $offlineCycleId")
                                             }
                                         }
                                     } else if (entityType in setOf("FARMER", "PARCEL", "SOIL_PROFILE")) {
