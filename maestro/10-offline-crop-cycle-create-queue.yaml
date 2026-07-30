@@ -1,0 +1,99 @@
+appId: com.agrios.app
+name: Offline crop-cycle create queues replay when backend is unavailable
+---
+# This flow is intentionally two-phase.
+#
+# Phase A, backend ON:
+#   - Login/hydrate dynamic farmer + parcel
+#   - Open Start Crop Cycle
+#   - Select parcel, season, crop
+#
+# Manual pause:
+#   Stop/pause the FastAPI backend after the crop has been selected and before
+#   this flow taps Start Cycle. Then resume the flow. Android should catch the
+#   network failure, enqueue entity_type=crop_cycle for offline replay, and show
+#   "Saved!" + "Syncing in background." instead of "Failed to connect".
+#
+# After the flow:
+#   - Restart backend
+#   - Tap Sync Now / let immediate sync run
+#   - Ask WSL to verify replayed crop_cycle and eligible-parcels status.
+#
+# Recommended clean setup:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
+#   Run 06 -> 07 first so the farmer + parcel exist server-side.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 20000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- tapOn: "Start Crop Cycle"
+- extendedWaitUntil:
+    visible: "Start Crop Cycle"
+    timeout: 30000
+- assertVisible: "Select Parcel.*"
+- tapOn:
+    text: "Select Parcel.*"
+- extendedWaitUntil:
+    visible: ".*Acre.*Owned.*|.*Bigha.*Owned.*"
+    timeout: 30000
+- tapOn:
+    text: ".*Acre.*Owned.*|.*Bigha.*Owned.*"
+- extendedWaitUntil:
+    visible: "Start Crop Cycle"
+    timeout: 10000
+- tapOn: "Kharif.*|Kharif \\(Jun-Oct\\)"
+- extendedWaitUntil:
+    visible: "Crop \\*"
+    timeout: 30000
+- tapOn:
+    text: "Crop \\*"
+- extendedWaitUntil:
+    visible: "Type to search.*"
+    timeout: 10000
+- tapOn: "Type to search.*"
+- inputText: "Rice"
+- hideKeyboard
+- extendedWaitUntil:
+    visible: "Rice \\(Paddy\\)"
+    timeout: 30000
+- tapOn:
+    text: "Rice \\(Paddy\\)"
+- extendedWaitUntil:
+    visible: "Start Crop Cycle"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: "Start Cycle|Start Crop Cycle"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "10-before-offline-crop-cycle-submit"
+- waitForAnimationToEnd:
+    timeout: 15000
+- tapOn:
+    text: "Start Cycle|Start Crop Cycle"
+- extendedWaitUntil:
+    visible: ".*Saved.*"
+    timeout: 45000
+- assertVisible: "Syncing in background.*"
+- takeScreenshot: "10-offline-crop-cycle-queued"

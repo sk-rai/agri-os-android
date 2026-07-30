@@ -47,6 +47,7 @@ maestro test maestro\06-dynamic-farmer-submit.yaml
 maestro test maestro\07-dynamic-parcel-submit.yaml
 maestro test maestro\08-dynamic-crop-cycle-create.yaml
 maestro test maestro\09-dynamic-soil-profile-submit.yaml
+maestro test maestro\10-offline-crop-cycle-create-queue.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -85,6 +86,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 `08-dynamic-crop-cycle-create.yaml` starts from the hydrated dynamic test farmer and creates a Rice/KHARIF crop cycle for an eligible parcel. It validates that Android uses the dynamic tenant/project lane for eligible parcels and includes `project_id` during crop-cycle create. This flow depends on the profile/parcel state produced by `06` and `07`; after a backend reset, run `06 -> 07 -> 08`. It is intentionally stateful: after a successful create, backend should block that parcel for the same season/year as `HAS_ACTIVE_CYCLE`, so reset the backend dynamic context before repeating a clean create run.
 
 `09-dynamic-soil-profile-submit.yaml` starts from the hydrated dynamic test farmer + parcel and submits a backend-driven Soil Profile for the parcel. After a backend reset, run `06 -> 07`, wait for sync/hydration to include the parcel, then run `09`. It validates the Android side of the farmer -> parcel -> soil profile replay chain; WSL should verify `entity_type=SOIL_PROFILE` plus `farmer_id`, `parcel_id`, `project_id`, `data_source`, `ph`, `organic_carbon_oc`, and `boron_b`.
+
+`10-offline-crop-cycle-create-queue.yaml` validates the offline crop-cycle create fallback. Run it only after `06 -> 07` have produced a synced farmer + parcel. The flow opens Start Crop Cycle while backend is online, selects parcel/season/crop, then waits 15 seconds before tapping Start Cycle. During that 15-second window, stop/pause FastAPI. Android should show `Saved!` and `Syncing in background.` instead of a connection failure. Restart backend afterward and verify `/api/v1/sync/events` replays `entity_type=crop_cycle`.
 
 ## Screenshots
 
