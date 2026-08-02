@@ -241,7 +241,7 @@ fun StageTimelineScreen(
                                                 cropCycleId = cycleId,
                                                 stageCode = stage.code,
                                                 action = newStatus,
-                                                dependencyIds = listOf(cycleId),
+                                                dependencyIds = emptyList(),
                                                 actualStartDate = if (newStatus == "START") today else null,
                                                 actualEndDate = if (newStatus == "COMPLETE") today else null
                                             )

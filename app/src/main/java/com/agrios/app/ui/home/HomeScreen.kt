@@ -136,6 +136,9 @@ fun HomeScreen(
         isLoadingCycles = true
         cycleLoadMessage = null
         try {
+            val plannedResponse = withContext(Dispatchers.IO) {
+                api.getCropCycles(farmerId = farmerId, status = "PLANNED")
+            }
             val activeResponse = withContext(Dispatchers.IO) {
                 api.getCropCycles(farmerId = farmerId, status = "ACTIVE")
             }
@@ -143,12 +146,19 @@ fun HomeScreen(
                 api.getCropCycles(farmerId = farmerId, status = "COMPLETED")
             }
 
+            val plannedCycles = if (plannedResponse.isSuccessful) {
+                plannedResponse.body().orEmpty()
+            } else {
+                emptyList()
+            }
+
             if (activeResponse.isSuccessful) {
-                activeCycles = activeResponse.body().orEmpty()
+                activeCycles = (plannedCycles + activeResponse.body().orEmpty()).dedupeForHome()
                 activeCycles.forEach { CropCycleCache.upsert(AgriOsApp.instance, it) }
             } else {
-                activeCycles = emptyList()
-                if (activeResponse.code() != 405) {
+                activeCycles = plannedCycles
+                plannedCycles.forEach { CropCycleCache.upsert(AgriOsApp.instance, it) }
+                if (activeResponse.code() != 405 && plannedCycles.isEmpty()) {
                     cycleLoadMessage = "Could not load active crop cycles (${activeResponse.code()})"
                 }
             }

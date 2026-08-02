@@ -55,7 +55,7 @@ object OfflineCropSyncRepository {
         stageCode: String,
         action: String,
         eventId: String = UUID.randomUUID().toString(),
-        entityId: String = "$cropCycleId:$stageCode",
+        entityId: String = UUID.randomUUID().toString(),
         dependencyIds: List<String>,
         actualStartDate: String? = null,
         actualEndDate: String? = null,

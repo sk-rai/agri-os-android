@@ -1,0 +1,41 @@
+appId: com.agrios.app
+name: Offline stage START queues replay when backend is unavailable
+---
+# Requires the dynamic test crop cycle created by flow 10:
+#   cycle_id=aa346148-468b-47de-9c86-47ad41aa1f11
+#   status=PLANNED
+#   first stage=NURSERY / Nursery Preparation / PENDING
+#
+# Backend should be running while this flow opens the cycle and loads stages.
+# After screenshot 11-before-offline-stage-start, stop/pause FastAPI during the
+# 60-second wait. Android should enqueue entity_type=crop_stage with action=START
+# and show a saved-offline/syncing message.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Continue .*Rice.*|Continue .*RICE.*"
+    timeout: 60000
+- tapOn:
+    text: "Continue .*Rice.*|Continue .*RICE.*"
+- extendedWaitUntil:
+    visible: ".*Rice.*|.*RICE.*"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: ".*Nursery Preparation.*|.*NURSERY.*"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Start"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "11-before-offline-stage-start"
+- runScript:
+    file: wait-60s.js
+- tapOn:
+    text: "Start"
+- extendedWaitUntil:
+    visible: "Saved offline.*|.*syncing.*START.*|.*syncing Nursery Preparation.*"
+    timeout: 45000
+- takeScreenshot: "11-offline-stage-start-queued"

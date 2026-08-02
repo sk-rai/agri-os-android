@@ -93,9 +93,44 @@ interface SyncQueueDao {
     @Query("UPDATE sync_queue SET payload = :payload WHERE event_id = :eventId")
     suspend fun updatePayload(eventId: String, payload: String)
 
+    @Query("UPDATE sync_queue SET entity_id = :entityId WHERE event_id = :eventId")
+    suspend fun updateEntityId(eventId: String, entityId: String)
+
     /**
      * Get all failed items for review/reset.
      */
     @Query("SELECT * FROM sync_queue WHERE sync_status = 'FAILED'")
     suspend fun getFailedItems(): List<SyncQueueEntity>
+
+    /**
+     * Find the latest queued event for an entity, regardless of status.
+     * Used to attach child replay events to the correct parent event_id.
+     */
+    @Query("""
+        SELECT * FROM sync_queue
+        WHERE entity_type = :entityType
+        AND entity_id = :entityId
+        ORDER BY created_at DESC
+        LIMIT 1
+    """)
+    suspend fun getLatestByEntity(entityType: String, entityId: String): SyncQueueEntity?
+
+    /**
+     * Find the latest queued crop-stage replay event for a cycle/stage pair.
+     * Stage replay entity_id is a UUID for backend validation, so cycle/stage
+     * matching lives in the JSON payload.
+     */
+    @Query("""
+        SELECT * FROM sync_queue
+        WHERE entity_type = :entityType
+        AND payload LIKE '%' || :cycleId || '%'
+        AND payload LIKE '%' || :stageCode || '%'
+        ORDER BY created_at DESC
+        LIMIT 1
+    """)
+    suspend fun getLatestCropStageEvent(
+        entityType: String,
+        cycleId: String,
+        stageCode: String
+    ): SyncQueueEntity?
 }

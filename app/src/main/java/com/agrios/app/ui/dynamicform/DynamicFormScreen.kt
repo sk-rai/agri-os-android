@@ -395,11 +395,22 @@ fun DynamicFormScreen(
                                                 contextValues["stage_code"]?.takeIf { it.isNotBlank() }?.let {
                                                     offlinePayload.putIfAbsent("stage_code", it)
                                                 }
+                                                val stageDependencyEventId = contextValues["stage_code"]
+                                                    ?.takeIf { it.isNotBlank() }
+                                                    ?.let { stageCode ->
+                                                        db.syncQueueDao()
+                                                            .getLatestCropStageEvent(
+                                                                entityType = OfflineCropSyncRepository.ENTITY_TYPE_CROP_STAGE,
+                                                                cycleId = cycleId,
+                                                                stageCode = stageCode
+                                                            )
+                                                            ?.eventId
+                                                    }
                                                 OfflineCropSyncRepository.enqueueActivityCreate(
                                                     syncQueueDao = db.syncQueueDao(),
                                                     activityId = UUID.randomUUID().toString(),
                                                     payload = offlinePayload,
-                                                    dependencyIds = listOf(cycleId)
+                                                    dependencyIds = listOfNotNull(stageDependencyEventId)
                                                 )
                                                 SyncWorker.triggerImmediateSync(AgriOsApp.instance)
                                                 Log.d(TAG, "Activity queued for offline crop sync replay")

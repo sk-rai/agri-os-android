@@ -48,6 +48,7 @@ maestro test maestro\07-dynamic-parcel-submit.yaml
 maestro test maestro\08-dynamic-crop-cycle-create.yaml
 maestro test maestro\09-dynamic-soil-profile-submit.yaml
 maestro test maestro\10-offline-crop-cycle-create-queue.yaml
+maestro test maestro\11-offline-stage-start-queue.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -88,6 +89,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 `09-dynamic-soil-profile-submit.yaml` starts from the hydrated dynamic test farmer + parcel and submits a backend-driven Soil Profile for the parcel. After a backend reset, run `06 -> 07`, wait for sync/hydration to include the parcel, then run `09`. It validates the Android side of the farmer -> parcel -> soil profile replay chain; WSL should verify `entity_type=SOIL_PROFILE` plus `farmer_id`, `parcel_id`, `project_id`, `data_source`, `ph`, `organic_carbon_oc`, and `boron_b`.
 
 `10-offline-crop-cycle-create-queue.yaml` validates the offline crop-cycle create fallback. Run it only after `06 -> 07` have produced a synced farmer + parcel. The flow opens Start Crop Cycle while backend is online, selects parcel/season/crop, then pauses for 60 seconds before tapping Start Cycle. During that 60-second window, stop/pause FastAPI. Android should show `Saved!` and `Syncing in background.` instead of a connection failure. Restart backend afterward and verify `/api/v1/sync/events` replays `entity_type=crop_cycle`.
+
+`11-offline-stage-start-queue.yaml` validates offline crop-stage transition replay for the Rice cycle created by flow `10`. It opens the running Rice cycle while backend is online, pauses for 60 seconds before tapping the first stage `Start`, then expects Android to queue `entity_type=crop_stage` with `action=START` and show a saved-offline/syncing message. Restart backend afterward and verify the cycle becomes ACTIVE and NURSERY becomes ACTIVE.
 
 ## Screenshots
 

@@ -11,6 +11,7 @@ import com.agrios.app.core.util.VillageIdUtil
 import com.agrios.app.data.repository.GeometryRepository
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import java.util.UUID
 import kotlin.math.min
 import kotlin.math.pow
 
@@ -39,10 +40,16 @@ class SyncManager(
      */
     suspend fun processQueue(): SyncResult {
         val now = System.currentTimeMillis()
-        val pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE)
+        var pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE)
 
         if (pending.isEmpty()) {
             return SyncResult(0, 0, 0)
+        }
+
+        val normalizedCount = normalizeInvalidCropStageEntityIds(pending)
+        if (normalizedCount > 0) {
+            Log.d(TAG, "Normalized $normalizedCount pending crop_stage entity IDs before sync")
+            pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE)
         }
 
         Log.d(TAG, "Processing ${pending.size} pending items")
@@ -221,6 +228,20 @@ class SyncManager(
         return eligible
     }
 
+    private suspend fun normalizeInvalidCropStageEntityIds(items: List<SyncQueueEntity>): Int {
+        var fixedCount = 0
+        items
+            .filter { it.entityType == "crop_stage" }
+            .filter { runCatching { UUID.fromString(it.entityId) }.isFailure }
+            .forEach { item ->
+                val fixedEntityId = UUID.randomUUID().toString()
+                syncQueueDao.updateEntityId(item.eventId, fixedEntityId)
+                fixedCount++
+                Log.d(TAG, "Fixed pending crop_stage entity_id for ${item.eventId}: '${item.entityId}' -> '$fixedEntityId'")
+            }
+        return fixedCount
+    }
+
     private suspend fun handleSyncResponse(
         accepted: List<String>,
         conflicts: List<com.agrios.app.data.remote.dto.SyncConflictDto>,
@@ -329,6 +350,12 @@ class SyncManager(
 
             if (modified) {
                 syncQueueDao.updatePayload(item.eventId, gson.toJson(payloadMap))
+            }
+
+            if (item.entityType == "crop_stage" && runCatching { UUID.fromString(item.entityId) }.isFailure) {
+                val fixedEntityId = UUID.randomUUID().toString()
+                syncQueueDao.updateEntityId(item.eventId, fixedEntityId)
+                Log.d(TAG, "Fixed crop_stage entity_id for ${item.eventId}: '${item.entityId}' -> '$fixedEntityId'")
             }
 
             syncQueueDao.resetFailedItem(item.eventId)
