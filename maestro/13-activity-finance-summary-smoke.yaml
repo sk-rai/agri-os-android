@@ -1,0 +1,35 @@
+appId: com.agrios.app
+name: Synced activity appears with finance totals
+---
+# Requires flow 12 to have replayed the NURSERY activity successfully.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Continue .*Rice.*|Continue .*RICE.*"
+    timeout: 60000
+- tapOn:
+    text: "Continue .*Rice.*|Continue .*RICE.*"
+- extendedWaitUntil:
+    visible: ".*Rice.*|.*RICE.*"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: ".*Nursery Preparation.*|.*NURSERY.*"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Activities"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Activities"
+- extendedWaitUntil:
+    visible: "Finance Summary"
+    timeout: 30000
+- assertVisible: "Activities logged: 1"
+- assertVisible: "Actual expense: ₹325.50"
+- assertVisible: "P&L total expenses: ₹325.50"
+- assertVisible: "Nursery bed preparation labor"
+- assertVisible: "Stage: NURSERY"
+- takeScreenshot: "13-activity-finance-summary"

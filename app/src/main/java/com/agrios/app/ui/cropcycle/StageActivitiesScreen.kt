@@ -50,6 +50,7 @@ fun StageActivitiesScreen(
     var cycle by remember { mutableStateOf<CropCycleResponseDto?>(null) }
     var allRecommendations by remember { mutableStateOf<List<CycleRecommendedActivityDto>>(emptyList()) }
     var loggedActivities by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
+    var financeSummary by remember { mutableStateOf<ActivityFinanceSummary?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -100,6 +101,31 @@ fun StageActivitiesScreen(
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to fetch logged activities: ${e.message}")
+                    }
+
+                    // Fetch backend finance summaries for Android-readable totals.
+                    try {
+                        val gson = com.google.gson.Gson()
+                        val mapType = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+                        fun readMap(url: String): Map<String, Any?>? {
+                            val resp = okHttp.newCall(okhttp3.Request.Builder().url(url).build()).execute()
+                            if (!resp.isSuccessful) return null
+                            val body = resp.body?.string() ?: return null
+                            return gson.fromJson(body, mapType)
+                        }
+                        val stageCost = readMap("${ApiConfig.BASE_URL}crop-cycles/$cycleId/stage-cost-summary")
+                        val profitLoss = readMap("${ApiConfig.BASE_URL}crop-cycles/$cycleId/profit-loss-summary")
+                        val stageTotals = stageCost?.get("totals") as? Map<*, *>
+                        val profitLossTotals = profitLoss?.get("totals") as? Map<*, *>
+                        financeSummary = ActivityFinanceSummary(
+                            activityCount = formatWholeNumber(stageTotals?.get("activity_count")),
+                            actualExpense = stageTotals?.get("actual_expense")?.toString(),
+                            totalExpenses = profitLossTotals?.get("total_expenses")?.toString(),
+                            profitOrLoss = profitLossTotals?.get("profit_or_loss")?.toString()
+                        )
+                        Log.d(TAG, "Finance summary loaded: $financeSummary")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to fetch finance summaries: ${e.message}")
                     }
                 } else {
                     error = "HTTP ${cycleResp.code()}"
@@ -184,6 +210,46 @@ fun StageActivitiesScreen(
                     }
 
                     Spacer(Modifier.height(8.dp))
+
+                    financeSummary?.let { summary ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Finance Summary", style = MaterialTheme.typography.titleSmall)
+                                Text("Activities logged: ${summary.activityCount ?: loggedActivities.size}", style = MaterialTheme.typography.bodySmall)
+                                Text("Actual expense: ₹${summary.actualExpense ?: "0.00"}", style = MaterialTheme.typography.bodySmall)
+                                Text("P&L total expenses: ₹${summary.totalExpenses ?: "0.00"}", style = MaterialTheme.typography.bodySmall)
+                                summary.profitOrLoss?.let {
+                                    Text("Profit/Loss: ₹$it", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+
+                    if (loggedActivities.isNotEmpty()) {
+                        Text("Logged Activities", style = MaterialTheme.typography.titleSmall)
+                        loggedActivities.forEach { activity ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(activity["input_name"]?.toString().orEmpty(), style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "₹${activity["cost_amount"] ?: "0.00"} • ${activity["quantity"] ?: ""} ${activity["quantity_unit"] ?: ""} • ${activity["activity_date"] ?: ""}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    activity["stage_code"]?.toString()?.takeIf { it.isNotBlank() }?.let {
+                                        Text("Stage: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
 
                     if (recommendations.isNotEmpty()) {
                         Text(
@@ -311,6 +377,21 @@ fun StageActivitiesScreen(
                 }
             }
         }
+    }
+}
+
+private data class ActivityFinanceSummary(
+    val activityCount: String?,
+    val actualExpense: String?,
+    val totalExpenses: String?,
+    val profitOrLoss: String?
+)
+
+private fun formatWholeNumber(value: Any?): String? {
+    return when (value) {
+        null -> null
+        is Number -> value.toLong().toString()
+        else -> value.toString().removeSuffix(".0")
     }
 }
 

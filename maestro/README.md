@@ -50,6 +50,7 @@ maestro test maestro\09-dynamic-soil-profile-submit.yaml
 maestro test maestro\10-offline-crop-cycle-create-queue.yaml
 maestro test maestro\11-offline-stage-start-queue.yaml
 maestro test maestro\12-offline-activity-log-queue.yaml
+maestro test maestro\13-activity-finance-summary-smoke.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -94,6 +95,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 `11-offline-stage-start-queue.yaml` validates offline crop-stage transition replay for the Rice cycle created by flow `10`. It opens the running Rice cycle while backend is online, pauses for 60 seconds before tapping the first stage `Start`, then expects Android to queue `entity_type=crop_stage` with `action=START` and show a saved-offline/syncing message. Restart backend afterward and verify the cycle becomes ACTIVE and NURSERY becomes ACTIVE.
 
 `12-offline-activity-log-queue.yaml` validates offline crop-activity replay under the active NURSERY stage. It opens the Rice cycle and activity form while backend is online, fills a custom LABOR activity with cost `325.50`, pauses for 60 seconds before saving, then expects Android to queue `entity_type=crop_activity` and show `Saved!` plus `Syncing in background.` Restart backend afterward, tap Sync Now, and verify activities, stage-cost summary, and P&L summary include the replayed expense.
+
+`13-activity-finance-summary-smoke.yaml` validates the post-sync UI: the NURSERY activity row is visible, and backend-derived finance totals show the replayed `₹325.50` expense.
 
 ## Screenshots
 
