@@ -1,0 +1,88 @@
+appId: com.agrios.app
+name: Offline activity log queues replay when backend is unavailable
+---
+# Requires:
+# - flow 10 created the Rice/KHARIF crop cycle
+# - flow 11 started NURSERY and replayed successfully
+#
+# Backend should be running while this flow opens the cycle and loads the
+# activity form schema. After screenshot 12-before-offline-activity-save,
+# stop/pause FastAPI during the 60-second wait. Android should enqueue
+# entity_type=crop_activity with dependency on the NURSERY stage START event
+# and show Saved!/Syncing in background instead of a connection failure.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Continue .*Rice.*|Continue .*RICE.*"
+    timeout: 60000
+- tapOn:
+    text: "Continue .*Rice.*|Continue .*RICE.*"
+- extendedWaitUntil:
+    visible: ".*Rice.*|.*RICE.*"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: ".*Nursery Preparation.*|.*NURSERY.*"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Activities"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Activities"
+- extendedWaitUntil:
+    visible: ".*Nursery Preparation.*|.*NURSERY.*"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: ".*Log Custom Activity.*"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: ".*Log Custom Activity.*"
+- extendedWaitUntil:
+    visible: "Log Activity"
+    timeout: 30000
+- tapOn: "Labor/Labour"
+- tapOn: "Product/Input Name"
+- inputText: "Nursery bed preparation labor"
+- hideKeyboard
+- tapOn: "Quantity"
+- inputText: "1"
+- hideKeyboard
+- tapOn: "Days"
+- scrollUntilVisible:
+    element:
+      text: "Cost \\(₹\\)"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Cost \\(₹\\)"
+- inputText: "325.50"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Notes \\(optional\\)"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Notes \\(optional\\)"
+- inputText: "Android offline replay activity under Nursery Preparation"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Save Activity|Save|Continue"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "12-before-offline-activity-save"
+- runScript:
+    file: wait-60s.js
+- tapOn:
+    text: "Save Activity|Save|Continue"
+- extendedWaitUntil:
+    visible: ".*Saved.*"
+    timeout: 45000
+- extendedWaitUntil:
+    visible: "Syncing in background.*"
+    timeout: 45000
+- takeScreenshot: "12-offline-activity-queued"
