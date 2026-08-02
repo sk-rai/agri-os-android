@@ -104,6 +104,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 
 `15-version-mismatch-conflict.yaml` validates manual-review sync conflict UX. Run WSL `scripts/prepare_android_version_mismatch_conflict.py --reset --apply` first. The flow queues the fixed backend fixture `crop_activity` event, taps Sync Now, and expects `VERSION_MISMATCH` to show manual review guidance rather than stale-context refresh guidance.
 
+`16-workflow-invalid-conflict.yaml` validates server-authority workflow conflict UX. Run WSL `scripts/prepare_android_workflow_invalid_conflict.py --reset --apply` first. The flow queues the fixed backend fixture `crop_stage` START event for an already ACTIVE NURSERY stage, taps Sync Now, and expects `WORKFLOW_INVALID` to show workflow refresh guidance rather than stale-context or version-mismatch guidance.
+
 ## Screenshots
 
 Each flow uses `takeScreenshot`. Maestro stores screenshots in its run artifacts and prints their location in the terminal output. Please share the failed screenshot plus the terminal failure text if something breaks.

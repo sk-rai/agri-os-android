@@ -80,6 +80,7 @@ fun HomeScreen(
     var hydrationMessage by remember { mutableStateOf<String?>(null) }
     var staleContextTestEventId by remember { mutableStateOf<String?>(null) }
     var versionMismatchTestEventId by remember { mutableStateOf<String?>(null) }
+    var workflowInvalidTestEventId by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -299,8 +300,35 @@ fun HomeScreen(
             }
             staleContextTestEventId = null
             versionMismatchTestEventId = eventId
+            workflowInvalidTestEventId = null
             lastSyncMessage = "Version mismatch test event queued: $eventId"
             Log.d(TAG, "Version mismatch test event queued: eventId=$eventId, activityId=$activityId")
+        }
+    }
+
+    fun queueWorkflowInvalidTestEvent() {
+        scope.launch {
+            val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000121"
+            val stageEntityId = "0f7e0a6b-8472-5d6d-8a14-a9d000000122"
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                OfflineCropSyncRepository.enqueueStageTransition(
+                    syncQueueDao = db.syncQueueDao(),
+                    cropCycleId = "aa346148-468b-47de-9c86-47ad41aa1f11",
+                    stageCode = "NURSERY",
+                    action = "START",
+                    eventId = eventId,
+                    entityId = stageEntityId,
+                    dependencyIds = emptyList(),
+                    actualStartDate = "2026-08-02",
+                    metadata = mapOf("source" to "android_maestro_workflow_invalid_test")
+                )
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = eventId
+            lastSyncMessage = "Workflow invalid test event queued: $eventId"
+            Log.d(TAG, "Workflow invalid test event queued: eventId=$eventId, stageEntityId=$stageEntityId")
         }
     }
 
@@ -517,6 +545,15 @@ fun HomeScreen(
                 }
                 versionMismatchTestEventId?.let { eventId ->
                     Text("Version mismatch test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { queueWorkflowInvalidTestEvent() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Workflow Invalid Test")
+                }
+                workflowInvalidTestEventId?.let { eventId ->
+                    Text("Workflow invalid test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
                 }
             }
 
