@@ -1,0 +1,31 @@
+appId: com.agrios.app
+name: Version mismatch conflict shows manual review guidance
+---
+# Requires WSL prepare/reset:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_version_mismatch_conflict.py --reset --apply
+#
+# This queues the fixed crop_activity replay event documented by backend:
+#   event_id=0f7e0a6b-8472-5d6d-8a14-a9d000000111
+#   entity_id=0f7e0a6b-8472-5d6d-8a14-a9d000000112
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Version Mismatch Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Queue Version Mismatch Test"
+- extendedWaitUntil:
+    visible: "Version mismatch test event queued:.*"
+    timeout: 30000
+- takeScreenshot: "15-version-mismatch-event-queued"
+- tapOn: "Sync Now"
+- extendedWaitUntil:
+    visible: "Manual review needed: server has a newer version"
+    timeout: 60000
+- assertVisible: "Activity changed on both device and backend.*|.*Refresh before editing again.*"
+- assertNotVisible: "Refresh required: local context is stale"
+- takeScreenshot: "15-version-mismatch-manual-review"

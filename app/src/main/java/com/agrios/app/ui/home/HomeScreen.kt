@@ -79,6 +79,7 @@ fun HomeScreen(
     var hydrationAttempted by remember { mutableStateOf(false) }
     var hydrationMessage by remember { mutableStateOf<String?>(null) }
     var staleContextTestEventId by remember { mutableStateOf<String?>(null) }
+    var versionMismatchTestEventId by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -266,6 +267,40 @@ fun HomeScreen(
             staleContextTestEventId = eventId
             lastSyncMessage = "Stale context test event queued: $eventId"
             Log.d(TAG, "Stale context test event queued: eventId=$eventId, cycleId=$cropCycleId")
+        }
+    }
+
+    fun queueVersionMismatchTestEvent() {
+        scope.launch {
+            val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000111"
+            val activityId = "0f7e0a6b-8472-5d6d-8a14-a9d000000112"
+            val payload = linkedMapOf<String, Any?>(
+                "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                "stage_code" to "NURSERY",
+                "activity_date" to "2026-08-02",
+                "activity_type" to "FERTILIZER",
+                "input_code" to "DAP_18_46_0",
+                "description" to "Android offline changed activity payload",
+                "quantity" to 1,
+                "quantity_unit" to "KG",
+                "cost_amount" to 325.5,
+                "currency" to "INR"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                OfflineCropSyncRepository.enqueueActivityCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    activityId = activityId,
+                    payload = payload,
+                    eventId = eventId,
+                    dependencyIds = emptyList(),
+                    metadata = mapOf("source" to "android_maestro_version_mismatch_test")
+                )
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = eventId
+            lastSyncMessage = "Version mismatch test event queued: $eventId"
+            Log.d(TAG, "Version mismatch test event queued: eventId=$eventId, activityId=$activityId")
         }
     }
 
@@ -473,6 +508,15 @@ fun HomeScreen(
                 }
                 staleContextTestEventId?.let { eventId ->
                     Text("Stale context test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { queueVersionMismatchTestEvent() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Version Mismatch Test")
+                }
+                versionMismatchTestEventId?.let { eventId ->
+                    Text("Version mismatch test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
                 }
             }
 

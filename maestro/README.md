@@ -52,6 +52,7 @@ maestro test maestro\11-offline-stage-start-queue.yaml
 maestro test maestro\12-offline-activity-log-queue.yaml
 maestro test maestro\13-activity-finance-summary-smoke.yaml
 maestro test maestro\14-stale-context-sync-failure.yaml
+maestro test maestro\15-version-mismatch-conflict.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -100,6 +101,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 `13-activity-finance-summary-smoke.yaml` validates the post-sync UI: the NURSERY activity row is visible, and backend-derived finance totals show the replayed `₹325.50` expense.
 
 `14-stale-context-sync-failure.yaml` validates stale-context sync failure UX for the Android dynamic test lane. It queues a fresh local `crop_cycle` replay event, pauses for 60 seconds so WSL can run `scripts/prepare_android_stale_context_sync_failure.py --apply`, then taps Sync Now and expects Android to show refresh guidance for `PARCEL_PROJECT_MISMATCH` rather than manual conflict UI. Restore the backend fixture afterward with `scripts/prepare_android_stale_context_sync_failure.py --restore --apply`.
+
+`15-version-mismatch-conflict.yaml` validates manual-review sync conflict UX. Run WSL `scripts/prepare_android_version_mismatch_conflict.py --reset --apply` first. The flow queues the fixed backend fixture `crop_activity` event, taps Sync Now, and expects `VERSION_MISMATCH` to show manual review guidance rather than stale-context refresh guidance.
 
 ## Screenshots
 

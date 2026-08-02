@@ -72,6 +72,14 @@ interface SyncQueueDao {
     """)
     fun observeAttentionItems(limit: Int = 3): Flow<List<SyncQueueEntity>>
 
+    @Query("""
+        DELETE FROM sync_queue
+        WHERE payload LIKE '%stale_context_test%'
+           OR payload LIKE '%version_mismatch_test%'
+           OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000111'
+    """)
+    suspend fun deleteDynamicSyncTestRows()
+
     @Query("DELETE FROM sync_queue WHERE sync_status = 'SYNCED' AND created_at < :olderThan")
     suspend fun cleanupSynced(olderThan: Long)
 
