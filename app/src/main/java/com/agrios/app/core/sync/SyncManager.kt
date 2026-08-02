@@ -268,7 +268,7 @@ class SyncManager(
                 val errorDetail = listOfNotNull(failure.errorCode, failure.detailCode, failure.message)
                     .joinToString(": ")
                 if (failure.isStaleLocalContextFailure()) {
-                    syncQueueDao.markFailed(failure.eventId, "STALE_LOCAL_CONTEXT: $errorDetail")
+                    syncQueueDao.markFailed(failure.eventId, gson.toJson(failure))
                     Log.w(TAG, "Stale local context detected for ${failure.eventId}; refresh profile/parcels and rebuild local draft")
                 } else if (failure.retryable && item.retryCount < item.maxRetries) {
                     val nextRetry = calculateNextRetry(item.retryCount + 1)
@@ -328,6 +328,11 @@ class SyncManager(
         var fixedCount = 0
 
         for (item in failedItems) {
+            if (item.lastError.isStaleLocalContextError()) {
+                Log.d(TAG, "Skipping auto-retry for stale local context item ${item.eventId}")
+                continue
+            }
+
             val payloadMap: MutableMap<String, Any?> = gson.fromJson(
                 item.payload,
                 object : TypeToken<MutableMap<String, Any?>>() {}.type
@@ -365,5 +370,25 @@ class SyncManager(
 
         Log.d(TAG, "Fixed and reset $fixedCount failed items")
         return fixedCount
+    }
+
+    private fun String?.isStaleLocalContextError(): Boolean {
+        val raw = this.orEmpty()
+        if (raw.startsWith("STALE_LOCAL_CONTEXT")) return true
+        if (!raw.trimStart().startsWith("{")) return false
+        return runCatching {
+            val parsed: Map<String, Any?> = gson.fromJson(
+                raw,
+                object : TypeToken<Map<String, Any?>>() {}.type
+            )
+            parsed["error_code"] == "MATERIALIZATION_FAILED" &&
+                parsed["detail_code"] in setOf(
+                    "PARCEL_FARMER_MISMATCH",
+                    "PARCEL_PROJECT_MISMATCH",
+                    "INVALID_PARCEL_FOR_FARMER",
+                    "INVALID_FARMER_FOR_TENANT",
+                    "INVALID_PROJECT_FOR_TENANT"
+                )
+        }.getOrDefault(false)
     }
 }

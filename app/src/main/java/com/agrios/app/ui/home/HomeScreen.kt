@@ -1,5 +1,6 @@
 package com.agrios.app.ui.home
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,17 +24,27 @@ import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.local.entity.FarmerEntity
+import com.agrios.app.data.local.entity.SyncQueueEntity
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
+import com.agrios.app.data.repository.OfflineCropSyncRepository
 import com.agrios.app.data.repository.ProfileHydrationRepository
 import com.agrios.app.ui.components.SyncStatusBadge
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.TimeUnit
+
+private const val TAG = "HomeScreen"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +61,7 @@ fun HomeScreen(
     val pendingCount by db.syncQueueDao().observePendingCount().collectAsState(initial = 0)
     val conflictCount by db.syncQueueDao().observeConflictCount().collectAsState(initial = 0)
     val failedCount by db.syncQueueDao().observeFailedCount().collectAsState(initial = 0)
+    val attentionItems by db.syncQueueDao().observeAttentionItems().collectAsState(initial = emptyList())
     var isSyncing by remember { mutableStateOf(false) }
     var lastSyncMessage by remember { mutableStateOf<String?>(null) }
 
@@ -66,6 +78,10 @@ fun HomeScreen(
     var isHydratingProfile by remember { mutableStateOf(false) }
     var hydrationAttempted by remember { mutableStateOf(false) }
     var hydrationMessage by remember { mutableStateOf<String?>(null) }
+    var staleContextTestEventId by remember { mutableStateOf<String?>(null) }
+    val showDynamicSyncTestTools = farmer?.mobileNumber
+        ?.filter { it.isDigit() }
+        ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
 
     val api = remember {
         val okHttpClient = OkHttpClient.Builder()
@@ -220,6 +236,36 @@ fun HomeScreen(
             } finally {
                 isSyncing = false
             }
+        }
+    }
+
+    fun queueStaleContextTestEvent() {
+        val farmerId = farmer?.id ?: return
+        scope.launch {
+            val eventId = UUID.randomUUID().toString()
+            val cropCycleId = UUID.randomUUID().toString()
+            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            val payload = linkedMapOf<String, Any?>(
+                "farmer_id" to farmerId,
+                "parcel_id" to "98c1a0fa-4f5f-4b8c-97ae-d84992db1c44",
+                "project_id" to AndroidDynamicTestContext.PROJECT_ID,
+                "crop_code" to "RICE",
+                "season_code" to "KHARIF",
+                "planned_sowing_date" to today,
+                "status" to "PLANNED"
+            )
+            withContext(Dispatchers.IO) {
+                OfflineCropSyncRepository.enqueueCropCycleCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    cropCycleId = cropCycleId,
+                    payload = payload,
+                    eventId = eventId,
+                    metadata = mapOf("android_flow" to "stale_context_test")
+                )
+            }
+            staleContextTestEventId = eventId
+            lastSyncMessage = "Stale context test event queued: $eventId"
+            Log.d(TAG, "Stale context test event queued: eventId=$eventId, cycleId=$cropCycleId")
         }
     }
 
@@ -418,6 +464,18 @@ fun HomeScreen(
                 }
             }
 
+            if (showDynamicSyncTestTools) {
+                OutlinedButton(
+                    onClick = { queueStaleContextTestEvent() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Stale Context Test")
+                }
+                staleContextTestEventId?.let { eventId ->
+                    Text("Stale context test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
             // Sync status card
             if (pendingCount > 0 || conflictCount > 0 || failedCount > 0 || isSyncing || lastSyncMessage != null) {
                 Card(
@@ -452,6 +510,9 @@ fun HomeScreen(
                             if (failedCount > 0) {
                                 Text("Failed $failedCount sync items")
                             }
+                            attentionItems.forEach { item ->
+                                SyncAttentionMessage(item)
+                            }
                             if (lastSyncMessage != null) {
                                 Text(lastSyncMessage!!, style = MaterialTheme.typography.bodySmall)
                             }
@@ -470,6 +531,95 @@ fun HomeScreen(
             }
         }
     }
+}
+
+
+@Composable
+private fun SyncAttentionMessage(item: SyncQueueEntity) {
+    val message = remember(item.eventId, item.syncStatus, item.lastError) {
+        item.toUserFacingSyncMessage()
+    }
+    Column(modifier = Modifier.padding(top = 4.dp)) {
+        Text(message.title, style = MaterialTheme.typography.bodyMedium)
+        Text(message.body, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+private data class SyncAttentionUiMessage(val title: String, val body: String)
+
+private fun SyncQueueEntity.toUserFacingSyncMessage(): SyncAttentionUiMessage {
+    val raw = lastError.orEmpty()
+    val parsed = parseSyncError(raw)
+    val code = parsed["conflict_type"] ?: parsed["error_code"] ?: raw.substringBefore(":").ifBlank { syncStatus }
+    val detailCode = parsed["detail_code"]
+    val message = parsed["message"] ?: parsed["detail"] ?: raw
+
+    return when {
+        syncStatus == "CONFLICTED" && code == "VERSION_MISMATCH" -> SyncAttentionUiMessage(
+            title = "Manual review needed: server has a newer version",
+            body = "${entityTypeLabel()} changed on both device and backend. Refresh before editing again."
+        )
+        syncStatus == "CONFLICTED" && code == "WORKFLOW_INVALID" -> SyncAttentionUiMessage(
+            title = "Workflow changed on backend",
+            body = "Refresh this crop cycle/stage before retrying the action."
+        )
+        code == "MATERIALIZATION_FAILED" && detailCode in staleContextDetailCodes -> SyncAttentionUiMessage(
+            title = "Refresh required: local context is stale",
+            body = staleContextBody(detailCode)
+        )
+        code == "DEPENDENCY_MISSING" -> SyncAttentionUiMessage(
+            title = "Waiting for parent record to sync",
+            body = "Sync the related farmer, parcel, crop cycle, or stage first; then tap Sync Now."
+        )
+        raw.startsWith("STALE_LOCAL_CONTEXT") -> SyncAttentionUiMessage(
+            title = "Refresh required: local context is stale",
+            body = "Refresh profile and parcel/crop-cycle context, rebuild this local draft, then retry."
+        )
+        else -> SyncAttentionUiMessage(
+            title = "${entityTypeLabel()} sync needs attention",
+            body = message.ifBlank { "Tap Sync Now after checking connectivity and backend state." }
+        )
+    }
+}
+
+private val staleContextDetailCodes = setOf(
+    "PARCEL_FARMER_MISMATCH",
+    "PARCEL_PROJECT_MISMATCH",
+    "INVALID_PARCEL_FOR_FARMER",
+    "INVALID_FARMER_FOR_TENANT",
+    "INVALID_PROJECT_FOR_TENANT"
+)
+
+private fun SyncQueueEntity.entityTypeLabel(): String {
+    return when (entityType.lowercase()) {
+        "crop_cycle" -> "Crop cycle"
+        "crop_stage" -> "Crop stage"
+        "crop_activity" -> "Activity"
+        "farmer" -> "Farmer profile"
+        "parcel" -> "Land parcel"
+        "soil_profile" -> "Soil profile"
+        else -> entityType.replace('_', ' ').replaceFirstChar { it.uppercase() }
+    }
+}
+
+private fun staleContextBody(detailCode: String?): String {
+    return when (detailCode) {
+        "PARCEL_FARMER_MISMATCH" -> "This parcel no longer belongs to the selected farmer. Refresh profile/parcels and rebuild the crop draft."
+        "PARCEL_PROJECT_MISMATCH" -> "This parcel belongs to a different project. Refresh project and eligible parcel context."
+        "INVALID_PARCEL_FOR_FARMER" -> "The parcel is not valid for this farmer. Refresh parcels and eligible parcels before retrying."
+        "INVALID_FARMER_FOR_TENANT" -> "The farmer is not valid for this tenant. Refresh profile hydration before retrying."
+        "INVALID_PROJECT_FOR_TENANT" -> "The project is not valid for this tenant. Refresh bootstrap/project context before retrying."
+        else -> "Refresh profile, project, parcels, and eligible parcels; rebuild or discard the local draft."
+    }
+}
+
+private fun parseSyncError(raw: String): Map<String, String> {
+    if (!raw.trimStart().startsWith("{")) return emptyMap()
+    return runCatching {
+        val type = object : TypeToken<Map<String, Any?>>() {}.type
+        val parsed: Map<String, Any?> = Gson().fromJson(raw, type)
+        parsed.mapValues { (_, value) -> value?.toString().orEmpty() }
+    }.getOrDefault(emptyMap())
 }
 
 

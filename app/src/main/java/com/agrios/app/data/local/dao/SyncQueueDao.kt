@@ -64,6 +64,14 @@ interface SyncQueueDao {
     @Query("SELECT * FROM sync_queue WHERE sync_status = 'CONFLICTED'")
     suspend fun getConflicts(): List<SyncQueueEntity>
 
+    @Query("""
+        SELECT * FROM sync_queue
+        WHERE sync_status IN ('FAILED', 'CONFLICTED')
+        ORDER BY created_at DESC
+        LIMIT :limit
+    """)
+    fun observeAttentionItems(limit: Int = 3): Flow<List<SyncQueueEntity>>
+
     @Query("DELETE FROM sync_queue WHERE sync_status = 'SYNCED' AND created_at < :olderThan")
     suspend fun cleanupSynced(olderThan: Long)
 

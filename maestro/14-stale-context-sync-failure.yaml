@@ -1,0 +1,34 @@
+appId: com.agrios.app
+name: Stale context sync failure shows refresh guidance
+---
+# Requires backend fixture from WSL:
+# After this flow queues the stale-context test event and reaches wait-60s.js,
+# run:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_stale_context_sync_failure.py --apply
+#
+# Then ensure backend is running. Maestro will tap Sync Now and expect Android
+# to show stale-context refresh guidance, not manual conflict UI.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Stale Context Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Queue Stale Context Test"
+- extendedWaitUntil:
+    visible: "Stale context test event queued:.*"
+    timeout: 30000
+- takeScreenshot: "14-stale-context-event-queued"
+- runScript:
+    file: wait-60s.js
+- tapOn: "Sync Now"
+- extendedWaitUntil:
+    visible: "Refresh required: local context is stale"
+    timeout: 60000
+- assertVisible: "This parcel belongs to a different project.*|.*Refresh project and eligible parcel context.*"
+- assertNotVisible: "Manual review needed.*"
+- takeScreenshot: "14-stale-context-refresh-guidance"
