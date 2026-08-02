@@ -87,7 +87,7 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 
 `09-dynamic-soil-profile-submit.yaml` starts from the hydrated dynamic test farmer + parcel and submits a backend-driven Soil Profile for the parcel. After a backend reset, run `06 -> 07`, wait for sync/hydration to include the parcel, then run `09`. It validates the Android side of the farmer -> parcel -> soil profile replay chain; WSL should verify `entity_type=SOIL_PROFILE` plus `farmer_id`, `parcel_id`, `project_id`, `data_source`, `ph`, `organic_carbon_oc`, and `boron_b`.
 
-`10-offline-crop-cycle-create-queue.yaml` validates the offline crop-cycle create fallback. Run it only after `06 -> 07` have produced a synced farmer + parcel. The flow opens Start Crop Cycle while backend is online, selects parcel/season/crop, then waits 15 seconds before tapping Start Cycle. During that 15-second window, stop/pause FastAPI. Android should show `Saved!` and `Syncing in background.` instead of a connection failure. Restart backend afterward and verify `/api/v1/sync/events` replays `entity_type=crop_cycle`.
+`10-offline-crop-cycle-create-queue.yaml` validates the offline crop-cycle create fallback. Run it only after `06 -> 07` have produced a synced farmer + parcel. The flow opens Start Crop Cycle while backend is online, selects parcel/season/crop, then pauses for 60 seconds before tapping Start Cycle. During that 60-second window, stop/pause FastAPI. Android should show `Saved!` and `Syncing in background.` instead of a connection failure. Restart backend afterward and verify `/api/v1/sync/events` replays `entity_type=crop_cycle`.
 
 ## Screenshots
 

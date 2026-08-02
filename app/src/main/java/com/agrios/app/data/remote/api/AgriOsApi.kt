@@ -103,7 +103,8 @@ interface AgriOsApi {
 
     @GET("farmers/by-mobile/{mobile}")
     suspend fun getFarmerProfileByMobile(
-        @Path(value = "mobile", encoded = true) mobile: String
+        @Path(value = "mobile", encoded = true) mobile: String,
+        @Query("project_id") projectId: String? = null
     ): Response<FarmerProfileHydrationDto>
 
     // --- Parcels ---

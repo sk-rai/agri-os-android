@@ -206,6 +206,7 @@ private fun RenderField(
                 }
             } else if (field.source == "local_parcels") {
                 val db = AgriOsApp.instance.database
+                val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
                 val parcels by db.parcelDao().observeAll().collectAsState(initial = emptyList())
                 val season = (formValues["season_code"] ?: formValues["season"])?.toString()
                 var backendEligibleItems by remember(formId, season) { mutableStateOf<List<Pair<String, String>>?>(null) }
@@ -219,17 +220,16 @@ private fun RenderField(
                     }
                 }
 
-                val unavailableParcelIds = remember(formId, backendEligibilityLoaded) {
-                    if (formId == "crop_cycle_create") CropCycleCache.getUnavailableParcelIds(AgriOsApp.instance) else emptySet()
-                }
+                val currentFarmerId = farmers.firstOrNull()?.id
                 val localEligibleParcels = if (formId == "crop_cycle_create") {
-                    parcels.filterNot { it.id in unavailableParcelIds }
+                    parcels
+                        .filter { currentFarmerId.isNullOrBlank() || it.farmerId == currentFarmerId }
                 } else {
                     parcels
                 }
                 val localParcelItems = localEligibleParcels.map { it.id to "${it.reportedArea} ${it.reportedAreaUnit} (${it.ownershipType})" }
                 val parcelItems = if (formId == "crop_cycle_create" && backendEligibilityLoaded) {
-                    backendEligibleItems ?: localParcelItems
+                    backendEligibleItems?.takeIf { it.isNotEmpty() } ?: localParcelItems
                 } else {
                     localParcelItems
                 }

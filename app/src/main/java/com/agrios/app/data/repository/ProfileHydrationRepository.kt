@@ -35,8 +35,11 @@ class ProfileHydrationRepository(
         }
     }
 
-    suspend fun hydrateByMobile(mobile: String): ProfileHydrationResult = withContext(Dispatchers.IO) {
-        val response = api.getFarmerProfileByMobile(mobile)
+    suspend fun hydrateByMobile(
+        mobile: String,
+        projectId: String? = null
+    ): ProfileHydrationResult = withContext(Dispatchers.IO) {
+        val response = api.getFarmerProfileByMobile(mobile, projectId)
         when {
             response.isSuccessful -> hydrate(response.body())
             response.code() == 404 -> ProfileHydrationResult(profileExists = false)

@@ -4,7 +4,7 @@ name: Offline crop-cycle create queues replay when backend is unavailable
 # This flow is intentionally two-phase.
 #
 # Phase A, backend ON:
-#   - Login/hydrate dynamic farmer + parcel
+#   - Start from an already-hydrated Home screen for mobile 9900000002
 #   - Open Start Crop Cycle
 #   - Select parcel, season, crop
 #
@@ -19,31 +19,11 @@ name: Offline crop-cycle create queues replay when backend is unavailable
 #   - Tap Sync Now / let immediate sync run
 #   - Ask WSL to verify replayed crop_cycle and eligible-parcels status.
 #
-# Recommended clean setup:
-#   cd ~/projects/farmint/backend
-#   ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
-#   Run 06 -> 07 first so the farmer + parcel exist server-side.
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible: ".*Agri-OS"
-    timeout: 20000
-- tapOn: "English"
-- tapOn: "Continue"
-- extendedWaitUntil:
-    visible: "Mobile Number.*"
-    timeout: 20000
-- tapOn:
-    text: "Mobile Number.*"
-- inputText: "9900000002"
-- hideKeyboard
-- tapOn:
-    text: "Send OTP.*"
-- extendedWaitUntil:
-    visible: ".*OTP.*"
-    timeout: 20000
-- tapOn:
-    text: "Verify.*"
+# Setup:
+#   Use flow 06/07 or manual login first so Home shows Android Dynamic Test Farmer.
+#   This flow intentionally does not clear app state because login text entry is
+#   tested elsewhere and can be emulator-keyboard flaky.
+- launchApp
 - extendedWaitUntil:
     visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
     timeout: 60000
@@ -88,8 +68,8 @@ name: Offline crop-cycle create queues replay when backend is unavailable
     direction: DOWN
     timeout: 30000
 - takeScreenshot: "10-before-offline-crop-cycle-submit"
-- waitForAnimationToEnd:
-    timeout: 15000
+- runScript:
+    file: wait-60s.js
 - tapOn:
     text: "Start Cycle|Start Crop Cycle"
 - extendedWaitUntil:

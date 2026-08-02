@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
 import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
+import com.agrios.app.core.network.AndroidDynamicTestContext
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.sync.SyncManager
 import com.agrios.app.core.sync.SyncWorker
@@ -87,17 +88,31 @@ fun HomeScreen(
     }
 
     LaunchedEffect(hasProfile) {
-        if (!hasProfile && !hydrationAttempted) {
+        if (!hydrationAttempted) {
+            val authState = withContext(Dispatchers.IO) { db.authDao().getAuthState() }
+            val shouldRefreshDynamicProfile = hasProfile &&
+                AndroidDynamicTestContext.isEnabledFor(authState) &&
+                !authState?.mobileNumber.isNullOrBlank()
+            if (hasProfile && !shouldRefreshDynamicProfile) return@LaunchedEffect
+
             hydrationAttempted = true
             isHydratingProfile = true
             hydrationMessage = null
             try {
                 val result = withContext(Dispatchers.IO) {
-                    ProfileHydrationRepository(
+                    val repository = ProfileHydrationRepository(
                         context = AgriOsApp.instance,
                         db = db,
                         api = api
-                    ).hydrateAfterLogin()
+                    )
+                    if (shouldRefreshDynamicProfile) {
+                        repository.hydrateByMobile(
+                            mobile = authState?.mobileNumber.orEmpty(),
+                            projectId = AndroidDynamicTestContext.projectIdFor(authState)
+                        )
+                    } else {
+                        repository.hydrateAfterLogin()
+                    }
                 }
                 hydrationMessage = result.message
             } catch (e: Exception) {
