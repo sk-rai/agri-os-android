@@ -88,6 +88,11 @@ interface AgriOsApi {
         @Query("section_status") sectionStatus: String? = null
     ): Response<com.google.gson.JsonElement>
 
+    @GET("farmers/{farmerId}/launch-context")
+    suspend fun getFarmerLaunchContext(
+        @Path("farmerId") farmerId: String
+    ): Response<com.google.gson.JsonElement>
+
     @GET("profile/land-intelligence-context")
     suspend fun getLandIntelligenceContext(
         @Query("state_lgd_code") stateLgdCode: String? = null,
@@ -196,6 +201,13 @@ interface AgriOsApi {
         @Query("farmer_id") farmerId: String? = null,
         @Query("status") status: String? = null
     ): Response<List<CropCycleResponseDto>>
+
+    @GET("crop-cycles/eligible-parcels")
+    suspend fun getEligibleParcels(
+        @Query("farmer_id") farmerId: String,
+        @Query("season") season: String? = null,
+        @Query("project_id") projectId: String? = null
+    ): Response<com.google.gson.JsonElement>
 
     @GET("crop-cycles/{id}")
     suspend fun getCropCycle(@Path("id") id: String): Response<CropCycleResponseDto>

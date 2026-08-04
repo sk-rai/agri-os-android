@@ -1,0 +1,49 @@
+appId: com.agrios.app
+name: Stale context recovery refreshes and discards local draft
+---
+# Requires WSL reset/restore before starting if the parcel fixture was mutated:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_stale_context_sync_failure.py --restore --apply
+#
+# During the 60-second wait, run WSL mutation:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_stale_context_sync_failure.py --apply
+#
+# After Android verifies and discards locally, WSL can verify durable backend trace:
+#   ../venv/bin/python scripts/verify_android_stale_context_recovery_state.py --event-id {failed_event_id}
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Stale Context Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Queue Stale Context Test"
+- extendedWaitUntil:
+    visible: "Stale context test event queued:.*"
+    timeout: 30000
+- takeScreenshot: "17-stale-context-recovery-event-queued"
+- runScript: wait-60s.js
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Sync Now"
+- extendedWaitUntil:
+    visible: "Refresh required: local context is stale"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Refresh and discard draft"
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "Refresh and discard draft"
+- tapOn: "Refresh and discard draft"
+- extendedWaitUntil:
+    notVisible: "Refresh required: local context is stale"
+    timeout: 60000
+- assertNotVisible: "Refresh and discard draft"
+- takeScreenshot: "17-stale-context-recovery-cleared"

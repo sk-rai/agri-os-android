@@ -106,6 +106,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 
 `16-workflow-invalid-conflict.yaml` validates server-authority workflow conflict UX. Run WSL `scripts/prepare_android_workflow_invalid_conflict.py --reset --apply` first. The flow queues the fixed backend fixture `crop_stage` START event for an already ACTIVE NURSERY stage, taps Sync Now, and expects `WORKFLOW_INVALID` to show workflow refresh guidance rather than stale-context or version-mismatch guidance.
 
+`17-stale-context-recovery.yaml` validates the stale-context recovery lifecycle. Start from a restored stale-context fixture, run the flow, and during its 60-second wait run WSL `scripts/prepare_android_stale_context_sync_failure.py --apply`. After Sync Now returns `PARCEL_PROJECT_MISMATCH`, Android should show `Refresh and discard draft`; tapping it refreshes backend-owned context and deletes only that local stale draft row. Backend keeps the durable FAILED/audit trace and can be verified with `scripts/verify_android_stale_context_recovery_state.py --event-id {failed_event_id}`.
+
 ## Screenshots
 
 Each flow uses `takeScreenshot`. Maestro stores screenshots in its run artifacts and prints their location in the terminal output. Please share the failed screenshot plus the terminal failure text if something breaks.

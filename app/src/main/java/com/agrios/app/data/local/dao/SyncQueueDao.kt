@@ -49,6 +49,9 @@ interface SyncQueueDao {
     @Query("UPDATE sync_queue SET sync_status = 'CONFLICTED', last_error = :conflictData WHERE event_id = :eventId")
     suspend fun markConflicted(eventId: String, conflictData: String?)
 
+    @Query("DELETE FROM sync_queue WHERE event_id = :eventId")
+    suspend fun deleteByEventId(eventId: String)
+
     @Query("SELECT COUNT(*) FROM sync_queue WHERE sync_status = 'PENDING'")
     fun observePendingCount(): Flow<Int>
 

@@ -257,6 +257,7 @@ fun HomeScreen(
                 "status" to "PLANNED"
             )
             withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
                 OfflineCropSyncRepository.enqueueCropCycleCreate(
                     syncQueueDao = db.syncQueueDao(),
                     cropCycleId = cropCycleId,
@@ -329,6 +330,64 @@ fun HomeScreen(
             workflowInvalidTestEventId = eventId
             lastSyncMessage = "Workflow invalid test event queued: $eventId"
             Log.d(TAG, "Workflow invalid test event queued: eventId=$eventId, stageEntityId=$stageEntityId")
+        }
+    }
+
+    fun refreshContextAndDiscardDraft(item: SyncQueueEntity) {
+        val currentFarmer = farmer ?: return
+        scope.launch {
+            isSyncing = true
+            lastSyncMessage = null
+            val eventId = item.eventId
+            Log.d(TAG, "Refreshing context and discarding stale draft: eventId=$eventId")
+            val resultMessage = withContext(Dispatchers.IO) {
+                val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
+                val projectId = AndroidDynamicTestContext.projectIdFor(authState)
+                val refreshResult = runCatching {
+                    val repository = ProfileHydrationRepository(
+                        context = AgriOsApp.instance,
+                        db = db,
+                        api = api
+                    )
+                    val mobile = authState?.mobileNumber.orEmpty()
+                    if (mobile.isNotBlank()) {
+                        repository.hydrateByMobile(
+                            mobile = mobile,
+                            projectId = AndroidDynamicTestContext.projectIdFor(authState)
+                        )
+                    } else {
+                        repository.hydrateAfterLogin()
+                    }
+                }
+
+                // Best-effort refresh of backend-owned context. These calls intentionally
+                // do not acknowledge or delete anything on the server; the failed audit row
+                // remains durable in backend history.
+                runCatching { api.getAppBootstrap(projectId) }
+                runCatching { api.getModeBootstrap() }
+                runCatching { api.getFarmerLaunchContext(currentFarmer.id) }
+                runCatching { api.getProfileReadiness(projectId = projectId) }
+                runCatching {
+                    api.getEligibleParcels(
+                        farmerId = currentFarmer.id,
+                        season = "KHARIF",
+                        projectId = projectId
+                    )
+                }
+
+                db.syncQueueDao().deleteByEventId(eventId)
+                Log.d(TAG, "Deleted stale local draft queue row: eventId=$eventId")
+
+                if (refreshResult.isSuccess) {
+                    "Context refreshed; stale draft discarded"
+                } else {
+                    "Stale draft discarded; refresh again if data looks old"
+                }
+            }
+            lastSyncMessage = resultMessage
+            staleContextTestEventId = null
+            isSyncing = false
+            Log.d(TAG, resultMessage)
         }
     }
 
@@ -592,7 +651,10 @@ fun HomeScreen(
                                 Text("Failed $failedCount sync items")
                             }
                             attentionItems.forEach { item ->
-                                SyncAttentionMessage(item)
+                                SyncAttentionMessage(
+                                    item = item,
+                                    onRefreshAndDiscard = { refreshContextAndDiscardDraft(item) }
+                                )
                             }
                             if (lastSyncMessage != null) {
                                 Text(lastSyncMessage!!, style = MaterialTheme.typography.bodySmall)
@@ -616,13 +678,30 @@ fun HomeScreen(
 
 
 @Composable
-private fun SyncAttentionMessage(item: SyncQueueEntity) {
+private fun SyncAttentionMessage(
+    item: SyncQueueEntity,
+    onRefreshAndDiscard: () -> Unit
+) {
     val message = remember(item.eventId, item.syncStatus, item.lastError) {
         item.toUserFacingSyncMessage()
     }
     Column(modifier = Modifier.padding(top = 4.dp)) {
         Text(message.title, style = MaterialTheme.typography.bodyMedium)
         Text(message.body, style = MaterialTheme.typography.bodySmall)
+        if (item.isStaleLocalContextFailure()) {
+            Text(
+                "This draft was created from old parcel or project data. Refresh your profile and parcel list, then create it again if needed.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedButton(
+                onClick = onRefreshAndDiscard,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+            ) {
+                Text("Refresh and discard draft")
+            }
+        }
     }
 }
 
@@ -692,6 +771,15 @@ private fun staleContextBody(detailCode: String?): String {
         "INVALID_PROJECT_FOR_TENANT" -> "The project is not valid for this tenant. Refresh bootstrap/project context before retrying."
         else -> "Refresh profile, project, parcels, and eligible parcels; rebuild or discard the local draft."
     }
+}
+
+private fun SyncQueueEntity.isStaleLocalContextFailure(): Boolean {
+    val raw = lastError.orEmpty()
+    val parsed = parseSyncError(raw)
+    val code = parsed["error_code"] ?: raw.substringBefore(":")
+    val detailCode = parsed["detail_code"]
+    return (code == "MATERIALIZATION_FAILED" && detailCode in staleContextDetailCodes) ||
+        raw.startsWith("STALE_LOCAL_CONTEXT")
 }
 
 private fun parseSyncError(raw: String): Map<String, String> {
