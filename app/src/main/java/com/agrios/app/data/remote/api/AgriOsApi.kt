@@ -167,11 +167,16 @@ interface AgriOsApi {
     @GET("sync/conflicts")
     suspend fun getConflicts(): Response<List<SyncConflictDto>>
 
+    @GET("sync/conflicts/pending")
+    suspend fun getPendingConflicts(
+        @Query("limit") limit: Int = 100
+    ): Response<com.google.gson.JsonElement>
+
     @PATCH("sync/conflicts/{id}")
     suspend fun resolveConflict(
         @Path("id") conflictId: String,
         @Body request: ResolveConflictDto
-    ): Response<Unit>
+    ): Response<com.google.gson.JsonElement>
 
     // --- Soil Profiles ---
     @GET("soil-profiles/infer/{districtName}")

@@ -1,0 +1,47 @@
+appId: com.agrios.app
+name: Workflow invalid conflict accepts server and discards local action
+---
+# Requires WSL prepare/reset:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_workflow_invalid_conflict.py --reset --apply
+#
+# After Android recovery, verify:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/verify_android_conflict_recovery_state.py --conflict-type WORKFLOW_INVALID
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Workflow Invalid Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Queue Workflow Invalid Test"
+- extendedWaitUntil:
+    visible: "Workflow invalid test event queued:.*"
+    timeout: 30000
+- takeScreenshot: "19-workflow-invalid-recovery-event-queued"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Sync Now"
+- extendedWaitUntil:
+    visible: "Workflow changed on backend"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Refresh stage"
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "Refresh stage"
+- tapOn: "Refresh stage"
+- extendedWaitUntil:
+    notVisible: "Workflow changed on backend"
+    timeout: 60000
+- assertNotVisible: "Refresh stage"
+- assertNotVisible: "Manual review needed: server has a newer version"
+- assertNotVisible: "Refresh required: local context is stale"
+- takeScreenshot: "19-workflow-invalid-recovery-cleared"

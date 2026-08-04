@@ -79,5 +79,6 @@ data class SyncFailedDto(
 )
 
 data class ResolveConflictDto(
-    @SerializedName("strategy") val strategy: String // ACCEPT_CLIENT, ACCEPT_SERVER
+    @SerializedName("strategy") val strategy: String, // ACCEPT_CLIENT, ACCEPT_SERVER
+    @SerializedName("comment") val comment: String? = null
 )

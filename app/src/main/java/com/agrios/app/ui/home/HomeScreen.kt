@@ -27,10 +27,12 @@ import com.agrios.app.data.local.entity.FarmerEntity
 import com.agrios.app.data.local.entity.SyncQueueEntity
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
+import com.agrios.app.data.remote.dto.ResolveConflictDto
 import com.agrios.app.data.repository.OfflineCropSyncRepository
 import com.agrios.app.data.repository.ProfileHydrationRepository
 import com.agrios.app.ui.components.SyncStatusBadge
 import com.google.gson.Gson
+import com.google.gson.JsonElement
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -333,6 +335,43 @@ fun HomeScreen(
         }
     }
 
+    suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
+        val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
+        val projectId = AndroidDynamicTestContext.projectIdFor(authState)
+        val refreshResult = runCatching {
+            val repository = ProfileHydrationRepository(
+                context = AgriOsApp.instance,
+                db = db,
+                api = api
+            )
+            val mobile = authState?.mobileNumber.orEmpty()
+            if (mobile.isNotBlank()) {
+                repository.hydrateByMobile(
+                    mobile = mobile,
+                    projectId = projectId
+                )
+            } else {
+                repository.hydrateAfterLogin()
+            }
+        }
+
+        // Best-effort refresh of backend-owned context. These calls intentionally
+        // do not acknowledge or delete sync events on the server.
+        runCatching { api.getAppBootstrap(projectId) }
+        runCatching { api.getModeBootstrap() }
+        runCatching { api.getFarmerLaunchContext(currentFarmer.id) }
+        runCatching { api.getProfileReadiness(projectId = projectId) }
+        runCatching {
+            api.getEligibleParcels(
+                farmerId = currentFarmer.id,
+                season = "KHARIF",
+                projectId = projectId
+            )
+        }
+
+        refreshResult.isSuccess
+    }
+
     fun refreshContextAndDiscardDraft(item: SyncQueueEntity) {
         val currentFarmer = farmer ?: return
         scope.launch {
@@ -340,54 +379,65 @@ fun HomeScreen(
             lastSyncMessage = null
             val eventId = item.eventId
             Log.d(TAG, "Refreshing context and discarding stale draft: eventId=$eventId")
-            val resultMessage = withContext(Dispatchers.IO) {
-                val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
-                val projectId = AndroidDynamicTestContext.projectIdFor(authState)
-                val refreshResult = runCatching {
-                    val repository = ProfileHydrationRepository(
-                        context = AgriOsApp.instance,
-                        db = db,
-                        api = api
-                    )
-                    val mobile = authState?.mobileNumber.orEmpty()
-                    if (mobile.isNotBlank()) {
-                        repository.hydrateByMobile(
-                            mobile = mobile,
-                            projectId = AndroidDynamicTestContext.projectIdFor(authState)
-                        )
-                    } else {
-                        repository.hydrateAfterLogin()
-                    }
-                }
-
-                // Best-effort refresh of backend-owned context. These calls intentionally
-                // do not acknowledge or delete anything on the server; the failed audit row
-                // remains durable in backend history.
-                runCatching { api.getAppBootstrap(projectId) }
-                runCatching { api.getModeBootstrap() }
-                runCatching { api.getFarmerLaunchContext(currentFarmer.id) }
-                runCatching { api.getProfileReadiness(projectId = projectId) }
-                runCatching {
-                    api.getEligibleParcels(
-                        farmerId = currentFarmer.id,
-                        season = "KHARIF",
-                        projectId = projectId
-                    )
-                }
-
+            val refreshOk = refreshBackendOwnedContext(currentFarmer)
+            withContext(Dispatchers.IO) {
                 db.syncQueueDao().deleteByEventId(eventId)
-                Log.d(TAG, "Deleted stale local draft queue row: eventId=$eventId")
-
-                if (refreshResult.isSuccess) {
-                    "Context refreshed; stale draft discarded"
-                } else {
-                    "Stale draft discarded; refresh again if data looks old"
-                }
             }
-            lastSyncMessage = resultMessage
+            Log.d(TAG, "Deleted stale local draft queue row: eventId=$eventId")
+            lastSyncMessage = if (refreshOk) {
+                "Context refreshed; stale draft discarded"
+            } else {
+                "Stale draft discarded; refresh again if data looks old"
+            }
             staleContextTestEventId = null
             isSyncing = false
-            Log.d(TAG, resultMessage)
+            Log.d(TAG, lastSyncMessage.orEmpty())
+        }
+    }
+
+    fun acceptServerConflictAndDiscardLocal(item: SyncQueueEntity) {
+        val currentFarmer = farmer ?: return
+        scope.launch {
+            isSyncing = true
+            lastSyncMessage = null
+            val parsed = parseSyncError(item.lastError.orEmpty())
+            val conflictType = parsed["conflict_type"].orEmpty()
+            try {
+                refreshBackendOwnedContext(currentFarmer)
+                val conflictId = withContext(Dispatchers.IO) {
+                    val pending = api.getPendingConflicts(limit = 100)
+                    if (!pending.isSuccessful) {
+                        error("Could not fetch pending conflicts (${pending.code()})")
+                    }
+                    findPendingConflictId(pending.body(), item.eventId)
+                        ?: error("Pending conflict not found for ${item.eventId}")
+                }
+                val resolved = withContext(Dispatchers.IO) {
+                    api.resolveConflict(
+                        conflictId = conflictId,
+                        request = ResolveConflictDto(
+                            strategy = "ACCEPT_SERVER",
+                            comment = "Android user discarded local conflicted draft after refreshing context."
+                        )
+                    )
+                }
+                if (!resolved.isSuccessful) {
+                    error("Conflict acknowledgement failed (${resolved.code()})")
+                }
+                withContext(Dispatchers.IO) {
+                    db.syncQueueDao().deleteByEventId(item.eventId)
+                }
+                lastSyncMessage = when (conflictType) {
+                    "VERSION_MISMATCH" -> "Server version accepted; local edit discarded"
+                    "WORKFLOW_INVALID" -> "Stage refreshed; local action discarded"
+                    else -> "Conflict acknowledged; local draft discarded"
+                }
+                Log.d(TAG, "Accepted server conflict and discarded local row: eventId=${item.eventId}, conflictId=$conflictId")
+            } catch (e: Exception) {
+                lastSyncMessage = "Conflict recovery failed: ${e.message}"
+            } finally {
+                isSyncing = false
+            }
         }
     }
 
@@ -653,7 +703,8 @@ fun HomeScreen(
                             attentionItems.forEach { item ->
                                 SyncAttentionMessage(
                                     item = item,
-                                    onRefreshAndDiscard = { refreshContextAndDiscardDraft(item) }
+                                    onRefreshAndDiscard = { refreshContextAndDiscardDraft(item) },
+                                    onAcceptServerAndDiscard = { acceptServerConflictAndDiscardLocal(item) }
                                 )
                             }
                             if (lastSyncMessage != null) {
@@ -680,7 +731,8 @@ fun HomeScreen(
 @Composable
 private fun SyncAttentionMessage(
     item: SyncQueueEntity,
-    onRefreshAndDiscard: () -> Unit
+    onRefreshAndDiscard: () -> Unit,
+    onAcceptServerAndDiscard: () -> Unit
 ) {
     val message = remember(item.eventId, item.syncStatus, item.lastError) {
         item.toUserFacingSyncMessage()
@@ -700,6 +752,34 @@ private fun SyncAttentionMessage(
                     .padding(top = 6.dp)
             ) {
                 Text("Refresh and discard draft")
+            }
+        }
+        if (item.isVersionMismatchConflict()) {
+            Text(
+                "This item changed on the server while you were offline. Refresh and use the server version, then make a new edit if needed.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedButton(
+                onClick = onAcceptServerAndDiscard,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+            ) {
+                Text("Use server version")
+            }
+        }
+        if (item.isWorkflowInvalidConflict()) {
+            Text(
+                "The crop-cycle stage changed on the server. Refresh the stage timeline before retrying this action.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedButton(
+                onClick = onAcceptServerAndDiscard,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+            ) {
+                Text("Refresh stage")
             }
         }
     }
@@ -780,6 +860,30 @@ private fun SyncQueueEntity.isStaleLocalContextFailure(): Boolean {
     val detailCode = parsed["detail_code"]
     return (code == "MATERIALIZATION_FAILED" && detailCode in staleContextDetailCodes) ||
         raw.startsWith("STALE_LOCAL_CONTEXT")
+}
+
+private fun SyncQueueEntity.isVersionMismatchConflict(): Boolean {
+    val parsed = parseSyncError(lastError.orEmpty())
+    return syncStatus == "CONFLICTED" && parsed["conflict_type"] == "VERSION_MISMATCH"
+}
+
+private fun SyncQueueEntity.isWorkflowInvalidConflict(): Boolean {
+    val parsed = parseSyncError(lastError.orEmpty())
+    return syncStatus == "CONFLICTED" && parsed["conflict_type"] == "WORKFLOW_INVALID"
+}
+
+private fun findPendingConflictId(body: JsonElement?, eventId: String): String? {
+    val root = body ?: return null
+    val conflicts = when {
+        root.isJsonArray -> root.asJsonArray
+        root.isJsonObject && root.asJsonObject.has("conflicts") -> root.asJsonObject.getAsJsonArray("conflicts")
+        root.isJsonObject && root.asJsonObject.has("items") -> root.asJsonObject.getAsJsonArray("items")
+        root.isJsonObject && root.asJsonObject.has("results") -> root.asJsonObject.getAsJsonArray("results")
+        else -> return null
+    }
+    return conflicts.firstOrNull { element ->
+        element.isJsonObject && element.asJsonObject.get("event_id")?.asString == eventId
+    }?.asJsonObject?.get("id")?.asString
 }
 
 private fun parseSyncError(raw: String): Map<String, String> {
