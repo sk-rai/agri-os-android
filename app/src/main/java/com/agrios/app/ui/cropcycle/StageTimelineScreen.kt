@@ -363,7 +363,7 @@ private fun StageTimelineItem(
                             onClick = { onAdvance("START") },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
-                            Text(LanguageManager.localize("Start", "????"), style = MaterialTheme.typography.labelSmall)
+                            Text("${LanguageManager.localize("Start", "????")} ${stage.code}", style = MaterialTheme.typography.labelSmall)
                         }
                         TextButton(
                             onClick = { onAdvance("SKIP") },

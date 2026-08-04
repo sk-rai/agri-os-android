@@ -27,7 +27,12 @@ name: Offline crop-cycle create queues replay when backend is unavailable
 - extendedWaitUntil:
     visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
     timeout: 60000
-- tapOn: "Start Crop Cycle"
+- scrollUntilVisible:
+    element:
+      text: "Start.*[Cc]rop [Cc]ycle"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Start.*[Cc]rop [Cc]ycle"
 - extendedWaitUntil:
     visible: "Start Crop Cycle"
     timeout: 30000
@@ -64,16 +69,16 @@ name: Offline crop-cycle create queues replay when backend is unavailable
     timeout: 10000
 - scrollUntilVisible:
     element:
-      text: "Start Cycle|Start Crop Cycle"
+      text: "Start Cycle"
     direction: DOWN
     timeout: 30000
-- takeScreenshot: "10-before-offline-crop-cycle-submit"
+- takeScreenshot: 10-before-offline-crop-cycle-submit
 - runScript:
     file: wait-60s.js
 - tapOn:
-    text: "Start Cycle|Start Crop Cycle"
+    text: "Start Cycle"
 - extendedWaitUntil:
     visible: ".*Saved.*"
     timeout: 45000
 - assertVisible: "Syncing in background.*"
-- takeScreenshot: "10-offline-crop-cycle-queued"
+- takeScreenshot: 10-offline-crop-cycle-queued

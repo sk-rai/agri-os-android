@@ -28,8 +28,11 @@ function Wait-ForUser($message = "Press Enter when ready to continue") {
 }
 
 function Run-Flow($flow) {
-    Show-Step "Running $flow" ""
+    Show-Step ('Running ' + $flow) ''
     & $Maestro test $flow
+    if ($LASTEXITCODE -ne 0) {
+        throw ('Maestro flow failed: ' + $flow + ' code ' + $LASTEXITCODE)
+    }
 }
 
 Show-Step "Canonical WSL prep before flows 10-19" @"
@@ -58,8 +61,14 @@ Do not clear app data between flows 10-13.
 "@
     Wait-ForUser
     Run-Flow "maestro\10-offline-crop-cycle-create-queue.yaml"
+    Show-Step "After flow 10" "Restart backend, tap Sync Now if Android still shows waiting, then continue. Flow 11 needs the flow 10 crop cycle synced and visible from backend."
+    Wait-ForUser "Press Enter only after backend is running and flow 10 has synced"
     Run-Flow "maestro\11-offline-stage-start-queue.yaml"
+    Show-Step "After flow 11" "Restart backend, tap Sync Now if Android still shows waiting, then continue. Flow 12 needs NURSERY stage START synced/active."
+    Wait-ForUser "Press Enter only after backend is running and flow 11 has synced"
     Run-Flow "maestro\12-offline-activity-log-queue.yaml"
+    Show-Step "After flow 12" "Restart backend, tap Sync Now if Android still shows waiting, then continue. Flow 13 needs the activity synced for finance totals."
+    Wait-ForUser "Press Enter only after backend is running and flow 12 has synced"
     Run-Flow "maestro\13-activity-finance-summary-smoke.yaml"
     Show-Step "WSL verify happy path" @"
 cd ~/projects/farmint/backend

@@ -27,14 +27,14 @@ name: Offline stage START queues replay when backend is unavailable
     timeout: 30000
 - scrollUntilVisible:
     element:
-      text: "Start"
+      text: "Start NURSERY"
     direction: DOWN
     timeout: 30000
 - takeScreenshot: "11-before-offline-stage-start"
 - runScript:
     file: wait-60s.js
 - tapOn:
-    text: "Start"
+    text: "Start NURSERY"
 - extendedWaitUntil:
     visible: "Saved offline.*|.*syncing.*START.*|.*syncing Nursery Preparation.*"
     timeout: 45000
