@@ -62,6 +62,7 @@ maestro test maestro\21-device-restart-activity-persistence.yaml
 maestro test maestro\21b-device-restart-activity-replay-after-restart.yaml
 maestro test maestro\22-uncertain-result-idempotency.yaml
 maestro test maestro\23-dependency-order-replay.yaml
+maestro test maestro\24-partial-batch-replay.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -129,6 +130,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 `22-uncertain-result-idempotency.yaml` validates uncertain-result idempotency. Run WSL `scripts/prepare_android_uncertain_result_idempotency.py --apply` before the flow with backend reachable. The flow queues a crop activity, syncs it once, resets the same synced local queue row back to PENDING without changing event_id/entity_id/payload, then syncs again. Backend should accept the duplicate same event idempotently with no duplicate activity or finance impact. Verify with `scripts/verify_android_uncertain_result_idempotency.py`; pass `ANDROID_UNCERTAIN_ACTIVITY_EVENT_ID` / `ANDROID_UNCERTAIN_ACTIVITY_ID` from Android logs for exact checks.
 
 `23-dependency-order-replay.yaml` validates dependency-ordered replay after cold start. Run WSL `scripts/prepare_android_dependency_order_replay.py --apply`, stop backend, then run the flow. Android queues crop_cycle CREATE, crop_stage START, and crop_activity CREATE with event-ID dependency_ids. During the 60-second wait after relaunch, restart backend. The flow taps Sync Now and expects All synced. Verify with `scripts/verify_android_dependency_order_replay.py`; pass the six UUIDs from Android logs for exact checks.
+
+`24-partial-batch-replay.yaml` validates partial-batch resilience. Run WSL `scripts/prepare_android_partial_batch_replay.py --apply` with backend reachable. The flow queues one valid crop_activity and one crop_stage that depends on a missing cycle event. The valid activity commits while the dependency-missing stage stays retryable/pending. The flow then queues the missing crop_cycle dependency, retries the same stage event, and expects All synced. Verify with `scripts/verify_android_partial_batch_replay.py`; pass the six UUIDs from Android logs for exact checks.
 ## Screenshots
 
 Each flow uses `takeScreenshot`. Maestro stores screenshots in its run artifacts and prints their location in the terminal output. Please share the failed screenshot plus the terminal failure text if something breaks.

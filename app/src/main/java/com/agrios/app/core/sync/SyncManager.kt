@@ -270,7 +270,7 @@ class SyncManager(
                 if (failure.isStaleLocalContextFailure()) {
                     syncQueueDao.markFailed(failure.eventId, gson.toJson(failure))
                     Log.w(TAG, "Stale local context detected for ${failure.eventId}; refresh profile/parcels and rebuild local draft")
-                } else if (failure.retryable && item.retryCount < item.maxRetries) {
+                } else if (failure.isRetryableDependencyMissing() && item.retryCount < item.maxRetries) {
                     val nextRetry = calculateNextRetry(item.retryCount + 1)
                     syncQueueDao.markForRetry(failure.eventId, nextRetry, errorDetail)
                     Log.d(TAG, "Retry scheduled: ${failure.eventId} (attempt ${item.retryCount + 1})")
@@ -280,6 +280,10 @@ class SyncManager(
                 }
             }
         }
+    }
+
+    private fun com.agrios.app.data.remote.dto.SyncFailedDto.isRetryableDependencyMissing(): Boolean {
+        return retryable || errorCode == "DEPENDENCY_MISSING"
     }
 
     private fun com.agrios.app.data.remote.dto.SyncFailedDto.isStaleLocalContextFailure(): Boolean {

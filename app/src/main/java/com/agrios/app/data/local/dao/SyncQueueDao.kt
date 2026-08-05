@@ -84,6 +84,7 @@ interface SyncQueueDao {
            OR payload LIKE '%device_restart_persistence_test%'
            OR payload LIKE '%uncertain_result_idempotency_test%'
            OR payload LIKE '%dependency_order_replay_test%'
+           OR payload LIKE '%partial_batch_replay_test%'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000111'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000121'
     """)
@@ -104,6 +105,18 @@ interface SyncQueueDao {
         WHERE event_id = :eventId AND sync_status = 'SYNCED'
     """)
     suspend fun resetSyncedItemForUncertainRetry(eventId: String, reason: String)
+    /**
+     * Test hook: make a retryable dependency-missing row eligible immediately
+     * after its missing dependency has been queued/committed.
+     */
+    @Query("""
+        UPDATE sync_queue
+        SET sync_status = 'PENDING',
+            next_retry_after = NULL,
+            last_error = NULL
+        WHERE event_id = :eventId AND sync_status = 'PENDING'
+    """)
+    suspend fun makePendingRetryReadyNow(eventId: String)
 
     /**
      * Get all queue items (any status) for dependency resolution.

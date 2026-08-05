@@ -261,3 +261,57 @@ ANDROID_DEP_ORDER_ACTIVITY_EVENT_ID={activity_event_id} \
 ANDROID_DEP_ORDER_ACTIVITY_ID={activity_entity_id} \
 ../venv/bin/python scripts/verify_android_dependency_order_replay.py --resend
 ```
+### Flow 24: partial-batch replay resilience
+
+Before flow:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_partial_batch_replay.py --apply
+```
+
+Keep backend reachable. Android queues a mixed batch:
+
+- valid crop_activity CREATE with `dependency_ids=[]`
+- missing crop_stage START with `dependency_ids=[missing_cycle_event_id]`
+
+Expected first response accepts only the valid activity and returns `DEPENDENCY_MISSING` for the missing stage. Android treats `DEPENDENCY_MISSING` as retryable, keeps the stage row pending/retryable, then queues the missing crop_cycle dependency and retries the same stage event.
+
+Verify after mixed batch and after dependency retry:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_PARTIAL_VALID_ACTIVITY_EVENT_ID={valid_activity_event_id} \
+ANDROID_PARTIAL_VALID_ACTIVITY_ID={valid_activity_id} \
+ANDROID_PARTIAL_MISSING_CYCLE_EVENT_ID={missing_cycle_event_id} \
+ANDROID_PARTIAL_MISSING_CYCLE_ID={missing_cycle_entity_id} \
+ANDROID_PARTIAL_MISSING_STAGE_EVENT_ID={missing_stage_event_id} \
+ANDROID_PARTIAL_MISSING_STAGE_ENTITY_ID={missing_stage_entity_id} \
+../venv/bin/python scripts/verify_android_partial_batch_replay.py
+```
+
+Backend-side dependency commit + retry proof:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_PARTIAL_VALID_ACTIVITY_EVENT_ID={valid_activity_event_id} \
+ANDROID_PARTIAL_VALID_ACTIVITY_ID={valid_activity_id} \
+ANDROID_PARTIAL_MISSING_CYCLE_EVENT_ID={missing_cycle_event_id} \
+ANDROID_PARTIAL_MISSING_CYCLE_ID={missing_cycle_entity_id} \
+ANDROID_PARTIAL_MISSING_STAGE_EVENT_ID={missing_stage_event_id} \
+ANDROID_PARTIAL_MISSING_STAGE_ENTITY_ID={missing_stage_entity_id} \
+../venv/bin/python scripts/verify_android_partial_batch_replay.py --commit-dependency-and-retry
+```
+
+Optional mixed-batch resend proof:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_PARTIAL_VALID_ACTIVITY_EVENT_ID={valid_activity_event_id} \
+ANDROID_PARTIAL_VALID_ACTIVITY_ID={valid_activity_id} \
+ANDROID_PARTIAL_MISSING_CYCLE_EVENT_ID={missing_cycle_event_id} \
+ANDROID_PARTIAL_MISSING_CYCLE_ID={missing_cycle_entity_id} \
+ANDROID_PARTIAL_MISSING_STAGE_EVENT_ID={missing_stage_event_id} \
+ANDROID_PARTIAL_MISSING_STAGE_ENTITY_ID={missing_stage_entity_id} \
+../venv/bin/python scripts/verify_android_partial_batch_replay.py --resend-mixed-batch
+```

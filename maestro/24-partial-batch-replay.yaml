@@ -1,0 +1,67 @@
+appId: com.agrios.app
+name: Partial batch replay keeps dependency-missing row retryable
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_partial_batch_replay.py --apply
+#
+# Backend should be reachable. This flow queues a mixed batch:
+# - valid crop_activity CREATE with no dependencies, should commit
+# - crop_stage START depending on a missing cycle event, should return DEPENDENCY_MISSING
+# Android should keep the dependency-missing stage retryable/pending. Then the flow
+# queues the missing crop_cycle dependency and syncs again; cycle commits first,
+# then the same stage event retries and commits.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Partial Batch Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Queue Partial Batch Test"
+- scrollUntilVisible:
+    element:
+      text: "Partial batch test events queued:.*"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "24-partial-batch-events-queued"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Sync Now"
+- extendedWaitUntil:
+    visible: ".*synced.*|.*items waiting.*|.*Waiting.*|.*waiting.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: ".*items waiting.*|.*Waiting.*|.*waiting.*"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "24-partial-batch-valid-synced-missing-waiting"
+- scrollUntilVisible:
+    element:
+      text: "Queue Missing Dependency"
+    direction: UP
+    timeout: 30000
+- tapOn:
+    text: "Queue Missing Dependency"
+- extendedWaitUntil:
+    visible: "Partial batch dependency queued:.*"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Sync Now"
+- extendedWaitUntil:
+    visible: "All synced|.*synced.*"
+    timeout: 60000
+- takeScreenshot: "24-partial-batch-dependency-retry-synced"

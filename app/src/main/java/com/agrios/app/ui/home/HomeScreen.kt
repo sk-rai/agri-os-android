@@ -87,6 +87,7 @@ fun HomeScreen(
     var deviceRestartTestEventId by remember { mutableStateOf<String?>(null) }
     var uncertainResultTestEventId by remember { mutableStateOf<String?>(null) }
     var dependencyOrderTestEventIds by remember { mutableStateOf<String?>(null) }
+    var partialBatchTestIds by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -538,6 +539,95 @@ fun HomeScreen(
             Log.d(TAG, "Dependency order test events queued: cycleEventId=$cycleEventId, cycleId=$cycleId, stageEventId=$stageEventId, stageEntityId=$stageEntityId, activityEventId=$activityEventId, activityId=$activityId")
         }
     }
+
+    fun queuePartialBatchReplayTestEvents() {
+        scope.launch {
+            val validActivityEventId = UUID.randomUUID().toString()
+            val validActivityId = UUID.randomUUID().toString()
+            val missingCycleEventId = UUID.randomUUID().toString()
+            val missingCycleId = UUID.randomUUID().toString()
+            val missingStageEventId = UUID.randomUUID().toString()
+            val missingStageEntityId = UUID.randomUUID().toString()
+            val metadata = mapOf("source" to "android_maestro_partial_batch_replay_test")
+            val validActivityPayload = linkedMapOf<String, Any?>(
+                "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                "stage_code" to "NURSERY",
+                "activity_date" to "2026-08-02",
+                "activity_type" to "FERTILIZER",
+                "input_code" to "DAP_18_46_0",
+                "input_name" to "DAP 18-46-0",
+                "quantity" to 1,
+                "quantity_unit" to "KG",
+                "cost_amount" to 325.5,
+                "currency" to "INR",
+                "notes" to "Partial batch valid activity test"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                OfflineCropSyncRepository.enqueueActivityCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    activityId = validActivityId,
+                    payload = validActivityPayload,
+                    eventId = validActivityEventId,
+                    dependencyIds = emptyList(),
+                    metadata = metadata
+                )
+                OfflineCropSyncRepository.enqueueStageTransition(
+                    syncQueueDao = db.syncQueueDao(),
+                    cropCycleId = missingCycleId,
+                    stageCode = "NURSERY",
+                    action = "START",
+                    eventId = missingStageEventId,
+                    entityId = missingStageEntityId,
+                    dependencyIds = listOf(missingCycleEventId),
+                    actualStartDate = "2026-08-02",
+                    metadata = metadata
+                )
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            coldStartTestEventId = null
+            deviceRestartTestEventId = null
+            uncertainResultTestEventId = null
+            dependencyOrderTestEventIds = null
+            partialBatchTestIds = "$validActivityEventId,$validActivityId,$missingCycleEventId,$missingCycleId,$missingStageEventId,$missingStageEntityId"
+            lastSyncMessage = "Partial batch test events queued: $validActivityEventId"
+            Log.d(TAG, "Partial batch test events queued: validActivityEventId=$validActivityEventId, validActivityId=$validActivityId, missingCycleEventId=$missingCycleEventId, missingCycleId=$missingCycleId, missingStageEventId=$missingStageEventId, missingStageEntityId=$missingStageEntityId")
+        }
+    }
+
+    fun queuePartialBatchMissingDependency() {
+        val ids = partialBatchTestIds?.split(",") ?: return
+        if (ids.size < 6) return
+        val missingCycleEventId = ids[2]
+        val missingCycleId = ids[3]
+        val missingStageEventId = ids[4]
+        scope.launch {
+            val cyclePayload = linkedMapOf<String, Any?>(
+                "farmer_id" to "4df387e8-114f-5c44-a129-a9d000000003",
+                "parcel_id" to "4df387e8-114f-5c44-a129-a9d000000004",
+                "project_id" to "0f7e0a6b-8472-5d6d-8a14-a9d000000001",
+                "crop_code" to "RICE",
+                "season_code" to "KHARIF",
+                "planned_sowing_date" to "2026-08-02",
+                "status" to "PLANNED"
+            )
+            withContext(Dispatchers.IO) {
+                OfflineCropSyncRepository.enqueueCropCycleCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    cropCycleId = missingCycleId,
+                    payload = cyclePayload,
+                    eventId = missingCycleEventId,
+                    dependencyIds = emptyList(),
+                    metadata = mapOf("source" to "android_maestro_partial_batch_replay_test")
+                )
+                db.syncQueueDao().makePendingRetryReadyNow(missingStageEventId)
+            }
+            lastSyncMessage = "Partial batch dependency queued: $missingCycleEventId"
+            Log.d(TAG, "Partial batch dependency queued: missingCycleEventId=$missingCycleEventId, missingCycleId=$missingCycleId, retryStageEventId=$missingStageEventId")
+        }
+    }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
         val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
         val projectId = AndroidDynamicTestContext.projectIdFor(authState)
@@ -908,6 +998,21 @@ fun HomeScreen(
                 }
                 dependencyOrderTestEventIds?.let { ids ->
                     Text("Dependency order test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { queuePartialBatchReplayTestEvents() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Partial Batch Test")
+                }
+                partialBatchTestIds?.let { ids ->
+                    Text("Partial batch test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(
+                        onClick = { queuePartialBatchMissingDependency() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Queue Missing Dependency")
+                    }
                 }
             }
 
