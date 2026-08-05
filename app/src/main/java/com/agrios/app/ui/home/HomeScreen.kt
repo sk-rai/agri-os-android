@@ -90,6 +90,7 @@ fun HomeScreen(
     var dependencyOrderTestEventIds by remember { mutableStateOf<String?>(null) }
     var partialBatchTestIds by remember { mutableStateOf<String?>(null) }
     var partialBatchConflictTestIds by remember { mutableStateOf<String?>(null) }
+    var multiConflictTestEventIds by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 && farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -686,6 +687,61 @@ fun HomeScreen(
             Log.d(TAG, "Partial batch conflict test events queued: activityEventId=$activityEventId, activityId=$activityId, conflictEventId=$conflictEventId, conflictStageEntityId=$conflictStageEntityId")
         }
     }
+    fun queueMultiConflictPendingDrawerTestEvents() {
+        scope.launch {
+            val versionEventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000111"
+            val versionActivityId = "0f7e0a6b-8472-5d6d-8a14-a9d000000112"
+            val workflowEventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000121"
+            val workflowStageEntityId = "0f7e0a6b-8472-5d6d-8a14-a9d000000122"
+            val metadata = mapOf("source" to "android_maestro_multi_conflict_pending_drawer_test")
+            val versionPayload = linkedMapOf<String, Any?>(
+                "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                "stage_code" to "NURSERY",
+                "activity_date" to "2026-08-02",
+                "activity_type" to "FERTILIZER",
+                "input_code" to "DAP_18_46_0",
+                "description" to "Android offline changed activity payload",
+                "quantity" to 1,
+                "quantity_unit" to "KG",
+                "cost_amount" to 325.5,
+                "currency" to "INR"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                OfflineCropSyncRepository.enqueueActivityCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    activityId = versionActivityId,
+                    payload = versionPayload,
+                    eventId = versionEventId,
+                    dependencyIds = emptyList(),
+                    metadata = metadata
+                )
+                OfflineCropSyncRepository.enqueueStageTransition(
+                    syncQueueDao = db.syncQueueDao(),
+                    cropCycleId = "aa346148-468b-47de-9c86-47ad41aa1f11",
+                    stageCode = "NURSERY",
+                    action = "START",
+                    eventId = workflowEventId,
+                    entityId = workflowStageEntityId,
+                    dependencyIds = emptyList(),
+                    actualStartDate = "2026-08-02",
+                    metadata = metadata
+                )
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            coldStartTestEventId = null
+            deviceRestartTestEventId = null
+            uncertainResultTestEventId = null
+            dependencyOrderTestEventIds = null
+            partialBatchTestIds = null
+            partialBatchConflictTestIds = null
+            multiConflictTestEventIds = "$versionEventId,$workflowEventId"
+            lastSyncMessage = "Multi-conflict test events queued: $versionEventId,$workflowEventId"
+            Log.d(TAG, "Multi-conflict test events queued: versionEventId=$versionEventId, versionActivityId=$versionActivityId, workflowEventId=$workflowEventId, workflowStageEntityId=$workflowStageEntityId")
+        }
+    }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
         val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
         val projectId = AndroidDynamicTestContext.projectIdFor(authState)
@@ -1080,6 +1136,15 @@ fun HomeScreen(
                 }
                 partialBatchConflictTestIds?.let { ids ->
                     Text("Partial batch conflict test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { queueMultiConflictPendingDrawerTestEvents() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Multi Conflict Test")
+                }
+                multiConflictTestEventIds?.let { ids ->
+                    Text("Multi-conflict test events queued: $ids", style = MaterialTheme.typography.bodySmall)
                 }
             }
 

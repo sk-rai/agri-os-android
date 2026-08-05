@@ -370,3 +370,41 @@ ANDROID_PARTIAL_CONFLICT_STAGE_EVENT_ID={conflict_event_id} \
 ANDROID_PARTIAL_CONFLICT_STAGE_ENTITY_ID={conflict_stage_entity_id} \
 ../venv/bin/python scripts/verify_android_partial_batch_conflict.py --resend-mixed-batch
 ```
+
+### Flow 26: multi-conflict pending drawer ordering/dedup
+
+Before flow:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_multi_conflict_pending_drawer.py --reset --apply
+```
+
+Keep backend reachable. Android queues both deterministic conflict events in one batch:
+
+- VERSION_MISMATCH crop_activity event `0f7e0a6b-8472-5d6d-8a14-a9d000000111`
+- WORKFLOW_INVALID crop_stage event `0f7e0a6b-8472-5d6d-8a14-a9d000000121`
+
+Expected response has `accepted=[]`, `failed=[]`, and two conflict rows. Android should show both distinct intervention cards without exposing raw queue internals or duplicate cards. The main flow intentionally stops with both cards pending so the default backend verifier can prove pending endpoint ordering/dedup.
+
+Verify after Android sends both conflicts:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_multi_conflict_pending_drawer.py
+```
+
+Backend-side resend/dedup proof:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_multi_conflict_pending_drawer.py --send-conflict-batch --resend-conflict-batch
+```
+
+Recovery proof, run only after explicit recovery/ACK testing:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_multi_conflict_pending_drawer.py --ack-version
+../venv/bin/python scripts/verify_android_multi_conflict_pending_drawer.py --ack-both
+```

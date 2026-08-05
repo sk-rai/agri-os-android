@@ -1,0 +1,52 @@
+appId: com.agrios.app
+name: Multi-conflict pending drawer shows distinct cards
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_multi_conflict_pending_drawer.py --reset --apply
+#
+# Backend should be reachable. This flow queues both deterministic conflict events:
+# - VERSION_MISMATCH crop_activity
+# - WORKFLOW_INVALID crop_stage
+# Android should show both interventions without duplicate/noisy queue internals.
+# This flow intentionally stops with both conflicts pending so the backend verifier can prove pending endpoint ordering/dedup.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Multi Conflict Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Queue Multi Conflict Test"
+- scrollUntilVisible:
+    element:
+      text: "Multi-conflict test events queued:.*"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "26-multi-conflict-events-queued"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Sync Now"
+- extendedWaitUntil:
+    visible: "Workflow changed on backend"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Refresh this crop cycle/stage before retrying the action.*"
+    direction: DOWN
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Manual review needed: server has a newer version"
+    direction: DOWN
+    timeout: 30000
+- assertVisible: ".*Activity changed on both device and backend.*|.*Refresh before editing again.*"
+- assertNotVisible: "Refresh required: local context is stale"
+- takeScreenshot: "26-multi-conflict-both-visible"
