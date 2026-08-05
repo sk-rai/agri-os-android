@@ -86,6 +86,7 @@ fun HomeScreen(
     var coldStartTestEventId by remember { mutableStateOf<String?>(null) }
     var deviceRestartTestEventId by remember { mutableStateOf<String?>(null) }
     var uncertainResultTestEventId by remember { mutableStateOf<String?>(null) }
+    var dependencyOrderTestEventIds by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -464,6 +465,79 @@ fun HomeScreen(
             Log.d(TAG, "Uncertain result retry queued with same eventId=$eventId")
         }
     }
+
+    fun queueDependencyOrderReplayTestEvents() {
+        scope.launch {
+            val cycleEventId = UUID.randomUUID().toString()
+            val cycleId = UUID.randomUUID().toString()
+            val stageEventId = UUID.randomUUID().toString()
+            val stageEntityId = UUID.randomUUID().toString()
+            val activityEventId = UUID.randomUUID().toString()
+            val activityId = UUID.randomUUID().toString()
+            val metadata = mapOf("source" to "android_maestro_dependency_order_replay_test")
+            val cyclePayload = linkedMapOf<String, Any?>(
+                "farmer_id" to "4df387e8-114f-5c44-a129-a9d000000003",
+                "parcel_id" to "4df387e8-114f-5c44-a129-a9d000000004",
+                "project_id" to "0f7e0a6b-8472-5d6d-8a14-a9d000000001",
+                "crop_code" to "RICE",
+                "season_code" to "KHARIF",
+                "planned_sowing_date" to "2026-08-02",
+                "status" to "PLANNED"
+            )
+            val activityPayload = linkedMapOf<String, Any?>(
+                "crop_cycle_id" to cycleId,
+                "stage_code" to "NURSERY",
+                "activity_date" to "2026-08-02",
+                "activity_type" to "FERTILIZER",
+                "input_code" to "DAP_18_46_0",
+                "input_name" to "DAP 18-46-0",
+                "quantity" to 1,
+                "quantity_unit" to "KG",
+                "cost_amount" to 325.5,
+                "currency" to "INR",
+                "notes" to "Dependency ordered replay after restart test"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                OfflineCropSyncRepository.enqueueCropCycleCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    cropCycleId = cycleId,
+                    payload = cyclePayload,
+                    eventId = cycleEventId,
+                    dependencyIds = emptyList(),
+                    metadata = metadata
+                )
+                OfflineCropSyncRepository.enqueueStageTransition(
+                    syncQueueDao = db.syncQueueDao(),
+                    cropCycleId = cycleId,
+                    stageCode = "NURSERY",
+                    action = "START",
+                    eventId = stageEventId,
+                    entityId = stageEntityId,
+                    dependencyIds = listOf(cycleEventId),
+                    actualStartDate = "2026-08-02",
+                    metadata = metadata
+                )
+                OfflineCropSyncRepository.enqueueActivityCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    activityId = activityId,
+                    payload = activityPayload,
+                    eventId = activityEventId,
+                    dependencyIds = listOf(cycleEventId, stageEventId),
+                    metadata = metadata
+                )
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            coldStartTestEventId = null
+            deviceRestartTestEventId = null
+            uncertainResultTestEventId = null
+            dependencyOrderTestEventIds = "$cycleEventId,$cycleId,$stageEventId,$stageEntityId,$activityEventId,$activityId"
+            lastSyncMessage = "Dependency order test events queued: $cycleEventId"
+            Log.d(TAG, "Dependency order test events queued: cycleEventId=$cycleEventId, cycleId=$cycleId, stageEventId=$stageEventId, stageEntityId=$stageEntityId, activityEventId=$activityEventId, activityId=$activityId")
+        }
+    }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
         val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
         val projectId = AndroidDynamicTestContext.projectIdFor(authState)
@@ -825,6 +899,15 @@ fun HomeScreen(
                     ) {
                         Text("Simulate Uncertain Retry")
                     }
+                }
+                OutlinedButton(
+                    onClick = { queueDependencyOrderReplayTestEvents() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Dependency Order Test")
+                }
+                dependencyOrderTestEventIds?.let { ids ->
+                    Text("Dependency order test events queued: $ids", style = MaterialTheme.typography.bodySmall)
                 }
             }
 

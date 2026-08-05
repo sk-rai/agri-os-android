@@ -1,0 +1,51 @@
+appId: com.agrios.app
+name: Dependency-ordered replay survives cold start
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_dependency_order_replay.py --apply
+#
+# Keep backend stopped/unavailable while Android queues the three related rows
+# and relaunches. During wait-60s.js, restart backend. Android then taps Sync Now
+# and should replay crop_cycle -> crop_stage -> crop_activity in dependency order.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Dependency Order Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Queue Dependency Order Test"
+- scrollUntilVisible:
+    element:
+      text: "Dependency order test events queued:.*"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "23-dependency-order-events-queued"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: ".*items waiting.*|.*Waiting.*|.*waiting.*"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "23-dependency-order-pending-after-cold-start"
+- runScript:
+    file: wait-60s.js
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Sync Now"
+- extendedWaitUntil:
+    visible: "All synced|.*synced.*"
+    timeout: 60000
+- takeScreenshot: "23-dependency-order-replay-synced"

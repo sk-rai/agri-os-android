@@ -219,3 +219,45 @@ ANDROID_UNCERTAIN_ACTIVITY_EVENT_ID={event_id} \
 ANDROID_UNCERTAIN_ACTIVITY_ID={activity_id} \
 ../venv/bin/python scripts/verify_android_uncertain_result_idempotency.py --resend
 ```
+### Flow 23: dependency-ordered replay after cold start
+
+Before flow:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_dependency_order_replay.py --apply
+```
+
+Keep backend unavailable while Android queues the three related rows and cold-starts. Android uses event IDs as `dependency_ids`:
+
+- crop_cycle CREATE: `[]`
+- crop_stage START: `[cycle_event_id]`
+- crop_activity CREATE: `[cycle_event_id, stage_event_id]`
+
+During the 60-second wait after relaunch, restart backend. Android taps Sync Now and should replay crop_cycle -> crop_stage -> crop_activity in dependency order.
+
+Verify afterward:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_DEP_ORDER_CYCLE_EVENT_ID={cycle_event_id} \
+ANDROID_DEP_ORDER_CYCLE_ID={cycle_entity_id} \
+ANDROID_DEP_ORDER_STAGE_EVENT_ID={stage_event_id} \
+ANDROID_DEP_ORDER_STAGE_ENTITY_ID={stage_entity_id} \
+ANDROID_DEP_ORDER_ACTIVITY_EVENT_ID={activity_event_id} \
+ANDROID_DEP_ORDER_ACTIVITY_ID={activity_entity_id} \
+../venv/bin/python scripts/verify_android_dependency_order_replay.py
+```
+
+Optional duplicate retry proof:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_DEP_ORDER_CYCLE_EVENT_ID={cycle_event_id} \
+ANDROID_DEP_ORDER_CYCLE_ID={cycle_entity_id} \
+ANDROID_DEP_ORDER_STAGE_EVENT_ID={stage_event_id} \
+ANDROID_DEP_ORDER_STAGE_ENTITY_ID={stage_entity_id} \
+ANDROID_DEP_ORDER_ACTIVITY_EVENT_ID={activity_event_id} \
+ANDROID_DEP_ORDER_ACTIVITY_ID={activity_entity_id} \
+../venv/bin/python scripts/verify_android_dependency_order_replay.py --resend
+```
