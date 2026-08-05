@@ -315,3 +315,58 @@ ANDROID_PARTIAL_MISSING_STAGE_EVENT_ID={missing_stage_event_id} \
 ANDROID_PARTIAL_MISSING_STAGE_ENTITY_ID={missing_stage_entity_id} \
 ../venv/bin/python scripts/verify_android_partial_batch_replay.py --resend-mixed-batch
 ```
+### Flow 25: partial-batch success + workflow conflict
+
+Before flow:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_partial_batch_conflict.py --apply
+```
+
+Keep backend reachable. Android queues one mixed batch:
+
+- valid crop_activity CREATE under existing active Rice/NURSERY cycle, `dependency_ids=[]`
+- workflow-invalid crop_stage START for already ACTIVE NURSERY, `dependency_ids=[]`
+
+Expected response accepts only the activity event, returns one `WORKFLOW_INVALID` conflict with `resolution_strategy=SERVER_AUTHORITY`, and has `failed=[]`. Android marks the accepted activity synced, routes the conflict row to the existing workflow server-authority UI, and does not retry it as a dependency failure.
+
+Expected Android conflict copy:
+
+- `Workflow changed on backend`
+- `Refresh this crop cycle/stage before retrying the action.`
+- no stale-context copy
+- no version-mismatch copy
+
+Verify after mixed batch, before local recovery if possible:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_PARTIAL_CONFLICT_ACTIVITY_EVENT_ID={activity_event_id} \
+ANDROID_PARTIAL_CONFLICT_ACTIVITY_ID={activity_id} \
+ANDROID_PARTIAL_CONFLICT_STAGE_EVENT_ID={conflict_event_id} \
+ANDROID_PARTIAL_CONFLICT_STAGE_ENTITY_ID={conflict_stage_entity_id} \
+../venv/bin/python scripts/verify_android_partial_batch_conflict.py
+```
+
+Recovery/ACK proof after Android taps `Refresh stage` and discards the local conflicted action:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_PARTIAL_CONFLICT_ACTIVITY_EVENT_ID={activity_event_id} \
+ANDROID_PARTIAL_CONFLICT_ACTIVITY_ID={activity_id} \
+ANDROID_PARTIAL_CONFLICT_STAGE_EVENT_ID={conflict_event_id} \
+ANDROID_PARTIAL_CONFLICT_STAGE_ENTITY_ID={conflict_stage_entity_id} \
+../venv/bin/python scripts/verify_android_partial_batch_conflict.py --ack-conflict
+```
+
+Optional resend/idempotency proof:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_PARTIAL_CONFLICT_ACTIVITY_EVENT_ID={activity_event_id} \
+ANDROID_PARTIAL_CONFLICT_ACTIVITY_ID={activity_id} \
+ANDROID_PARTIAL_CONFLICT_STAGE_EVENT_ID={conflict_event_id} \
+ANDROID_PARTIAL_CONFLICT_STAGE_ENTITY_ID={conflict_stage_entity_id} \
+../venv/bin/python scripts/verify_android_partial_batch_conflict.py --resend-mixed-batch
+```

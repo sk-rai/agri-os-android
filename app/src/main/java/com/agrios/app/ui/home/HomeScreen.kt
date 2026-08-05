@@ -1,5 +1,6 @@
 package com.agrios.app.ui.home
 
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -88,7 +89,8 @@ fun HomeScreen(
     var uncertainResultTestEventId by remember { mutableStateOf<String?>(null) }
     var dependencyOrderTestEventIds by remember { mutableStateOf<String?>(null) }
     var partialBatchTestIds by remember { mutableStateOf<String?>(null) }
-    val showDynamicSyncTestTools = farmer?.mobileNumber
+    var partialBatchConflictTestIds by remember { mutableStateOf<String?>(null) }
+    val showDynamicSyncTestTools = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 && farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
 
@@ -592,6 +594,7 @@ fun HomeScreen(
             uncertainResultTestEventId = null
             dependencyOrderTestEventIds = null
             partialBatchTestIds = "$validActivityEventId,$validActivityId,$missingCycleEventId,$missingCycleId,$missingStageEventId,$missingStageEntityId"
+            partialBatchConflictTestIds = null
             lastSyncMessage = "Partial batch test events queued: $validActivityEventId"
             Log.d(TAG, "Partial batch test events queued: validActivityEventId=$validActivityEventId, validActivityId=$validActivityId, missingCycleEventId=$missingCycleEventId, missingCycleId=$missingCycleId, missingStageEventId=$missingStageEventId, missingStageEntityId=$missingStageEntityId")
         }
@@ -626,6 +629,61 @@ fun HomeScreen(
             }
             lastSyncMessage = "Partial batch dependency queued: $missingCycleEventId"
             Log.d(TAG, "Partial batch dependency queued: missingCycleEventId=$missingCycleEventId, missingCycleId=$missingCycleId, retryStageEventId=$missingStageEventId")
+        }
+    }
+    fun queuePartialBatchConflictTestEvents() {
+        scope.launch {
+            val activityEventId = UUID.randomUUID().toString()
+            val activityId = UUID.randomUUID().toString()
+            val conflictEventId = UUID.randomUUID().toString()
+            val conflictStageEntityId = UUID.randomUUID().toString()
+            val metadata = mapOf("source" to "android_maestro_partial_batch_conflict_test")
+            val activityPayload = linkedMapOf<String, Any?>(
+                "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                "stage_code" to "NURSERY",
+                "activity_date" to "2026-08-02",
+                "activity_type" to "FERTILIZER",
+                "input_code" to "DAP_18_46_0",
+                "input_name" to "DAP 18-46-0",
+                "quantity" to 1,
+                "quantity_unit" to "KG",
+                "cost_amount" to 325.5,
+                "currency" to "INR",
+                "notes" to "Partial batch success plus conflict activity test"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                OfflineCropSyncRepository.enqueueActivityCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    activityId = activityId,
+                    payload = activityPayload,
+                    eventId = activityEventId,
+                    dependencyIds = emptyList(),
+                    metadata = metadata
+                )
+                OfflineCropSyncRepository.enqueueStageTransition(
+                    syncQueueDao = db.syncQueueDao(),
+                    cropCycleId = "aa346148-468b-47de-9c86-47ad41aa1f11",
+                    stageCode = "NURSERY",
+                    action = "START",
+                    eventId = conflictEventId,
+                    entityId = conflictStageEntityId,
+                    dependencyIds = emptyList(),
+                    actualStartDate = "2026-08-02",
+                    metadata = metadata
+                )
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            coldStartTestEventId = null
+            deviceRestartTestEventId = null
+            uncertainResultTestEventId = null
+            dependencyOrderTestEventIds = null
+            partialBatchTestIds = null
+            partialBatchConflictTestIds = "$activityEventId,$activityId,$conflictEventId,$conflictStageEntityId"
+            lastSyncMessage = "Partial batch conflict test events queued: $activityEventId"
+            Log.d(TAG, "Partial batch conflict test events queued: activityEventId=$activityEventId, activityId=$activityId, conflictEventId=$conflictEventId, conflictStageEntityId=$conflictStageEntityId")
         }
     }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
@@ -1013,6 +1071,15 @@ fun HomeScreen(
                     ) {
                         Text("Queue Missing Dependency")
                     }
+                }
+                OutlinedButton(
+                    onClick = { queuePartialBatchConflictTestEvents() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Partial Batch Conflict Test")
+                }
+                partialBatchConflictTestIds?.let { ids ->
+                    Text("Partial batch conflict test events queued: $ids", style = MaterialTheme.typography.bodySmall)
                 }
             }
 

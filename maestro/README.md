@@ -63,6 +63,7 @@ maestro test maestro\21b-device-restart-activity-replay-after-restart.yaml
 maestro test maestro\22-uncertain-result-idempotency.yaml
 maestro test maestro\23-dependency-order-replay.yaml
 maestro test maestro\24-partial-batch-replay.yaml
+maestro test maestro\25-partial-batch-conflict.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -132,6 +133,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 `23-dependency-order-replay.yaml` validates dependency-ordered replay after cold start. Run WSL `scripts/prepare_android_dependency_order_replay.py --apply`, stop backend, then run the flow. Android queues crop_cycle CREATE, crop_stage START, and crop_activity CREATE with event-ID dependency_ids. During the 60-second wait after relaunch, restart backend. The flow taps Sync Now and expects All synced. Verify with `scripts/verify_android_dependency_order_replay.py`; pass the six UUIDs from Android logs for exact checks.
 
 `24-partial-batch-replay.yaml` validates partial-batch resilience. Run WSL `scripts/prepare_android_partial_batch_replay.py --apply` with backend reachable. The flow queues one valid crop_activity and one crop_stage that depends on a missing cycle event. The valid activity commits while the dependency-missing stage stays retryable/pending. The flow then queues the missing crop_cycle dependency, retries the same stage event, and expects All synced. Verify with `scripts/verify_android_partial_batch_replay.py`; pass the six UUIDs from Android logs for exact checks.
+
+`25-partial-batch-conflict.yaml` validates partial-batch success plus workflow conflict handling. Run WSL `scripts/prepare_android_partial_batch_conflict.py --apply` with backend reachable. The flow queues one valid crop_activity and one WORKFLOW_INVALID crop_stage START in the same batch; Android syncs the activity and shows the existing `Workflow changed on backend` server-authority UI for the conflict, leaving the conflict pending so the backend verifier can prove pending-conflict visibility. Verify with `scripts/verify_android_partial_batch_conflict.py`; pass the four UUIDs from Android logs for exact checks. Tap `Refresh stage` afterward, then use `--ack-conflict` only if backend-side ACK proof is needed.
 ## Screenshots
 
 Each flow uses `takeScreenshot`. Maestro stores screenshots in its run artifacts and prints their location in the terminal output. Please share the failed screenshot plus the terminal failure text if something breaks.
