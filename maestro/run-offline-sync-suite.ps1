@@ -42,8 +42,10 @@ cd ~/projects/farmint/backend
 ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --apply
 ../venv/bin/python scripts/seed_android_crop_cycle_test_fixture.py --reset --apply
 ../venv/bin/python scripts/prepare_android_stale_context_sync_failure.py --restore --apply
-../venv/bin/python scripts/prepare_android_version_mismatch_conflict.py --reset --apply
-../venv/bin/python scripts/prepare_android_workflow_invalid_conflict.py --reset --apply
+
+Do not run version/workflow conflict prepare scripts here.
+Prepare version fixture only immediately before flow 15 or 18.
+Prepare workflow fixture only immediately before flow 16 or 19.
 
 Keep emulator app data after flow 10 begins.
 "@

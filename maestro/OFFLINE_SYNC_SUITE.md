@@ -13,8 +13,6 @@ cd ~/projects/farmint/backend
 ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --apply
 ../venv/bin/python scripts/seed_android_crop_cycle_test_fixture.py --reset --apply
 ../venv/bin/python scripts/prepare_android_stale_context_sync_failure.py --restore --apply
-../venv/bin/python scripts/prepare_android_version_mismatch_conflict.py --reset --apply
-../venv/bin/python scripts/prepare_android_workflow_invalid_conflict.py --reset --apply
 ```
 
 ## Android emulator state
@@ -31,6 +29,13 @@ From PowerShell:
 cd C:\Users\SANTOSH\Documents\FarmInt
 .\maestro\run-offline-sync-suite.ps1
 ```
+
+Notes:
+
+- `seed_android_crop_cycle_test_fixture.py` uses the dedicated crop-cycle fixture farmer/parcel (`4df387e8-114f-5c44-a129-a9d000000003` / `4df387e8-114f-5c44-a129-a9d000000004`). It does not reset the dynamic profile farmer/parcel (`e1ee0941-2bad-4a18-a239-2a4119608a06` / `98c1a0fa-4f5f-4b8c-97ae-d84992db1c44`).
+- Do not run `prepare_android_version_mismatch_conflict.py --reset --apply` until immediately before flow `15` or `18`.
+- Do not run `prepare_android_workflow_invalid_conflict.py --reset --apply` until immediately before flow `16` or `19`; it intentionally forces NURSERY to `ACTIVE`, which contaminates a clean stage-start replay test.
+- Do not run `verify_android_offline_stage_activity_replay.py` immediately after flow `10`; it expects stage START and activity replay, so use it after flows `12-13`.
 
 The helper pauses before each group and prints the exact WSL command to run.
 
