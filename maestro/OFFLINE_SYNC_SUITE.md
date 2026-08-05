@@ -408,3 +408,35 @@ cd ~/projects/farmint/backend
 ../venv/bin/python scripts/verify_android_multi_conflict_pending_drawer.py --ack-version
 ../venv/bin/python scripts/verify_android_multi_conflict_pending_drawer.py --ack-both
 ```
+
+### Flow 27: queue backpressure and bounded batch replay
+
+Backend prep/reset:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_queue_backpressure.py --reset-indexed --apply
+```
+
+Android flow:
+
+```powershell
+maestro test maestro\27-queue-backpressure.yaml
+```
+
+This flow queues 25 offline `crop_activity` CREATE rows under the active dynamic Rice/NURSERY cycle. Each row uses `metadata.source=android_maestro_queue_backpressure_test`, `queue_backpressure_index=1..25`, and `cost_amount=20.00`. SyncManager intentionally processes bounded batches of 10, so the replay should drain as 10 + 10 + 5 without exposing raw queue internals to the farmer.
+
+Backend verification after Android replay:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_queue_backpressure.py
+```
+
+Expected durable state:
+
+- all 25 events committed exactly once;
+- no duplicate activity rows;
+- no sync conflicts;
+- no failed sync audit rows;
+- stage-cost and P&L expense deltas equal `25 x INR 20.00 = INR 500.00`.

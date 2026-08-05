@@ -1,0 +1,41 @@
+appId: com.agrios.app
+name: Queue backpressure replays bounded offline batches
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_queue_backpressure.py --reset-indexed --apply
+#
+# Backend should be reachable for replay. This flow queues 25 offline crop_activity
+# CREATE rows. Android should replay them in bounded batches of 10, then 10, then 5,
+# mark accepted rows synced, and avoid surfacing raw queue internals to the farmer.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Backpressure Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Queue Backpressure Test"
+- scrollUntilVisible:
+    element:
+      text: "Queue backpressure test events queued:.*"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "27-queue-backpressure-events-queued"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Sync Now"
+- extendedWaitUntil:
+    visible: "All synced|.*synced.*"
+    timeout: 120000
+- assertNotVisible: "Workflow changed on backend"
+- assertNotVisible: "Manual review needed: server has a newer version"
+- assertNotVisible: "Refresh required: local context is stale"
+- takeScreenshot: "27-queue-backpressure-synced"

@@ -65,6 +65,7 @@ maestro test maestro\23-dependency-order-replay.yaml
 maestro test maestro\24-partial-batch-replay.yaml
 maestro test maestro\25-partial-batch-conflict.yaml
 maestro test maestro\26-multi-conflict-pending-drawer.yaml
+maestro test maestro\27-queue-backpressure.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -158,3 +159,4 @@ That prints the visible UI tree. Share it with me and I can tighten the selector
 
 
 `26-multi-conflict-pending-drawer.yaml` validates the Home/Sync Status intervention surface with both deterministic conflict types pending at once. Run WSL `scripts/prepare_android_multi_conflict_pending_drawer.py --reset --apply` with backend reachable. The flow queues VERSION_MISMATCH and WORKFLOW_INVALID in one batch and stops after verifying both distinct cards are visible, leaving both pending for `scripts/verify_android_multi_conflict_pending_drawer.py`. Use `--send-conflict-batch --resend-conflict-batch` for backend-side dedup proof and `--ack-both` only after resolving both cards or when doing backend-side ACK cleanup.
+`27-queue-backpressure.yaml` validates ordinary heavy offline usage: 25 local activity rows are queued, replayed in bounded batches of 10 + 10 + 5, and cleared without showing raw queue internals to the farmer. Run WSL `scripts/prepare_android_queue_backpressure.py --reset-indexed --apply` first, then verify with `scripts/verify_android_queue_backpressure.py`; expected finance delta is 25 x INR 20.00 = INR 500.00.

@@ -29,7 +29,7 @@ class SyncManager(
 ) {
     companion object {
         private const val TAG = "SyncManager"
-        private const val BATCH_SIZE = 100
+        private const val BATCH_SIZE = 10
         private const val INITIAL_BACKOFF_MS = 30_000L // 30 seconds
         private const val MAX_BACKOFF_MS = 86_400_000L // 24 hours
     }

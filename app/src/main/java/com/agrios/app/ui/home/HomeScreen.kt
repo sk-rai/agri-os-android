@@ -91,6 +91,7 @@ fun HomeScreen(
     var partialBatchTestIds by remember { mutableStateOf<String?>(null) }
     var partialBatchConflictTestIds by remember { mutableStateOf<String?>(null) }
     var multiConflictTestEventIds by remember { mutableStateOf<String?>(null) }
+    var queueBackpressureTestIds by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 && farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -742,6 +743,87 @@ fun HomeScreen(
             Log.d(TAG, "Multi-conflict test events queued: versionEventId=$versionEventId, versionActivityId=$versionActivityId, workflowEventId=$workflowEventId, workflowStageEntityId=$workflowStageEntityId")
         }
     }
+    fun queueBackpressureTestEvents() {
+        scope.launch {
+            val count = 25
+            val amount = 20.0
+            val eventIds = listOf(
+                "bfffdcf0-e017-5c7c-8da6-a01c0a26c468", "cc8522b6-8a0d-5788-a641-32a59c65c885",
+                "707ffddc-e34c-5ec8-b1fd-99766c0fe625", "fbe48605-1544-5473-aff6-7af390cb5ef7",
+                "06aa84ee-d3d3-5661-bcd6-c5bb93775959", "2963742f-447d-51dd-9b2e-41070d36e81d",
+                "b8a74ccc-e807-5e27-adc4-10b0055dc4f2", "d4a3e677-cbd7-50d5-8dec-e83bd58faefc",
+                "d8038bfc-5e92-55e9-a956-48cc9578f527", "a5c40986-fa0c-548a-a61d-8423089b00b9",
+                "e0933159-fd78-5734-9580-9022c27b11dd", "a9ab1557-4afd-541e-9e7b-496448afdd67",
+                "5401e97e-e5d3-5186-8790-fe0434e23d2f", "672f54ea-68d7-59df-82ba-eb4373030543",
+                "09758067-f150-59c5-ac8d-d52994a49915", "c799f9f3-043e-54d4-a3ad-55fa3c92d976",
+                "804a6256-3b41-5f76-9348-c0686379bbbd", "55e92762-cb80-5e7c-bae0-a7bcf3276bb5",
+                "c9baa09e-a908-5039-8ebc-00026778988b", "76547c28-53aa-5d8a-ad9d-3511fd2cb432",
+                "35e80474-e835-504c-bb5b-76bd639c9241", "e0e973aa-41ee-59ad-98d6-31a9d47a2cf7",
+                "927d409a-08a7-5d47-ab71-12ac3e26a547", "2411bac9-eda8-50ac-911f-cba9ba892328",
+                "168ea825-1ddb-56b2-97dc-488466507f44"
+            )
+            val activityIds = listOf(
+                "7985a7e8-31e1-5ef2-a2f3-941ec6b680da", "05aeb4ff-c457-50e8-a37f-efd1b9b5a66f",
+                "e20b69ad-1a37-5e46-8aef-bbffd3fc3847", "c514d619-0038-5bdc-aaec-4f7296bca000",
+                "4efc55eb-395c-5b74-b56e-033f24602772", "7b4090e0-df0a-5c9c-948f-3f90269f02e6",
+                "b7852b4a-d3e1-5814-8329-64eeae963d11", "e3a25453-a8e4-50f6-9ac6-78bdd311a52a",
+                "d79c379e-ca7d-5fda-a473-cb529e1e6b18", "48e9d28e-01a3-553a-a82e-caa4df12d839",
+                "ad2c32e5-b265-5461-a95e-d137ec228da3", "05aa237d-7e43-569c-9769-1de35a86d299",
+                "f0e1e95f-7d93-5284-b16b-b99ccb2d223e", "5a44f7da-7b98-5c56-b23e-319f569687af",
+                "ec6c5c6b-01bc-55b1-8497-61e22e8b3577", "e847e12b-e22d-59fe-bfeb-8895af8577c5",
+                "2570506d-cb50-5c48-8543-0ec50477cd28", "44481902-4729-526c-ab0e-e7fd355459ee",
+                "01a03b15-b4eb-5a19-9580-3456b8b93846", "6dab95fd-9fbc-5534-b54b-066080ed4023",
+                "474ead13-b594-5709-8992-44458f15c82a", "77bf263e-d1c2-5dc9-9b9e-92d9af17a998",
+                "a858de8d-9287-5388-9366-e13d4686fbe6", "2a016c30-2b02-5e03-a302-91b3f71403db",
+                "e2e5021c-ec61-5466-87ac-05328658e81b"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                (1..count).forEach { index ->
+                    val eventId = eventIds[index - 1]
+                    val activityId = activityIds[index - 1]
+                    val indexLabel = index.toString().padStart(2, '0')
+                    val payload = linkedMapOf<String, Any?>(
+                        "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                        "stage_code" to "NURSERY",
+                        "activity_date" to "2026-08-02",
+                        "activity_type" to "LABOR",
+                        "input_name" to "Offline labor log",
+                        "quantity" to 1,
+                        "quantity_unit" to "HOURS",
+                        "cost_amount" to amount,
+                        "currency" to "INR",
+                        "notes" to "Queue backpressure activity $indexLabel source=android_maestro_queue_backpressure_test"
+                    )
+                    OfflineCropSyncRepository.enqueueActivityCreate(
+                        syncQueueDao = db.syncQueueDao(),
+                        activityId = activityId,
+                        payload = payload,
+                        eventId = eventId,
+                        dependencyIds = emptyList(),
+                        metadata = mapOf(
+                            "source" to "android_maestro_queue_backpressure_test",
+                            "queue_backpressure_index" to index,
+                            "queue_backpressure_count" to count
+                        )
+                    )
+                }
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            coldStartTestEventId = null
+            deviceRestartTestEventId = null
+            uncertainResultTestEventId = null
+            dependencyOrderTestEventIds = null
+            partialBatchTestIds = null
+            partialBatchConflictTestIds = null
+            multiConflictTestEventIds = null
+            queueBackpressureTestIds = "$count"
+            lastSyncMessage = "Queue backpressure test events queued: $count"
+            Log.d(TAG, "Queue backpressure test events queued: count=$count amount=$amount")
+        }
+    }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
         val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
         val projectId = AndroidDynamicTestContext.projectIdFor(authState)
@@ -1145,6 +1227,15 @@ fun HomeScreen(
                 }
                 multiConflictTestEventIds?.let { ids ->
                     Text("Multi-conflict test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { queueBackpressureTestEvents() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Backpressure Test")
+                }
+                queueBackpressureTestIds?.let { ids ->
+                    Text("Queue backpressure test events queued: $ids", style = MaterialTheme.typography.bodySmall)
                 }
             }
 
