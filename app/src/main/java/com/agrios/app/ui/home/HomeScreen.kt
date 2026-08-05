@@ -85,6 +85,7 @@ fun HomeScreen(
     var workflowInvalidTestEventId by remember { mutableStateOf<String?>(null) }
     var coldStartTestEventId by remember { mutableStateOf<String?>(null) }
     var deviceRestartTestEventId by remember { mutableStateOf<String?>(null) }
+    var uncertainResultTestEventId by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -406,8 +407,61 @@ fun HomeScreen(
             workflowInvalidTestEventId = null
             coldStartTestEventId = null
             deviceRestartTestEventId = eventId
+            uncertainResultTestEventId = null
             lastSyncMessage = "Device restart test event queued: $eventId"
             Log.d(TAG, "Device restart test event queued: eventId=$eventId, activityId=$activityId")
+        }
+    }
+    fun queueUncertainResultIdempotencyTestEvent() {
+        scope.launch {
+            val eventId = UUID.randomUUID().toString()
+            val activityId = UUID.randomUUID().toString()
+            val payload = linkedMapOf<String, Any?>(
+                "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                "stage_code" to "NURSERY",
+                "activity_date" to "2026-08-02",
+                "activity_type" to "FERTILIZER",
+                "input_code" to "DAP_18_46_0",
+                "input_name" to "DAP 18-46-0",
+                "quantity" to 1,
+                "quantity_unit" to "KG",
+                "cost_amount" to 325.5,
+                "currency" to "INR",
+                "notes" to "Uncertain-result idempotency retry test"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                OfflineCropSyncRepository.enqueueActivityCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    activityId = activityId,
+                    payload = payload,
+                    eventId = eventId,
+                    dependencyIds = emptyList(),
+                    metadata = mapOf("source" to "android_maestro_uncertain_result_idempotency_test")
+                )
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            coldStartTestEventId = null
+            deviceRestartTestEventId = null
+            uncertainResultTestEventId = eventId
+            lastSyncMessage = "Uncertain result test event queued: $eventId"
+            Log.d(TAG, "Uncertain result test event queued: eventId=$eventId, activityId=$activityId")
+        }
+    }
+
+    fun simulateUncertainResultRetry() {
+        val eventId = uncertainResultTestEventId ?: return
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().resetSyncedItemForUncertainRetry(
+                    eventId = eventId,
+                    reason = "UNCERTAIN_RESULT_SIMULATED: response lost before local ack"
+                )
+            }
+            lastSyncMessage = "Uncertain result retry queued with same event: $eventId"
+            Log.d(TAG, "Uncertain result retry queued with same eventId=$eventId")
         }
     }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
@@ -756,6 +810,21 @@ fun HomeScreen(
                 }
                 deviceRestartTestEventId?.let { eventId ->
                     Text("Device restart test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { queueUncertainResultIdempotencyTestEvent() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Uncertain Result Test")
+                }
+                uncertainResultTestEventId?.let { eventId ->
+                    Text("Uncertain result test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(
+                        onClick = { simulateUncertainResultRetry() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Simulate Uncertain Retry")
+                    }
                 }
             }
 

@@ -190,3 +190,32 @@ cd ~/projects/farmint/backend
 
 Exact UUID verification is also supported using `ANDROID_COLD_START_ACTIVITY_EVENT_ID` and `ANDROID_COLD_START_ACTIVITY_ID` from Android logs.
 
+
+### Flow 22: uncertain-result idempotency retry
+
+Before flow:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_uncertain_result_idempotency.py --apply
+```
+
+Keep backend reachable. Android queues a crop_activity CREATE, Sync Now commits it, then the test hook simulates losing the local acknowledgement by resetting the same local queue row back to PENDING. The retry must reuse the exact same event_id/entity_id/payload. Backend should return `accepted` containing the same event id with empty conflicts/failed, and durable state should still contain one activity row and one 325.50 finance impact.
+
+Verify after first replay and again after retry:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_UNCERTAIN_ACTIVITY_EVENT_ID={event_id} \
+ANDROID_UNCERTAIN_ACTIVITY_ID={activity_id} \
+../venv/bin/python scripts/verify_android_uncertain_result_idempotency.py
+```
+
+Optional backend duplicate resend proof:
+
+```bash
+cd ~/projects/farmint/backend
+ANDROID_UNCERTAIN_ACTIVITY_EVENT_ID={event_id} \
+ANDROID_UNCERTAIN_ACTIVITY_ID={activity_id} \
+../venv/bin/python scripts/verify_android_uncertain_result_idempotency.py --resend
+```

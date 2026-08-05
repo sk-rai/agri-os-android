@@ -82,6 +82,7 @@ interface SyncQueueDao {
            OR payload LIKE '%workflow_invalid_test%'
            OR payload LIKE '%cold_start_persistence_test%'
            OR payload LIKE '%device_restart_persistence_test%'
+           OR payload LIKE '%uncertain_result_idempotency_test%'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000111'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000121'
     """)
@@ -89,6 +90,19 @@ interface SyncQueueDao {
 
     @Query("DELETE FROM sync_queue WHERE sync_status = 'SYNCED' AND created_at < :olderThan")
     suspend fun cleanupSynced(olderThan: Long)
+    /**
+     * Test hook: simulate an uncertain sync result by putting an already-synced
+     * queue row back to PENDING without changing event_id/entity_id/payload.
+     */
+    @Query("""
+        UPDATE sync_queue
+        SET sync_status = 'PENDING',
+            retry_count = retry_count + 1,
+            next_retry_after = NULL,
+            last_error = :reason
+        WHERE event_id = :eventId AND sync_status = 'SYNCED'
+    """)
+    suspend fun resetSyncedItemForUncertainRetry(eventId: String, reason: String)
 
     /**
      * Get all queue items (any status) for dependency resolution.

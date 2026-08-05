@@ -60,6 +60,7 @@ maestro test maestro\19-workflow-invalid-recovery.yaml
 maestro test maestro\20-cold-start-activity-persistence.yaml
 maestro test maestro\21-device-restart-activity-persistence.yaml
 maestro test maestro\21b-device-restart-activity-replay-after-restart.yaml
+maestro test maestro\22-uncertain-result-idempotency.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -123,6 +124,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 
 `21-device-restart-activity-persistence.yaml` and `21b-device-restart-activity-replay-after-restart.yaml` validate local sync queue persistence across emulator/device restart. Run WSL `scripts/prepare_android_cold_start_activity_persistence.py --apply`, stop backend, then run phase A to queue the local device-restart activity. After phase A finishes, restart the emulator/device while preserving app data, restart backend, then run phase B. Phase B accepts either pending/waiting or All synced because WorkManager may replay immediately on app startup once backend is reachable. Verify backend with `scripts/verify_android_cold_start_activity_persistence.py`; exact UUID verification is supported from Android logs.
 
+
+`22-uncertain-result-idempotency.yaml` validates uncertain-result idempotency. Run WSL `scripts/prepare_android_uncertain_result_idempotency.py --apply` before the flow with backend reachable. The flow queues a crop activity, syncs it once, resets the same synced local queue row back to PENDING without changing event_id/entity_id/payload, then syncs again. Backend should accept the duplicate same event idempotently with no duplicate activity or finance impact. Verify with `scripts/verify_android_uncertain_result_idempotency.py`; pass `ANDROID_UNCERTAIN_ACTIVITY_EVENT_ID` / `ANDROID_UNCERTAIN_ACTIVITY_ID` from Android logs for exact checks.
 ## Screenshots
 
 Each flow uses `takeScreenshot`. Maestro stores screenshots in its run artifacts and prints their location in the terminal output. Please share the failed screenshot plus the terminal failure text if something breaks.

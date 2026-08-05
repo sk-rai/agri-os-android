@@ -1,0 +1,62 @@
+appId: com.agrios.app
+name: Uncertain-result retry reuses same sync event idempotently
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_uncertain_result_idempotency.py --apply
+#
+# Backend should be reachable. This flow queues a crop_activity CREATE, syncs it,
+# then simulates losing the local acknowledgement by resetting the same synced
+# queue row back to PENDING without changing event_id/entity_id/payload. The
+# second Sync Now retries the exact same event_id/entity_id.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Uncertain Result Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Queue Uncertain Result Test"
+- extendedWaitUntil:
+    visible: "Uncertain result test event queued:.*"
+    timeout: 30000
+- takeScreenshot: "22-uncertain-result-event-queued"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Sync Now"
+- extendedWaitUntil:
+    visible: "All synced|.*synced.*"
+    timeout: 60000
+- takeScreenshot: "22-uncertain-result-first-replay-synced"
+- scrollUntilVisible:
+    element:
+      text: "Simulate Uncertain Retry"
+    direction: UP
+    timeout: 30000
+- tapOn:
+    text: "Simulate Uncertain Retry"
+- extendedWaitUntil:
+    visible: "Uncertain result retry queued with same event:.*"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: ".*items waiting.*|.*Waiting.*|.*waiting.*"
+    timeout: 30000
+- takeScreenshot: "22-uncertain-result-same-event-retry-queued"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Sync Now"
+- extendedWaitUntil:
+    visible: "All synced|.*synced.*"
+    timeout: 60000
+- takeScreenshot: "22-uncertain-result-idempotent-retry-synced"
