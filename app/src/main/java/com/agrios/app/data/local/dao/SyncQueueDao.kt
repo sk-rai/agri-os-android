@@ -89,6 +89,7 @@ interface SyncQueueDao {
            OR payload LIKE '%multi_conflict_pending_drawer_test%'
            OR payload LIKE '%queue_backpressure_test%'
            OR payload LIKE '%interrupted_multibatch_resume_test%'
+           OR payload LIKE '%poison_row_backlog_test%'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000111'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000121'
     """)

@@ -93,6 +93,7 @@ fun HomeScreen(
     var multiConflictTestEventIds by remember { mutableStateOf<String?>(null) }
     var queueBackpressureTestIds by remember { mutableStateOf<String?>(null) }
     var interruptedMultibatchResumeTestIds by remember { mutableStateOf<String?>(null) }
+    var poisonRowBacklogTestIds by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 && farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -937,6 +938,110 @@ fun HomeScreen(
             Log.d(TAG, "Interrupted multibatch test events queued: count=$count amount=$amount")
         }
     }
+    fun queuePoisonRowBacklogTestEvents() {
+        scope.launch {
+            val count = 25
+            val poisonIndex = 10
+            val amount = 20.0
+            val eventIds = listOf(
+                "e82edf72-63fe-51c4-bb61-b2a965762140", "be7ac8b4-7c78-5459-8af6-6eb7ceadd129",
+                "ac585f9f-67a1-5dde-9fdb-2be90856197a", "8723081b-73ec-5cd6-8cb0-220000bec3d9",
+                "94237876-0ab6-50d1-bc83-94780222fa8e", "a6d46202-7f58-5702-a957-fd6ef5bc6007",
+                "712f5c50-5536-54e9-a19a-7965b78db05a", "d2d154a0-4b6d-54b6-bee5-4a1cee5977b6",
+                "5e612e31-8028-5b42-ab64-cbacdf16fd58", "3e65396d-224a-5978-b673-6021501570be",
+                "3b9a0147-34c9-5c35-b277-9b5576218dc1", "b39a17ca-5f7f-59a9-9c55-98901f4ef1c1",
+                "8c1d60a7-0a01-5859-8c42-83887edf22de", "7df6477b-b3c1-5862-b797-ba68941e50ee",
+                "97cf8299-2a48-57ae-8064-b076b835e2ba", "347972fd-2091-537d-910e-d6ec1d206382",
+                "0331f9a9-42ed-56b8-909f-7fbd256c5c3d", "cb7b0a0e-19dd-54e9-ac48-ccb9cb723898",
+                "9cb7e71e-16ec-578e-8803-f7d7dfc46ec3", "5fc67daa-a55a-5ee4-bc8f-55913d5e342e",
+                "5b9ab0a1-76f4-58ae-829f-c39ddf07f81b", "8fb33e07-096d-574c-b2a5-834315fe52b7",
+                "ffd6e171-df87-562c-8239-1352a65da32c", "4813902e-839b-5b4a-87ee-782b293462fc",
+                "a713dddb-c22b-5b97-9d68-2838fed21f21"
+            )
+            val activityIds = listOf(
+                "358ed81e-820d-5741-b733-8afbdf95a44e", "1aebd281-0a22-587e-989c-0bd5fb072786",
+                "862aedbb-e7aa-5874-b70f-316f7cb4902e", "1f4ba6c5-ce2b-58f4-a8eb-fd45f3ef8cc0",
+                "7dd1197f-05fd-5031-82fb-5a25ea73aa72", "eab23a36-54e1-5160-866f-a8657f3a7d6b",
+                "a04a3095-1fcb-522f-9929-346d218f593e", "8f8d015f-5e34-50a0-b84a-d3c224483094",
+                "d6f632af-1684-5d9a-b93f-2b9ac3b587c3", "18b1552c-297c-5842-8b38-8ecf4ebff4e0",
+                "08604162-6633-5f9e-82b3-354d1ed07b6d", "0ef3dad4-c07d-546f-b9f3-313688ac235c",
+                "9273fb45-5921-5ceb-a8d4-fe15344c5973", "8432405a-f668-5e38-a535-2d38018989c9",
+                "6f2890c5-25a2-5a57-b909-16ba2d053906", "f2906a28-6878-5f79-a859-6c28985eae58",
+                "f26edaad-36a8-54d7-8b8d-dc39333832fe", "2ea78d81-562c-529e-a718-585e3374197d",
+                "8d3ee3ea-739c-51fd-8283-42232c062e30", "75da987b-7982-54cb-bb3e-3081a888d7db",
+                "20f6f004-c9d5-57a6-9095-0905344d21e9", "728b3e2f-5cc0-5ee3-8006-4a804a5ed2ae",
+                "d72a1ece-17a6-57ef-880e-cb51501ef93b", "5367932f-d488-5983-bf7f-bd8863398e66",
+                "8a32d5e5-b9f0-51db-95d1-98365bd06618"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                (1..count).forEach { index ->
+                    val eventId = if (index == poisonIndex) "895ad577-fd67-5055-b081-80e0add669c2" else eventIds[index - 1]
+                    if (index == poisonIndex) {
+                        OfflineCropSyncRepository.enqueueStageTransition(
+                            syncQueueDao = db.syncQueueDao(),
+                            cropCycleId = "aa346148-468b-47de-9c86-47ad41aa1f11",
+                            stageCode = "NURSERY",
+                            action = "START",
+                            eventId = eventId,
+                            entityId = "acd8815f-11bf-5a37-8f08-4645e48f45fb",
+                            dependencyIds = emptyList(),
+                            actualStartDate = "2026-08-02",
+                            metadata = mapOf(
+                                "source" to "android_maestro_poison_row_backlog_test",
+                                "poison_backlog_index" to index,
+                                "poison_backlog_count" to count,
+                                "poison_backlog_role" to "WORKFLOW_INVALID_STAGE"
+                            )
+                        )
+                    } else {
+                        val activityId = activityIds[index - 1]
+                        val indexLabel = index.toString().padStart(2, '0')
+                        val payload = linkedMapOf<String, Any?>(
+                            "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                            "stage_code" to "NURSERY",
+                            "activity_date" to "2026-08-02",
+                            "activity_type" to "LABOR",
+                            "input_name" to "Poison backlog labor log",
+                            "quantity" to 1,
+                            "quantity_unit" to "HOURS",
+                            "cost_amount" to amount,
+                            "currency" to "INR",
+                            "notes" to "Poison backlog valid activity $indexLabel source=android_maestro_poison_row_backlog_test"
+                        )
+                        OfflineCropSyncRepository.enqueueActivityCreate(
+                            syncQueueDao = db.syncQueueDao(),
+                            activityId = activityId,
+                            payload = payload,
+                            eventId = eventId,
+                            dependencyIds = emptyList(),
+                            metadata = mapOf(
+                                "source" to "android_maestro_poison_row_backlog_test",
+                                "poison_backlog_index" to index,
+                                "poison_backlog_count" to count,
+                                "poison_backlog_role" to "VALID_ACTIVITY"
+                            )
+                        )
+                    }
+                }
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            coldStartTestEventId = null
+            deviceRestartTestEventId = null
+            uncertainResultTestEventId = null
+            dependencyOrderTestEventIds = null
+            partialBatchTestIds = null
+            partialBatchConflictTestIds = null
+            multiConflictTestEventIds = null
+            queueBackpressureTestIds = null
+            interruptedMultibatchResumeTestIds = null
+            poisonRowBacklogTestIds = "$count"
+            lastSyncMessage = "Poison row backlog test events queued: $count"
+            Log.d(TAG, "Poison row backlog test events queued: count=$count poisonIndex=$poisonIndex amount=$amount")
+        }
+    }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
         val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
         val projectId = AndroidDynamicTestContext.projectIdFor(authState)
@@ -1366,6 +1471,15 @@ fun HomeScreen(
                     ) {
                         Text("Sync First Batch Only")
                     }
+                }
+                OutlinedButton(
+                    onClick = { queuePoisonRowBacklogTestEvents() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Poison Backlog Test")
+                }
+                poisonRowBacklogTestIds?.let { ids ->
+                    Text("Poison row backlog test events queued: $ids", style = MaterialTheme.typography.bodySmall)
                 }
             }
 

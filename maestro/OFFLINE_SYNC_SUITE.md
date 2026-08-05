@@ -486,3 +486,37 @@ Expected final durable state:
 - no sync conflicts;
 - no failed sync audit rows;
 - stage-cost and P&L expense deltas equal `25 x INR 20.00 = INR 500.00`.
+
+### Flow 29: poison row backlog keeps draining valid rows
+
+Backend prep/reset:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_poison_row_backlog.py --reset-indexed --apply
+```
+
+Android flow:
+
+```powershell
+maestro test maestro\29-poison-row-backlog.yaml
+```
+
+This flow queues 25 rows under the active dynamic Rice/NURSERY cycle. Rows 1..9 and 11..25 are valid `crop_activity` CREATE rows; row 10 is a poison `crop_stage` START against already-active NURSERY and should become `WORKFLOW_INVALID`.
+
+Backend verification after Android replay:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_poison_row_backlog.py
+```
+
+Expected durable state:
+
+- 24 activity events are COMMITTED exactly once;
+- row 10 is durable CONFLICT with `WORKFLOW_INVALID` / `SERVER_AUTHORITY`;
+- pending-conflict API exposes the poison row;
+- no duplicate activity IDs;
+- no conflicts for valid activity rows;
+- no failed sync audit rows;
+- stage-cost and P&L expense deltas equal `24 x INR 20.00 = INR 480.00`.
