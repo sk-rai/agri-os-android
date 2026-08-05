@@ -440,3 +440,49 @@ Expected durable state:
 - no sync conflicts;
 - no failed sync audit rows;
 - stage-cost and P&L expense deltas equal `25 x INR 20.00 = INR 500.00`.
+
+### Flow 28: interrupted multi-batch replay resume
+
+Backend prep/reset:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_interrupted_multibatch_resume.py --reset-indexed --apply
+```
+
+Android phase A commits only the first bounded batch:
+
+```powershell
+maestro test maestro\28a-interrupted-multibatch-first-batch.yaml
+```
+
+Verify the interrupted midpoint before resuming:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_interrupted_multibatch_resume.py --phase first_batch
+```
+
+Expected midpoint state: first 10 events are COMMITTED/materialized, indices 11..25 are not materialized on backend yet, Android still has the remaining rows pending, and finance delta is `10 x INR 20.00 = INR 200.00`.
+
+Android phase B resumes normal sync and drains the remaining rows:
+
+```powershell
+maestro test maestro\28b-interrupted-multibatch-resume.yaml
+```
+
+Final backend verification:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_interrupted_multibatch_resume.py --phase complete
+```
+
+Expected final durable state:
+
+- all 25 events are COMMITTED exactly once;
+- exactly 25 activities are materialized;
+- no duplicate activity IDs;
+- no sync conflicts;
+- no failed sync audit rows;
+- stage-cost and P&L expense deltas equal `25 x INR 20.00 = INR 500.00`.

@@ -1,0 +1,46 @@
+appId: com.agrios.app
+name: Interrupted multibatch resume phase A commits first batch only
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_interrupted_multibatch_resume.py --reset-indexed --apply
+#
+# This phase queues 25 offline crop_activity CREATE rows, then uses a debug-only
+# first-batch sync hook to commit only the first bounded batch of 10. Run the
+# backend verifier with --phase first_batch immediately after this flow.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Interrupted Resume Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Queue Interrupted Resume Test"
+- scrollUntilVisible:
+    element:
+      text: "Interrupted multibatch test events queued:.*"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "28-interrupted-multibatch-events-queued"
+- scrollUntilVisible:
+    element:
+      text: "Sync First Batch Only"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Sync First Batch Only"
+- extendedWaitUntil:
+    visible: "Interrupted resume first batch synced: 10"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: ".*items waiting.*|.*Waiting.*|.*waiting.*"
+    direction: DOWN
+    timeout: 30000
+- assertNotVisible: "Workflow changed on backend"
+- assertNotVisible: "Manual review needed: server has a newer version"
+- assertNotVisible: "Refresh required: local context is stale"
+- takeScreenshot: "28-interrupted-multibatch-first-batch-synced"

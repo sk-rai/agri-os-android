@@ -92,6 +92,7 @@ fun HomeScreen(
     var partialBatchConflictTestIds by remember { mutableStateOf<String?>(null) }
     var multiConflictTestEventIds by remember { mutableStateOf<String?>(null) }
     var queueBackpressureTestIds by remember { mutableStateOf<String?>(null) }
+    var interruptedMultibatchResumeTestIds by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 && farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -252,6 +253,35 @@ fun HomeScreen(
         }
     }
 
+    fun runSyncFirstBatchOnlyForTest() {
+        scope.launch {
+            isSyncing = true
+            lastSyncMessage = null
+            try {
+                val okHttpClient = OkHttpClient.Builder()
+                    .addInterceptor(AuthInterceptor(db.authDao()))
+                    .connectTimeout(ApiConfig.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .readTimeout(ApiConfig.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .writeTimeout(ApiConfig.WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .build()
+                val api = Retrofit.Builder()
+                    .baseUrl(ApiConfig.BASE_URL)
+                    .client(okHttpClient)
+                    .addConverterFactory(GsonConverterFactory.create())
+                    .build()
+                    .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
+                val syncManager = SyncManager(db.syncQueueDao(), api)
+                syncManager.fixAndRetryFailedItems()
+                val result = syncManager.processQueue(drainFollowUps = false)
+                lastSyncMessage = "Interrupted resume first batch synced: ${result.accepted}"
+                Log.d(TAG, "Interrupted resume first batch synced: accepted=${result.accepted}, conflicts=${result.conflicts}, failed=${result.failed}")
+            } catch (e: Exception) {
+                lastSyncMessage = "Failed: ${e.message}"
+            } finally {
+                isSyncing = false
+            }
+        }
+    }
     fun queueStaleContextTestEvent() {
         val farmerId = farmer?.id ?: return
         scope.launch {
@@ -820,8 +850,91 @@ fun HomeScreen(
             partialBatchConflictTestIds = null
             multiConflictTestEventIds = null
             queueBackpressureTestIds = "$count"
+            interruptedMultibatchResumeTestIds = null
             lastSyncMessage = "Queue backpressure test events queued: $count"
             Log.d(TAG, "Queue backpressure test events queued: count=$count amount=$amount")
+        }
+    }
+    fun queueInterruptedMultibatchResumeTestEvents() {
+        scope.launch {
+            val count = 25
+            val amount = 20.0
+            val eventIds = listOf(
+                "5ee50b09-7cab-5248-b2b5-e1ee955cecac", "9b11d606-2025-525d-8b76-bda4ad1c02a9",
+                "771174fa-5235-5f42-a59f-965361d395e9", "d23b408d-e587-5b16-a61b-f8bef65748de",
+                "fabbaae7-4f42-5f04-a351-ea55e18d8f52", "9e91db55-f602-55ea-af38-29e1f1a15fd4",
+                "6abe1613-628d-5c3a-838b-172d52cbf5f6", "46e6e156-fb91-58e3-963f-9e6863a5cbb1",
+                "c15d9e2a-763c-5fcb-b4bb-4ee73b6033e7", "fb07dadc-1b86-5951-9a6f-6ad9ff766107",
+                "8836709e-a8da-5181-9dca-89e58ea9da41", "9c94d121-b98a-529f-b6c8-e242c260ed2f",
+                "a333deaa-1919-5c0d-948c-8f0a8d270142", "0feda842-60af-5b1c-bf22-4e7b9a5e3850",
+                "d5cabae6-fb2d-5775-84bd-875fa1a7a9e9", "2d70f16a-0c08-5635-b378-a6549cc2779c",
+                "7337a800-c8bd-5110-83ed-ee9810a13f22", "f02f35ee-0475-5c03-8e0a-1672faf424fa",
+                "57f8de25-0312-5fea-9bff-258b59b0fcb8", "a0c0ad59-c49c-5aeb-90b0-3d7058fa2987",
+                "63d2672a-7d45-5ec8-b00c-2e8a5748e5ef", "acb7c04f-1aac-5663-abde-d0416c0de30c",
+                "2d877cde-0bd9-5c74-bc9c-1e84a9e109cb", "ca9c9128-9c9c-50e3-bde1-f431ecf86970",
+                "b14a13e6-ef2f-5e0b-9902-02432712e9e3"
+            )
+            val activityIds = listOf(
+                "cff2a039-7be5-571c-983b-17ffe9c399d8", "30be57ff-a418-539d-bc92-dcb6781788aa",
+                "ca93e373-462a-5e37-945a-45b6c3e981b3", "1e4e0765-3539-5e10-93a5-e99e88a5bdde",
+                "35d5fb59-e260-547b-9b68-68f3a458fe75", "48562830-26b1-587c-a770-bb7a9d4e2994",
+                "c0cb1940-c420-5a69-aaea-9be600af9cff", "d584147b-7281-5cf2-9147-22388b6596f4",
+                "8f58dd10-7131-5f7b-a0cc-cb2064957e61", "5b952c93-e087-5c0b-b829-620ff9c1b6c4",
+                "39906867-ecba-54f5-867f-7839bc3e66ab", "9860c2fe-da2e-512b-b435-f4aa64e12bd5",
+                "b740d1bf-d5ee-5e2a-9314-1dec0c657348", "c850154f-a094-54b3-aa2c-04357f5018cd",
+                "601add7f-91ee-562b-9269-97e596b05752", "b17e8639-ae2e-5aee-83ac-8ef539feb224",
+                "440c4139-6a96-524c-9ffc-89952c9c58d9", "d070d994-f1bc-5dcf-82e2-594ca9d7c199",
+                "79a0eb73-cc1a-5d0f-8e43-922729d41907", "3e1fbd9a-6558-5e98-aaa2-5b54b22f8153",
+                "7f691973-1b69-5503-83cb-0adcdf13051c", "bf886474-b4a8-5cc1-a672-8f49203d349e",
+                "23585b20-1f3d-5bc8-9746-a56ced4bf665", "fb9c74a8-950a-5c1a-bd61-6177e64c2fa3",
+                "9d5f869f-ac94-50fb-baef-6e841d2974cf"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                (1..count).forEach { index ->
+                    val eventId = eventIds[index - 1]
+                    val activityId = activityIds[index - 1]
+                    val indexLabel = index.toString().padStart(2, '0')
+                    val payload = linkedMapOf<String, Any?>(
+                        "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                        "stage_code" to "NURSERY",
+                        "activity_date" to "2026-08-02",
+                        "activity_type" to "LABOR",
+                        "input_name" to "Interrupted resume labor log",
+                        "quantity" to 1,
+                        "quantity_unit" to "HOURS",
+                        "cost_amount" to amount,
+                        "currency" to "INR",
+                        "notes" to "Interrupted resume activity $indexLabel source=android_maestro_interrupted_multibatch_resume_test"
+                    )
+                    OfflineCropSyncRepository.enqueueActivityCreate(
+                        syncQueueDao = db.syncQueueDao(),
+                        activityId = activityId,
+                        payload = payload,
+                        eventId = eventId,
+                        dependencyIds = emptyList(),
+                        metadata = mapOf(
+                            "source" to "android_maestro_interrupted_multibatch_resume_test",
+                            "interrupted_resume_index" to index,
+                            "interrupted_resume_count" to count
+                        )
+                    )
+                }
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            coldStartTestEventId = null
+            deviceRestartTestEventId = null
+            uncertainResultTestEventId = null
+            dependencyOrderTestEventIds = null
+            partialBatchTestIds = null
+            partialBatchConflictTestIds = null
+            multiConflictTestEventIds = null
+            queueBackpressureTestIds = null
+            interruptedMultibatchResumeTestIds = "$count"
+            lastSyncMessage = "Interrupted multibatch test events queued: $count"
+            Log.d(TAG, "Interrupted multibatch test events queued: count=$count amount=$amount")
         }
     }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
@@ -1236,6 +1349,23 @@ fun HomeScreen(
                 }
                 queueBackpressureTestIds?.let { ids ->
                     Text("Queue backpressure test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { queueInterruptedMultibatchResumeTestEvents() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Interrupted Resume Test")
+                }
+                interruptedMultibatchResumeTestIds?.let { ids ->
+                    Text("Interrupted multibatch test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                }
+                if (interruptedMultibatchResumeTestIds != null) {
+                    OutlinedButton(
+                        onClick = { runSyncFirstBatchOnlyForTest() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Sync First Batch Only")
+                    }
                 }
             }
 

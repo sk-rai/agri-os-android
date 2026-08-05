@@ -1,0 +1,17 @@
+appId: com.agrios.app
+name: Interrupted multibatch resume phase B relaunches and allows queue drain
+---
+# Run only after 28a and the WSL first-batch verifier pass.
+# Relaunch may auto-resume via WorkManager; if it does, the pending status can
+# disappear before Maestro observes it. The backend complete verifier is the
+# source of truth for final 25/25 committed state.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- waitForAnimationToEnd:
+    timeout: 60000
+- assertNotVisible: "Workflow changed on backend"
+- assertNotVisible: "Manual review needed: server has a newer version"
+- assertNotVisible: "Refresh required: local context is stale"
+- takeScreenshot: "28-interrupted-multibatch-after-relaunch"

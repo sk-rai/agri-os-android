@@ -38,7 +38,7 @@ class SyncManager(
      * Process pending sync queue. Call from WorkManager or on connectivity restore.
      * Returns number of items successfully synced.
      */
-    suspend fun processQueue(): SyncResult {
+    suspend fun processQueue(drainFollowUps: Boolean = true): SyncResult {
         val now = System.currentTimeMillis()
         var pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE)
 
@@ -128,9 +128,9 @@ class SyncManager(
                 )
                 // If items were accepted, immediately process again to pick up
                 // any newly unblocked dependents (e.g. parcels waiting on farmer)
-                if (result.accepted > 0) {
+                if (drainFollowUps && result.accepted > 0) {
                     Log.d(TAG, "Items accepted — running follow-up pass for unblocked dependents")
-                    val followUp = processQueue()
+                    val followUp = processQueue(drainFollowUps = true)
                     return SyncResult(
                         accepted = geometryResult.accepted + result.accepted + followUp.accepted,
                         conflicts = geometryResult.conflicts + result.conflicts + followUp.conflicts,
