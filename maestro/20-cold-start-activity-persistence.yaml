@@ -1,0 +1,47 @@
+appId: com.agrios.app
+name: Cold-start preserves offline activity queue and replays after relaunch
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_cold_start_activity_persistence.py --apply
+#
+# Keep backend stopped/unavailable until after the app has relaunched and this
+# flow has proven the local pending row survived cold start. During the
+# 60-second wait after relaunch, restart backend, then Maestro taps Sync Now.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Cold Start Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Queue Cold Start Test"
+- extendedWaitUntil:
+    visible: "Cold start test event queued:.*"
+    timeout: 30000
+- takeScreenshot: "20-cold-start-event-queued-before-stop"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: ".*items waiting.*|.*Waiting.*|.*waiting.*"
+    timeout: 30000
+- takeScreenshot: "20-cold-start-pending-after-relaunch"
+- runScript:
+    file: wait-60s.js
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Sync Now"
+- extendedWaitUntil:
+    visible: "All synced|.*synced.*"
+    timeout: 60000
+- takeScreenshot: "20-cold-start-replay-synced"

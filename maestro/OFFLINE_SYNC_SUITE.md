@@ -145,3 +145,29 @@ Android fetches pending conflicts, calls `PATCH /api/v1/sync/conflicts/{conflict
 cd ~/projects/farmint/backend
 ../venv/bin/python scripts/verify_android_conflict_recovery_state.py --conflict-type WORKFLOW_INVALID
 ```
+### Flow 20: cold-start offline activity persistence
+
+Before flow:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_cold_start_activity_persistence.py --apply
+```
+
+Keep backend unavailable while Android queues the local cold-start activity and force-stops/relaunches the app. During the 60-second wait after relaunch, restart backend. The flow proves the local pending sync row survives app cold start, taps Sync Now, and expects All synced.
+
+Verify afterward:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_cold_start_activity_persistence.py
+```
+
+If Android logs expose exact UUIDs, optional exact verification is also supported:
+
+```bash
+ANDROID_COLD_START_ACTIVITY_EVENT_ID={event_id} \
+ANDROID_COLD_START_ACTIVITY_ID={activity_id} \
+../venv/bin/python scripts/verify_android_cold_start_activity_persistence.py
+```
+

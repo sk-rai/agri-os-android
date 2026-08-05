@@ -83,6 +83,7 @@ fun HomeScreen(
     var staleContextTestEventId by remember { mutableStateOf<String?>(null) }
     var versionMismatchTestEventId by remember { mutableStateOf<String?>(null) }
     var workflowInvalidTestEventId by remember { mutableStateOf<String?>(null) }
+    var coldStartTestEventId by remember { mutableStateOf<String?>(null) }
     val showDynamicSyncTestTools = farmer?.mobileNumber
         ?.filter { it.isDigit() }
         ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
@@ -335,6 +336,42 @@ fun HomeScreen(
         }
     }
 
+    fun queueColdStartPersistenceTestEvent() {
+        scope.launch {
+            val eventId = UUID.randomUUID().toString()
+            val activityId = UUID.randomUUID().toString()
+            val payload = linkedMapOf<String, Any?>(
+                "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                "stage_code" to "NURSERY",
+                "activity_date" to "2026-08-02",
+                "activity_type" to "FERTILIZER",
+                "input_code" to "DAP_18_46_0",
+                "input_name" to "DAP 18-46-0",
+                "quantity" to 1,
+                "quantity_unit" to "KG",
+                "cost_amount" to 325.5,
+                "currency" to "INR",
+                "notes" to "Cold-start offline queue persistence test"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                OfflineCropSyncRepository.enqueueActivityCreate(
+                    syncQueueDao = db.syncQueueDao(),
+                    activityId = activityId,
+                    payload = payload,
+                    eventId = eventId,
+                    dependencyIds = emptyList(),
+                    metadata = mapOf("source" to "android_maestro_cold_start_persistence_test")
+                )
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            coldStartTestEventId = eventId
+            lastSyncMessage = "Cold start test event queued: $eventId"
+            Log.d(TAG, "Cold start test event queued: eventId=$eventId, activityId=$activityId")
+        }
+    }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
         val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
         val projectId = AndroidDynamicTestContext.projectIdFor(authState)
@@ -663,6 +700,15 @@ fun HomeScreen(
                 }
                 workflowInvalidTestEventId?.let { eventId ->
                     Text("Workflow invalid test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { queueColdStartPersistenceTestEvent() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Cold Start Test")
+                }
+                coldStartTestEventId?.let { eventId ->
+                    Text("Cold start test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
                 }
             }
 

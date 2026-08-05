@@ -53,6 +53,11 @@ maestro test maestro\12-offline-activity-log-queue.yaml
 maestro test maestro\13-activity-finance-summary-smoke.yaml
 maestro test maestro\14-stale-context-sync-failure.yaml
 maestro test maestro\15-version-mismatch-conflict.yaml
+maestro test maestro\16-workflow-invalid-conflict.yaml
+maestro test maestro\17-stale-context-recovery.yaml
+maestro test maestro\18-version-mismatch-recovery.yaml
+maestro test maestro\19-workflow-invalid-recovery.yaml
+maestro test maestro\20-cold-start-activity-persistence.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -111,6 +116,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 `18-version-mismatch-recovery.yaml` validates conflict recovery for `VERSION_MISMATCH`. Run WSL `scripts/prepare_android_version_mismatch_conflict.py --reset --apply` first. The flow queues the deterministic version-mismatch event, taps Sync Now, then taps `Use server version`. Android refreshes context, calls `PATCH /api/v1/sync/conflicts/{conflict_id}` with `ACCEPT_SERVER`, and discards only that local conflicted row. Verify backend with `scripts/verify_android_conflict_recovery_state.py --conflict-type VERSION_MISMATCH`.
 
 `19-workflow-invalid-recovery.yaml` validates conflict recovery for `WORKFLOW_INVALID`. Run WSL `scripts/prepare_android_workflow_invalid_conflict.py --reset --apply` first. The flow queues the deterministic invalid stage transition, taps Sync Now, then taps `Refresh stage`. Android refreshes context, calls `PATCH /api/v1/sync/conflicts/{conflict_id}` with `ACCEPT_SERVER`, and discards only that local conflicted row. Verify backend with `scripts/verify_android_conflict_recovery_state.py --conflict-type WORKFLOW_INVALID`.
+
+`20-cold-start-activity-persistence.yaml` validates local sync queue persistence across app cold start. Run WSL `scripts/prepare_android_cold_start_activity_persistence.py --apply` before the flow, then keep backend unavailable while the flow queues the local cold-start activity and force-stops/relaunches the app. During the 60-second wait after relaunch, restart backend. The flow asserts the pending row survived relaunch, taps Sync Now, and expects All synced. Verify backend with `scripts/verify_android_cold_start_activity_persistence.py`; set `ANDROID_COLD_START_ACTIVITY_EVENT_ID` / `ANDROID_COLD_START_ACTIVITY_ID` only if Android logs expose the random UUIDs.
 
 ## Screenshots
 
