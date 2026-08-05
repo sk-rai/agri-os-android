@@ -1,0 +1,20 @@
+appId: com.agrios.app
+name: Device restart persistence phase B observes queue after restart
+---
+# Run only after:
+# 1. 21-device-restart-activity-persistence.yaml queued the offline activity.
+# 2. The emulator/device was restarted while preserving app data.
+# 3. Backend was restarted and is reachable.
+#
+# Do not clear app data, reinstall, or rerun WSL prep between phase A and this phase.
+# If WorkManager replays immediately on startup, this phase accepts All synced.
+# If replay has not fired yet, it accepts the pending/waiting state; tap Sync Now manually
+# and use the backend verifier as the durable source of truth.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "All synced|.*synced.*|.*items waiting.*|.*Waiting.*|.*waiting.*"
+    timeout: 60000
+- takeScreenshot: "21-device-restart-after-relaunch-status"

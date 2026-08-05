@@ -81,6 +81,7 @@ interface SyncQueueDao {
            OR payload LIKE '%version_mismatch_test%'
            OR payload LIKE '%workflow_invalid_test%'
            OR payload LIKE '%cold_start_persistence_test%'
+           OR payload LIKE '%device_restart_persistence_test%'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000111'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000121'
     """)

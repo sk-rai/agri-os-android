@@ -170,4 +170,23 @@ ANDROID_COLD_START_ACTIVITY_EVENT_ID={event_id} \
 ANDROID_COLD_START_ACTIVITY_ID={activity_id} \
 ../venv/bin/python scripts/verify_android_cold_start_activity_persistence.py
 ```
+### Flow 21: device restart offline activity persistence
+
+Before flow:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_cold_start_activity_persistence.py --apply
+```
+
+Keep backend unavailable while Android queues the local device-restart activity in phase A. After phase A finishes, restart the emulator/device while preserving app data, then restart backend. Run phase B to relaunch Android and observe either the pending sync row or All synced. WorkManager may replay immediately on app startup once backend is reachable, so the backend verifier is the durable pass/fail check. Do not rerun WSL prep between phase A and phase B.
+
+Verify afterward:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_cold_start_activity_persistence.py
+```
+
+Exact UUID verification is also supported using `ANDROID_COLD_START_ACTIVITY_EVENT_ID` and `ANDROID_COLD_START_ACTIVITY_ID` from Android logs.
 

@@ -1,0 +1,25 @@
+appId: com.agrios.app
+name: Device restart persistence phase A queues offline activity before restart
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_cold_start_activity_persistence.py --apply
+#
+# Keep backend unavailable while this phase queues the local activity.
+# After this phase finishes, restart the emulator/device while preserving app data,
+# restart backend, then run 21b-device-restart-activity-replay-after-restart.yaml.
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Device Restart Test"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    text: "Queue Device Restart Test"
+- extendedWaitUntil:
+    visible: "Device restart test event queued:.*"
+    timeout: 30000
+- takeScreenshot: "21-device-restart-event-queued-before-restart"

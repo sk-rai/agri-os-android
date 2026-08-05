@@ -58,6 +58,8 @@ maestro test maestro\17-stale-context-recovery.yaml
 maestro test maestro\18-version-mismatch-recovery.yaml
 maestro test maestro\19-workflow-invalid-recovery.yaml
 maestro test maestro\20-cold-start-activity-persistence.yaml
+maestro test maestro\21-device-restart-activity-persistence.yaml
+maestro test maestro\21b-device-restart-activity-replay-after-restart.yaml
 ```
 
 `04-dynamic-land-intelligence-guidance.yaml` requires backend app bootstrap to enable profile dynamic forms:
@@ -118,6 +120,8 @@ Android must not send `"location_scope": "SINGLE_VILLAGE"`.
 `19-workflow-invalid-recovery.yaml` validates conflict recovery for `WORKFLOW_INVALID`. Run WSL `scripts/prepare_android_workflow_invalid_conflict.py --reset --apply` first. The flow queues the deterministic invalid stage transition, taps Sync Now, then taps `Refresh stage`. Android refreshes context, calls `PATCH /api/v1/sync/conflicts/{conflict_id}` with `ACCEPT_SERVER`, and discards only that local conflicted row. Verify backend with `scripts/verify_android_conflict_recovery_state.py --conflict-type WORKFLOW_INVALID`.
 
 `20-cold-start-activity-persistence.yaml` validates local sync queue persistence across app cold start. Run WSL `scripts/prepare_android_cold_start_activity_persistence.py --apply` before the flow, then keep backend unavailable while the flow queues the local cold-start activity and force-stops/relaunches the app. During the 60-second wait after relaunch, restart backend. The flow asserts the pending row survived relaunch, taps Sync Now, and expects All synced. Verify backend with `scripts/verify_android_cold_start_activity_persistence.py`; set `ANDROID_COLD_START_ACTIVITY_EVENT_ID` / `ANDROID_COLD_START_ACTIVITY_ID` only if Android logs expose the random UUIDs.
+
+`21-device-restart-activity-persistence.yaml` and `21b-device-restart-activity-replay-after-restart.yaml` validate local sync queue persistence across emulator/device restart. Run WSL `scripts/prepare_android_cold_start_activity_persistence.py --apply`, stop backend, then run phase A to queue the local device-restart activity. After phase A finishes, restart the emulator/device while preserving app data, restart backend, then run phase B. Phase B accepts either pending/waiting or All synced because WorkManager may replay immediately on app startup once backend is reachable. Verify backend with `scripts/verify_android_cold_start_activity_persistence.py`; exact UUID verification is supported from Android logs.
 
 ## Screenshots
 
