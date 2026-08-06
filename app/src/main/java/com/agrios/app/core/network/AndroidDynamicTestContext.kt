@@ -4,16 +4,24 @@ import com.agrios.app.data.local.dao.AuthDao
 import com.agrios.app.data.local.entity.AuthStateEntity
 
 /**
- * Dedicated backend-configured profile-form test context.
+ * Dedicated backend-configured Android test contexts.
  *
- * This is intentionally narrow: default tenant remains legacy/gated off.
- * The dynamic profile form context is selected only for the dedicated test
- * tenant or the dedicated Maestro/mobile test number.
+ * These lanes are intentionally narrow: default tenant remains legacy/gated off.
+ * Dedicated tenants are selected only for their Maestro/mobile test numbers.
  */
 object AndroidDynamicTestContext {
     const val TENANT_ID = "android-dynamic-test"
     const val PROJECT_ID = "0f7e0a6b-8472-5d6d-8a14-a9d000000001"
+    const val PERSONA_TENANT_ID = "android-persona-lifecycle-test"
+    const val PERSONA_PROJECT_ID = "0f7e0a6b-8472-5d6d-8a14-a9d000000201"
     private const val TEST_MOBILE_DIGITS = "919900000002"
+    private val PERSONA_MOBILE_DIGITS = setOf(
+        "919900001101",
+        "919900001201",
+        "919900001301",
+        "919900001401",
+        "919900001501"
+    )
 
     fun isEnabledFor(authState: AuthStateEntity?): Boolean {
         val tenantMatches = authState?.tenantId == TENANT_ID
@@ -25,17 +33,37 @@ object AndroidDynamicTestContext {
         return tenantMatches || mobileMatches
     }
 
+    fun isPersonaLifecycleEnabledFor(authState: AuthStateEntity?): Boolean {
+        val tenantMatches = authState?.tenantId == PERSONA_TENANT_ID
+        val mobileDigits = authState?.mobileNumber
+            ?.filter { it.isDigit() }
+            .orEmpty()
+        val mobileMatches = mobileDigits in PERSONA_MOBILE_DIGITS ||
+            "91$mobileDigits" in PERSONA_MOBILE_DIGITS
+        return tenantMatches || mobileMatches
+    }
+
+    fun isAnyBackendContractTestEnabledFor(authState: AuthStateEntity?): Boolean {
+        return isEnabledFor(authState) || isPersonaLifecycleEnabledFor(authState)
+    }
+
     fun effectiveTenantId(authState: AuthStateEntity?, fallbackTenantId: String): String {
-        return if (isEnabledFor(authState)) TENANT_ID
-        else authState?.tenantId?.takeIf { it.isNotBlank() } ?: fallbackTenantId
+        return when {
+            isEnabledFor(authState) -> TENANT_ID
+            isPersonaLifecycleEnabledFor(authState) -> PERSONA_TENANT_ID
+            else -> authState?.tenantId?.takeIf { it.isNotBlank() } ?: fallbackTenantId
+        }
     }
 
     fun projectIdFor(authState: AuthStateEntity?): String? {
-        return if (isEnabledFor(authState)) PROJECT_ID else null
+        return when {
+            isEnabledFor(authState) -> PROJECT_ID
+            isPersonaLifecycleEnabledFor(authState) -> PERSONA_PROJECT_ID
+            else -> null
+        }
     }
 
     suspend fun projectIdFor(authDao: AuthDao): String? {
         return projectIdFor(authDao.getAuthState())
     }
 }
-

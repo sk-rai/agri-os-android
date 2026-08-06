@@ -49,6 +49,14 @@ import java.util.concurrent.TimeUnit
 
 private const val TAG = "HomeScreen"
 
+private val personaLifecycleMobileDigits = setOf(
+    "919900001101",
+    "919900001201",
+    "919900001301",
+    "919900001401",
+    "919900001501"
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -94,9 +102,13 @@ fun HomeScreen(
     var queueBackpressureTestIds by remember { mutableStateOf<String?>(null) }
     var interruptedMultibatchResumeTestIds by remember { mutableStateOf<String?>(null) }
     var poisonRowBacklogTestIds by remember { mutableStateOf<String?>(null) }
-    val showDynamicSyncTestTools = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 && farmer?.mobileNumber
-        ?.filter { it.isDigit() }
-        ?.let { digits -> digits == "919900000002" || digits == "9900000002" } == true
+    var personaLifecycleStatus by remember { mutableStateOf<String?>(null) }
+    val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    val currentMobileDigits = farmer?.mobileNumber?.filter { it.isDigit() }.orEmpty()
+    val showDynamicSyncTestTools = isDebugBuild && currentMobileDigits
+        .let { digits -> digits == "919900000002" || digits == "9900000002" }
+    val showPersonaLifecycleTestTools = isDebugBuild && currentMobileDigits
+        .let { digits -> digits in personaLifecycleMobileDigits || "91$digits" in personaLifecycleMobileDigits }
 
     val api = remember {
         val okHttpClient = OkHttpClient.Builder()
@@ -1042,6 +1054,105 @@ fun HomeScreen(
             Log.d(TAG, "Poison row backlog test events queued: count=$count poisonIndex=$poisonIndex amount=$amount")
         }
     }
+    fun checkPersonaLifecycleContract() {
+        scope.launch {
+            lastSyncMessage = null
+            personaLifecycleStatus = "Persona lifecycle check running..."
+            val authState = withContext(Dispatchers.IO) { db.authDao().getAuthState() }
+            val mobile = authState?.mobileNumber ?: farmer?.mobileNumber.orEmpty()
+            val mobileDigits = mobile.filter { it.isDigit() }
+            val persona = personaLifecyclePersonaFor(mobileDigits)
+            val projectId = personaLifecycleProjectIdFor(mobileDigits)
+            val currentFarmer = farmer
+            try {
+                val profileResponse = withContext(Dispatchers.IO) {
+                    api.getFarmerProfileByMobile(
+                        mobile = mobile,
+                        projectId = projectId,
+                        includeFormContract = true
+                    )
+                }
+                if (!profileResponse.isSuccessful) {
+                    error("persona hydration ${profileResponse.code()}")
+                }
+                val profile = profileResponse.body() ?: error("persona hydration body missing")
+                val launchBody = currentFarmer?.id?.let { farmerId ->
+                    withContext(Dispatchers.IO) {
+                        val response = api.getFarmerLaunchContext(farmerId)
+                        if (response.isSuccessful) response.body() else null
+                    }
+                }
+                val modeBody = withContext(Dispatchers.IO) {
+                    val response = api.getModeBootstrap(
+                        userId = authState?.userId,
+                        projectId = projectId
+                    )
+                    if (response.isSuccessful) response.body() else null
+                }
+                val appBootstrapOk = if (projectId != null) {
+                    withContext(Dispatchers.IO) { api.getAppBootstrap(projectId).isSuccessful }
+                } else true
+                val worklistBody = if (mobileDigits.endsWith("1301") || mobileDigits.endsWith("1401")) {
+                    withContext(Dispatchers.IO) {
+                        val response = api.getFieldAgentWorklist(
+                            projectId = AndroidDynamicTestContext.PERSONA_PROJECT_ID,
+                            assignedOnly = true
+                        )
+                        if (response.isSuccessful) response.body() else null
+                    }
+                } else null
+
+                val farmerContextMode = profile.farmerContext?.jsonString("mode") ?: launchBody?.jsonString("mode")
+                val activeProjectCount = profile.farmerContext?.jsonInt("active_project_count")
+                    ?: launchBody?.jsonInt("active_project_count")
+                    ?: profile.summary?.activeProjectEnrollmentCount
+                    ?: profile.projectEnrollments.size
+                val projectSelectionRequired = profile.farmerContext?.jsonBoolean("project_selection_required")
+                    ?: launchBody?.jsonBoolean("project_selection_required")
+                    ?: false
+                val duplicateCount = profile.summary?.duplicateFarmerCount ?: 0
+                val farmerModeAvailable = modeBody?.modes?.jsonObject("farmer")?.jsonBoolean("available") ?: false
+                val agentModeAvailable = modeBody?.modes?.jsonObject("agent")?.jsonBoolean("available") ?: false
+                val worklistFarmers = worklistBody?.jsonArraySize("farmers") ?: 0
+                val personalFarmerMode = worklistBody
+                    ?.jsonObject("mode_switch")
+                    ?.jsonBoolean("personal_farmer_mode_available")
+                    ?: false
+
+                val statusLines = mutableListOf(
+                    "Persona lifecycle check: $persona ready",
+                    "tenant=${AndroidDynamicTestContext.PERSONA_TENANT_ID}",
+                    "farmer_id=${profile.farmer?.id ?: currentFarmer?.id.orEmpty()}",
+                    "project_enrollments=${profile.projectEnrollments.size}",
+                    "active_project_count=$activeProjectCount",
+                    "project_selection_required=$projectSelectionRequired",
+                    "duplicate_farmer_count=$duplicateCount",
+                    "farmer_context.mode=${farmerContextMode ?: "UNKNOWN"}"
+                )
+                if (projectId == null || activeProjectCount == 0) {
+                    statusLines += "Continue independently"
+                }
+                if (projectId != null) {
+                    statusLines += "project_id=$projectId"
+                    statusLines += "project_bootstrap_ok=$appBootstrapOk"
+                }
+                if (farmerModeAvailable || agentModeAvailable) {
+                    statusLines += "Choose how to continue"
+                    if (farmerModeAvailable) statusLines += "My farm"
+                    if (agentModeAvailable) statusLines += "Assigned farmers"
+                }
+                if (worklistBody != null) {
+                    statusLines += "agent_worklist_farmers=$worklistFarmers"
+                    statusLines += "personal_farmer_mode_available=$personalFarmerMode"
+                }
+                personaLifecycleStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Persona lifecycle check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                personaLifecycleStatus = "Persona lifecycle check failed: ${e.message}"
+                Log.e(TAG, "Persona lifecycle check failed", e)
+            }
+        }
+    }
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
         val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
         val projectId = AndroidDynamicTestContext.projectIdFor(authState)
@@ -1483,6 +1594,18 @@ fun HomeScreen(
                 }
             }
 
+
+            if (showPersonaLifecycleTestTools) {
+                OutlinedButton(
+                    onClick = { checkPersonaLifecycleContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Persona Lifecycle")
+                }
+                personaLifecycleStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
             // Sync status card
             if (pendingCount > 0 || conflictCount > 0 || failedCount > 0 || isSyncing || lastSyncMessage != null) {
                 Card(
@@ -1703,6 +1826,58 @@ private fun findPendingConflictId(body: JsonElement?, eventId: String): String? 
     }?.asJsonObject?.get("id")?.asString
 }
 
+private fun personaLifecycleProjectIdFor(mobileDigits: String): String? {
+    return when {
+        mobileDigits.endsWith("1101") -> null
+        else -> AndroidDynamicTestContext.PERSONA_PROJECT_ID
+    }
+}
+
+private fun personaLifecyclePersonaFor(mobileDigits: String): String {
+    return when {
+        mobileDigits.endsWith("1101") -> "independent farmer"
+        mobileDigits.endsWith("1201") -> "project-associated farmer"
+        mobileDigits.endsWith("1301") -> "dual farmer-agent"
+        mobileDigits.endsWith("1401") -> "assisted farmer"
+        mobileDigits.endsWith("1501") -> "transition farmer"
+        else -> "persona"
+    }
+}
+
+private fun JsonElement.jsonString(name: String): String? {
+    return runCatching {
+        if (!isJsonObject) return null
+        asJsonObject.get(name)?.takeUnless { it.isJsonNull }?.asString
+    }.getOrNull()
+}
+
+private fun JsonElement.jsonInt(name: String): Int? {
+    return runCatching {
+        if (!isJsonObject) return null
+        asJsonObject.get(name)?.takeUnless { it.isJsonNull }?.asInt
+    }.getOrNull()
+}
+
+private fun JsonElement.jsonBoolean(name: String): Boolean? {
+    return runCatching {
+        if (!isJsonObject) return null
+        asJsonObject.get(name)?.takeUnless { it.isJsonNull }?.asBoolean
+    }.getOrNull()
+}
+
+private fun JsonElement.jsonObject(name: String): JsonElement? {
+    return runCatching {
+        if (!isJsonObject) return null
+        asJsonObject.get(name)?.takeIf { it.isJsonObject }
+    }.getOrNull()
+}
+
+private fun JsonElement.jsonArraySize(name: String): Int? {
+    return runCatching {
+        if (!isJsonObject) return null
+        asJsonObject.get(name)?.takeIf { it.isJsonArray }?.asJsonArray?.size()
+    }.getOrNull()
+}
 private fun parseSyncError(raw: String): Map<String, String> {
     if (!raw.trimStart().startsWith("{")) return emptyMap()
     return runCatching {

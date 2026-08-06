@@ -21,7 +21,10 @@ interface AgriOsApi {
     suspend fun authenticateDevice(@Body request: DeviceAuthDto): Response<AuthResponseDto>
 
     @GET("auth/mode-bootstrap")
-    suspend fun getModeBootstrap(): Response<AuthModeBootstrapDto>
+    suspend fun getModeBootstrap(
+        @Query("user_id") userId: String? = null,
+        @Query("project_id") projectId: String? = null
+    ): Response<AuthModeBootstrapDto>
 
     @GET("app-config/bootstrap")
     suspend fun getAppBootstrap(
@@ -109,8 +112,15 @@ interface AgriOsApi {
     @GET("farmers/by-mobile/{mobile}")
     suspend fun getFarmerProfileByMobile(
         @Path(value = "mobile", encoded = true) mobile: String,
-        @Query("project_id") projectId: String? = null
+        @Query("project_id") projectId: String? = null,
+        @Query("include_form_contract") includeFormContract: Boolean? = null
     ): Response<FarmerProfileHydrationDto>
+
+    @GET("field-agent/worklist")
+    suspend fun getFieldAgentWorklist(
+        @Query("project_id") projectId: String,
+        @Query("assigned_only") assignedOnly: Boolean = true
+    ): Response<com.google.gson.JsonElement>
 
     // --- Parcels ---
     @POST("parcels")

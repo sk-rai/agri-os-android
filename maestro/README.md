@@ -167,3 +167,43 @@ That prints the visible UI tree. Share it with me and I can tighten the selector
 `28a-interrupted-multibatch-first-batch.yaml` and `28b-interrupted-multibatch-resume.yaml` validate interrupted bounded replay. Run WSL `scripts/prepare_android_interrupted_multibatch_resume.py --reset-indexed --apply`, run 28a, verify with `scripts/verify_android_interrupted_multibatch_resume.py --phase first_batch`, then run 28b and verify with `--phase complete`. The flow queues 25 rows, commits only the first 10, then resumes the remaining 15 without duplicate materialization or finance impact.
 
 `29-poison-row-backlog.yaml` validates that one workflow-invalid poison row in a larger backlog does not block later valid batches. Run WSL `scripts/prepare_android_poison_row_backlog.py --reset-indexed --apply`, then verify with `scripts/verify_android_poison_row_backlog.py`. Expected durable result: 24 valid activities committed once, one `WORKFLOW_INVALID` conflict card, and finance delta `24 x INR 20.00 = INR 480.00`.
+
+## Persona lifecycle flows
+
+Flows `30`-`33` validate the Android-visible persona/profile lifecycle contract from `docs/android-persona-lifecycle-test.md` in the backend repo. These use the dedicated tenant `android-persona-lifecycle-test`; they do not change the default tenant lane and the Home buttons are debug-only for deterministic persona mobiles.
+
+Base prep before flows `30`-`32`:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_persona_lifecycle.py --reset --apply
+../venv/bin/python scripts/verify_android_persona_lifecycle.py --state base
+```
+
+Run:
+
+```powershell
+maestro test maestro\30-persona-independent.yaml
+maestro test maestro\31-persona-associated.yaml
+maestro test maestro\32-persona-dual-agent.yaml
+```
+
+For the transition farmer, prepare the desired backend state first and then run `33-persona-transition.yaml`:
+
+```bash
+../venv/bin/python scripts/prepare_android_persona_lifecycle.py --state transition-associated --apply
+../venv/bin/python scripts/verify_android_persona_lifecycle.py --state transition-associated
+```
+
+or:
+
+```bash
+../venv/bin/python scripts/prepare_android_persona_lifecycle.py --state transition-inactive --apply
+../venv/bin/python scripts/verify_android_persona_lifecycle.py --state transition-inactive
+```
+
+Then:
+
+```powershell
+maestro test maestro\33-persona-transition.yaml
+```

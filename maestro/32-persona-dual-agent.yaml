@@ -1,0 +1,53 @@
+appId: com.agrios.app
+name: Persona lifecycle dual farmer and field-agent hydration
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 20000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900001301"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Persona Lifecycle"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Persona Lifecycle"
+- scrollUntilVisible:
+    element:
+      text: "Persona lifecycle check: dual farmer-agent ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "Choose how to continue"
+- assertVisible: "My farm"
+- assertVisible: "Assigned farmers"
+- assertVisible: "project_enrollments=1"
+- assertVisible: "active_project_count=1"
+- assertVisible: "personal_farmer_mode_available=true"
+- assertVisible: "agent_worklist_farmers=.*"
+- assertVisible: "duplicate_farmer_count=0"
+- takeScreenshot: "32-persona-dual-agent-ready"

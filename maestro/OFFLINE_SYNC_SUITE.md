@@ -520,3 +520,29 @@ Expected durable state:
 - no conflicts for valid activity rows;
 - no failed sync audit rows;
 - stage-cost and P&L expense deltas equal `24 x INR 20.00 = INR 480.00`.
+
+## Persona/profile lifecycle coverage
+
+After offline sync flows 20-29, use the persona lifecycle contract to cover profile membership risk without exposing raw backend machinery to farmers.
+
+WSL base prep:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_persona_lifecycle.py --reset --apply
+../venv/bin/python scripts/verify_android_persona_lifecycle.py --state base
+```
+
+Android flows:
+
+- `30-persona-independent.yaml` — independent farmer, no project picker, no duplicate farmer.
+- `31-persona-associated.yaml` — active project enrollment and project bootstrap.
+- `32-persona-dual-agent.yaml` — same person has farmer + field-agent modes and assigned worklist.
+- `33-persona-transition.yaml` — run after `transition-associated` or `transition-inactive` prep for independent/project membership transitions.
+
+Verifier after each group:
+
+```bash
+../venv/bin/python scripts/verify_android_persona_lifecycle.py --state base
+# or --state transition-associated / --state transition-inactive for flow 33
+```

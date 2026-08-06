@@ -11,6 +11,8 @@ data class FarmerProfileHydrationDto(
     @SerializedName("soil_profiles") val soilProfiles: List<HydratedSoilProfileDto> = emptyList(),
     @SerializedName("crop_cycles") val cropCycles: HydratedCropCyclesDto? = null,
     @SerializedName("summary") val summary: HydrationSummaryDto? = null,
+    @SerializedName("project_enrollments") val projectEnrollments: List<JsonElement> = emptyList(),
+    @SerializedName("farmer_context") val farmerContext: JsonElement? = null,
     @SerializedName("duplicates") val duplicates: List<JsonElement> = emptyList(),
     @SerializedName("geometry_contract") val geometryContract: Map<String, String>? = null
 )
@@ -87,5 +89,6 @@ data class HydrationSummaryDto(
     @SerializedName("active_crop_cycle_count") val activeCropCycleCount: Int = 0,
     @SerializedName("completed_crop_cycle_count") val completedCropCycleCount: Int = 0,
     @SerializedName("archived_crop_cycle_count") val archivedCropCycleCount: Int = 0,
+    @SerializedName("active_project_enrollment_count") val activeProjectEnrollmentCount: Int = 0,
     @SerializedName("duplicate_farmer_count") val duplicateFarmerCount: Int = 0
 )
