@@ -546,3 +546,33 @@ Verifier after each group:
 ../venv/bin/python scripts/verify_android_persona_lifecycle.py --state base
 # or --state transition-associated / --state transition-inactive for flow 33
 ```
+### Persona lifecycle extension flows
+
+Backend prep/reset:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_persona_lifecycle_extensions.py --reset --apply
+../venv/bin/python scripts/verify_android_persona_lifecycle_extensions.py
+```
+
+Android flows:
+
+- `34-persona-project-picker.yaml` — farmer `+919900001601` has two active project memberships and must see/select project context; Android must not silently pick a default project.
+- `35a-persona-agent-reassignment-before.yaml` — primary dual farmer-agent `+919900001301` starts with the assisted farmer in the assigned worklist.
+- `35b-persona-agent-reassignment-after.yaml` — run only after WSL `--perform-reassignment`; second agent `+919900001701` now sees the assisted farmer.
+- `36-persona-duplicate-profile.yaml` — duplicate mobile `+919900001801` hydrates the richer primary profile and exposes the empty duplicate for backend cleanup.
+
+Reassignment mutation is intentionally performed by the backend verifier between `35a` and `35b`:
+
+```bash
+../venv/bin/python scripts/verify_android_persona_lifecycle_extensions.py --perform-reassignment
+```
+
+Duplicate archive cleanup is also backend-owned:
+
+```bash
+../venv/bin/python scripts/verify_android_persona_lifecycle_extensions.py --archive-duplicate
+```
+
+Expected UX posture: no raw queue/debug internals for farmers; only show project picker, mode switch, duplicate/profile action, or assignment/intervention surfaces when backend state actually requires it.

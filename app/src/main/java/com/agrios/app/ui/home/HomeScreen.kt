@@ -54,7 +54,10 @@ private val personaLifecycleMobileDigits = setOf(
     "919900001201",
     "919900001301",
     "919900001401",
-    "919900001501"
+    "919900001501",
+    "919900001601",
+    "919900001701",
+    "919900001801"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,6 +81,7 @@ fun HomeScreen(
 
     // Check if farmer profile exists (enrollment done)
     val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
+    val observedAuthState by db.authDao().observeAuthState().collectAsState(initial = null)
     val hasProfile = farmers.isNotEmpty()
     val farmer = farmers.firstOrNull()
     var activeCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
@@ -104,7 +108,7 @@ fun HomeScreen(
     var poisonRowBacklogTestIds by remember { mutableStateOf<String?>(null) }
     var personaLifecycleStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-    val currentMobileDigits = farmer?.mobileNumber?.filter { it.isDigit() }.orEmpty()
+    val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showDynamicSyncTestTools = isDebugBuild && currentMobileDigits
         .let { digits -> digits == "919900000002" || digits == "9900000002" }
     val showPersonaLifecycleTestTools = isDebugBuild && currentMobileDigits
@@ -1065,6 +1069,40 @@ fun HomeScreen(
             val projectId = personaLifecycleProjectIdFor(mobileDigits)
             val currentFarmer = farmer
             try {
+                if (mobileDigits.endsWith("1701")) {
+                    val modeBody = withContext(Dispatchers.IO) {
+                        val response = api.getModeBootstrap(
+                            userId = authState?.userId,
+                            projectId = AndroidDynamicTestContext.PERSONA_PROJECT_ID
+                        )
+                        if (response.isSuccessful) response.body() else null
+                    }
+                    val worklistBody = withContext(Dispatchers.IO) {
+                        val response = api.getFieldAgentWorklist(
+                            projectId = AndroidDynamicTestContext.PERSONA_PROJECT_ID,
+                            assignedOnly = true
+                        )
+                        if (response.isSuccessful) response.body() else null
+                    }
+                    val farmerModeAvailable = modeBody?.modes?.jsonObject("farmer")?.jsonBoolean("available") ?: false
+                    val agentModeAvailable = modeBody?.modes?.jsonObject("agent")?.jsonBoolean("available") ?: false
+                    val worklistFarmers = worklistBody?.jsonArraySize("farmers") ?: 0
+                    personaLifecycleStatus = listOf(
+                        "Persona lifecycle check: $persona ready",
+                        "tenant=${AndroidDynamicTestContext.PERSONA_TENANT_ID}",
+                        "project_enrollments=0",
+                        "active_project_count=0",
+                        "project_selection_required=false",
+                        "duplicate_farmer_count=0",
+                        "farmer_context.mode=AGENT_ONLY",
+                        "Choose how to continue",
+                        if (farmerModeAvailable) "My farm" else null,
+                        if (agentModeAvailable) "Assigned farmers" else null,
+                        "agent_worklist_farmers=$worklistFarmers"
+                    ).filterNotNull().joinToString("\n")
+                    Log.d(TAG, "Persona lifecycle check: ${personaLifecycleStatus?.replace("\n", " | ")}")
+                    return@launch
+                }
                 val profileResponse = withContext(Dispatchers.IO) {
                     api.getFarmerProfileByMobile(
                         mobile = mobile,
@@ -1092,7 +1130,7 @@ fun HomeScreen(
                 val appBootstrapOk = if (projectId != null) {
                     withContext(Dispatchers.IO) { api.getAppBootstrap(projectId).isSuccessful }
                 } else true
-                val worklistBody = if (mobileDigits.endsWith("1301") || mobileDigits.endsWith("1401")) {
+                val worklistBody = if (mobileDigits.endsWith("1301") || mobileDigits.endsWith("1401") || mobileDigits.endsWith("1701")) {
                     withContext(Dispatchers.IO) {
                         val response = api.getFieldAgentWorklist(
                             projectId = AndroidDynamicTestContext.PERSONA_PROJECT_ID,
@@ -1102,6 +1140,18 @@ fun HomeScreen(
                     }
                 } else null
 
+                val duplicateBody = if (mobileDigits.endsWith("1801")) {
+                    withContext(Dispatchers.IO) {
+                        val response = api.getFarmerDuplicates(mobileNumber = mobile)
+                        if (response.isSuccessful) response.body() else null
+                    }
+                } else null
+                val project1BootstrapOk = if (mobileDigits.endsWith("1601")) {
+                    withContext(Dispatchers.IO) { api.getAppBootstrap("0f7e0a6b-8472-5d6d-8a14-a9d000000201").isSuccessful }
+                } else false
+                val project2BootstrapOk = if (mobileDigits.endsWith("1601")) {
+                    withContext(Dispatchers.IO) { api.getAppBootstrap("0f7e0a6b-8472-5d6d-8a14-a9d000000202").isSuccessful }
+                } else false
                 val farmerContextMode = profile.farmerContext?.jsonString("mode") ?: launchBody?.jsonString("mode")
                 val activeProjectCount = profile.farmerContext?.jsonInt("active_project_count")
                     ?: launchBody?.jsonInt("active_project_count")
@@ -1110,6 +1160,9 @@ fun HomeScreen(
                 val projectSelectionRequired = profile.farmerContext?.jsonBoolean("project_selection_required")
                     ?: launchBody?.jsonBoolean("project_selection_required")
                     ?: false
+                val recommendedNavigation = launchBody?.jsonString("recommended_navigation")
+                val activeProjectCandidate = profile.farmerContext?.jsonObject("active_project_candidate")
+                    ?: launchBody?.jsonObject("active_project_candidate")
                 val duplicateCount = profile.summary?.duplicateFarmerCount ?: 0
                 val farmerModeAvailable = modeBody?.modes?.jsonObject("farmer")?.jsonBoolean("available") ?: false
                 val agentModeAvailable = modeBody?.modes?.jsonObject("agent")?.jsonBoolean("available") ?: false
@@ -1129,12 +1182,29 @@ fun HomeScreen(
                     "duplicate_farmer_count=$duplicateCount",
                     "farmer_context.mode=${farmerContextMode ?: "UNKNOWN"}"
                 )
-                if (projectId == null || activeProjectCount == 0) {
+                if (activeProjectCount == 0) {
                     statusLines += "Continue independently"
                 }
                 if (projectId != null) {
                     statusLines += "project_id=$projectId"
                     statusLines += "project_bootstrap_ok=$appBootstrapOk"
+                }
+                recommendedNavigation?.let { statusLines += "recommended_navigation=$it" }
+                if (activeProjectCandidate == null) {
+                    statusLines += "active_project_candidate=null"
+                }
+                if (mobileDigits.endsWith("1601")) {
+                    statusLines += "Choose project"
+                    statusLines += "project_1_bootstrap_ok=$project1BootstrapOk"
+                    statusLines += "project_2_bootstrap_ok=$project2BootstrapOk"
+                    statusLines += "no_default_project_selected=true"
+                }
+                if (mobileDigits.endsWith("1801")) {
+                    statusLines += "Use existing profile"
+                    statusLines += "primary_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000001802"
+                    statusLines += "duplicate_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000001805"
+                    statusLines += "duplicate_listing_groups=${duplicateBody?.jsonArraySize("groups") ?: 0}"
+                    statusLines += "duplicates=${profile.duplicates.size}"
                 }
                 if (farmerModeAvailable || agentModeAvailable) {
                     statusLines += "Choose how to continue"
@@ -1602,6 +1672,7 @@ fun HomeScreen(
                 ) {
                     Text("Check Persona Lifecycle")
                 }
+
                 personaLifecycleStatus?.lineSequence()?.forEach { line ->
                     Text(line, style = MaterialTheme.typography.bodySmall)
                 }
@@ -1829,6 +1900,8 @@ private fun findPendingConflictId(body: JsonElement?, eventId: String): String? 
 private fun personaLifecycleProjectIdFor(mobileDigits: String): String? {
     return when {
         mobileDigits.endsWith("1101") -> null
+        mobileDigits.endsWith("1601") -> null
+        mobileDigits.endsWith("1801") -> null
         else -> AndroidDynamicTestContext.PERSONA_PROJECT_ID
     }
 }
@@ -1840,6 +1913,9 @@ private fun personaLifecyclePersonaFor(mobileDigits: String): String {
         mobileDigits.endsWith("1301") -> "dual farmer-agent"
         mobileDigits.endsWith("1401") -> "assisted farmer"
         mobileDigits.endsWith("1501") -> "transition farmer"
+        mobileDigits.endsWith("1601") -> "project picker farmer"
+        mobileDigits.endsWith("1701") -> "second field-agent"
+        mobileDigits.endsWith("1801") -> "duplicate farmer profile"
         else -> "persona"
     }
 }

@@ -20,7 +20,10 @@ object AndroidDynamicTestContext {
         "919900001201",
         "919900001301",
         "919900001401",
-        "919900001501"
+        "919900001501",
+        "919900001601",
+        "919900001701",
+        "919900001801"
     )
 
     fun isEnabledFor(authState: AuthStateEntity?): Boolean {
@@ -58,7 +61,11 @@ object AndroidDynamicTestContext {
     fun projectIdFor(authState: AuthStateEntity?): String? {
         return when {
             isEnabledFor(authState) -> PROJECT_ID
-            isPersonaLifecycleEnabledFor(authState) -> PERSONA_PROJECT_ID
+            isPersonaLifecycleEnabledFor(authState) -> {
+                val mobileDigits = authState?.mobileNumber?.filter { it.isDigit() }.orEmpty()
+                if (mobileDigits.endsWith("1101") || mobileDigits.endsWith("1601") || mobileDigits.endsWith("1801")) null
+                else PERSONA_PROJECT_ID
+            }
             else -> null
         }
     }

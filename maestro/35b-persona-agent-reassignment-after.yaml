@@ -1,0 +1,50 @@
+appId: com.agrios.app
+name: Persona lifecycle agent reassignment after second agent receives farmer
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900001701"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Persona Lifecycle"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Persona Lifecycle"
+- scrollUntilVisible:
+    element:
+      text: "Persona lifecycle check: second field-agent ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "Assigned farmers"
+- assertVisible: "project_enrollments=0"
+- assertVisible: "active_project_count=0"
+- assertVisible: "agent_worklist_farmers=1"
+- assertVisible: "duplicate_farmer_count=0"
+- takeScreenshot: "35b-persona-agent-reassignment-after"

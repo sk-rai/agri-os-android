@@ -207,3 +207,42 @@ Then:
 ```powershell
 maestro test maestro\33-persona-transition.yaml
 ```
+## Persona lifecycle extension flows
+
+Flows `34`-`36` validate `docs/android-persona-lifecycle-extension-tests.md` from the backend repo using tenant `android-persona-lifecycle-test`. These remain deterministic debug/test-mobile checks; production farmer UI should stay on ordinary mode/project choices and only surface user intervention when a real picker, duplicate, or assignment state requires it.
+
+Prep/reset before the extension set:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_persona_lifecycle_extensions.py --reset --apply
+../venv/bin/python scripts/verify_android_persona_lifecycle_extensions.py
+```
+
+Run project picker and duplicate detection checks:
+
+```powershell
+maestro test maestro\34-persona-project-picker.yaml
+maestro test maestro\36-persona-duplicate-profile.yaml
+```
+
+For agent reassignment, run phase A in the reset/base state, let WSL perform the reassignment, then run phase B:
+
+```powershell
+maestro test maestro\35a-persona-agent-reassignment-before.yaml
+```
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/verify_android_persona_lifecycle_extensions.py --perform-reassignment
+```
+
+```powershell
+maestro test maestro\35b-persona-agent-reassignment-after.yaml
+```
+
+Duplicate cleanup is backend-owned for this contract. After `36-persona-duplicate-profile.yaml`, run:
+
+```bash
+../venv/bin/python scripts/verify_android_persona_lifecycle_extensions.py --archive-duplicate
+```

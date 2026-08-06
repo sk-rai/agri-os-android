@@ -1,0 +1,59 @@
+appId: com.agrios.app
+name: Persona lifecycle duplicate farmer profile detection
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900001801"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Persona Lifecycle"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Persona Lifecycle"
+- scrollUntilVisible:
+    element:
+      text: "Persona lifecycle check: duplicate farmer profile ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "Use existing profile"
+- assertVisible: "primary_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000001802"
+- assertVisible: "duplicate_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000001805"
+- assertVisible: "duplicate_farmer_count=1"
+- assertVisible: "duplicate_listing_groups=1"
+- scrollUntilVisible:
+    element:
+      text: "duplicates=1"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertNotVisible: "Choose project"
+- takeScreenshot: "36-persona-duplicate-profile-ready"

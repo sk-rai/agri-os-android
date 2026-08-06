@@ -122,6 +122,13 @@ interface AgriOsApi {
         @Query("assigned_only") assignedOnly: Boolean = true
     ): Response<com.google.gson.JsonElement>
 
+
+    @GET("farmers/duplicates")
+    suspend fun getFarmerDuplicates(
+        @Query("mobile_number") mobileNumber: String
+    ): Response<com.google.gson.JsonElement>
+
+
     // --- Parcels ---
     @POST("parcels")
     suspend fun createParcel(@Body request: CreateParcelDto): Response<ParcelResponseDto>

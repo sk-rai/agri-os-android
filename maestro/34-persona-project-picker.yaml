@@ -1,0 +1,54 @@
+appId: com.agrios.app
+name: Persona lifecycle project picker with multiple active memberships
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900001601"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Persona Lifecycle"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Persona Lifecycle"
+- scrollUntilVisible:
+    element:
+      text: "Persona lifecycle check: project picker farmer ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "Choose project"
+- assertVisible: "recommended_navigation=SHOW_PROJECT_PICKER"
+- assertVisible: "project_selection_required=true"
+- assertVisible: "active_project_count=2"
+- assertVisible: "active_project_candidate=null"
+- assertVisible: "project_1_bootstrap_ok=true"
+- assertVisible: "project_2_bootstrap_ok=true"
+- assertVisible: "no_default_project_selected=true"
+- assertVisible: "duplicate_farmer_count=0"
+- takeScreenshot: "34-persona-project-picker-ready"
