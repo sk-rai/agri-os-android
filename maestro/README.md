@@ -246,3 +246,35 @@ Duplicate cleanup is backend-owned for this contract. After `36-persona-duplicat
 ```bash
 ../venv/bin/python scripts/verify_android_persona_lifecycle_extensions.py --archive-duplicate
 ```
+
+## Multilingual backend-driven form label flows
+
+Flows `37a`-`37d` validate the Android side of `docs/android-multilingual-profile-form-test.md` from the backend repo. See `maestro/MULTILINGUAL_FORM_SUITE.md` for the compact runbook. They focus on backend-driven form-label resolution:
+
+```kotlin
+labels[currentLanguageCode] ?: labels["en"]
+```
+
+Run WSL prep before each flow because all four use the same deterministic dynamic-profile mobile and should start from a clean profile-registration state:
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
+../venv/bin/python scripts/audit_android_multilingual_form_labels.py
+```
+
+Then run the desired language check:
+
+```powershell
+maestro test maestro\37a-multilingual-farmer-hi.yaml
+maestro test maestro\37b-multilingual-farmer-kn-fallback.yaml
+maestro test maestro\37c-multilingual-farmer-mr-fallback.yaml
+maestro test maestro\37d-multilingual-farmer-pa-fallback.yaml
+```
+
+Expected behavior:
+
+- Hindi (`hi`) may use backend Hindi labels where present.
+- Kannada (`kn`), Marathi (`mr`), and Punjabi (`pa`) currently fall back to English because backend native labels are not complete yet.
+- Android must not show blank labels, raw JSON, or hardcoded/on-device translations for backend-owned form labels.
+- Existing flows `07`-`12` continue to exercise parcel, soil, crop-cycle, and activity form screens; flows `14`-`19` and `26` cover stale-context and conflict-card copy.

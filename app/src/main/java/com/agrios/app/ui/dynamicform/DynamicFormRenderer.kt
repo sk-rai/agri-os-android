@@ -57,7 +57,7 @@ fun DynamicFormRenderer(
     enabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val lang = if (LanguageManager.isHindi()) "hi" else "en"
+    val lang = LanguageManager.backendLabelLanguage()
     val scope = rememberCoroutineScope()
     val dynamicOptions = remember { mutableStateMapOf<String, List<Pair<String, String>>>() }
 
@@ -495,16 +495,17 @@ private fun parseDynamicOptionItems(body: String): List<Pair<String, String>> {
             ?: return@mapNotNull null
         val labelElement = listOf("label", "display_label", "display_name", "canonical_name", "name", "crop_name", "village_name")
             .firstNotNullOfOrNull { key -> item.get(key)?.takeIf { !it.isJsonNull } }
-        id to resolveDynamicOptionLabel(labelElement, id)
+        id to resolveDynamicOptionLabel(labelElement, id, LanguageManager.backendLabelLanguage())
     }
 }
 
-private fun resolveDynamicOptionLabel(labelElement: JsonElement?, fallback: String): String {
+private fun resolveDynamicOptionLabel(labelElement: JsonElement?, fallback: String, lang: String): String {
     if (labelElement == null || labelElement.isJsonNull) return fallback
     if (labelElement.isJsonPrimitive) return labelElement.asString
     if (labelElement.isJsonObject) {
         val obj = labelElement.asJsonObject
-        return obj.get("en")?.takeIf { !it.isJsonNull }?.asString
+        return obj.get(lang)?.takeIf { !it.isJsonNull }?.asString
+            ?: obj.get("en")?.takeIf { !it.isJsonNull }?.asString
             ?: obj.entrySet().firstOrNull()?.value?.takeIf { !it.isJsonNull }?.asString
             ?: fallback
     }

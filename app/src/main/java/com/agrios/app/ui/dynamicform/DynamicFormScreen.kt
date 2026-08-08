@@ -175,7 +175,7 @@ fun DynamicFormScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    val lang = if (LanguageManager.isHindi()) "hi" else "en"
+                    val lang = LanguageManager.backendLabelLanguage()
                     Text(schema?.resolveTitle(lang) ?: LanguageManager.localize("Loading...", "लोड हो रहा..."))
                 },
                 navigationIcon = {

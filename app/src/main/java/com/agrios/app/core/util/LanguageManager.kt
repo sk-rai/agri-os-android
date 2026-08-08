@@ -17,6 +17,14 @@ object LanguageManager {
 
     private lateinit var prefs: SharedPreferences
 
+    val supportedLanguages = listOf(
+        LanguageOption("en", "English", "English"),
+        LanguageOption("hi", "Hindi", "Hindi"),
+        LanguageOption("kn", "Kannada", "English fallback"),
+        LanguageOption("mr", "Marathi", "English fallback"),
+        LanguageOption("pa", "Punjabi", "English fallback")
+    )
+
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
@@ -35,6 +43,8 @@ object LanguageManager {
 
     fun isHindi(): Boolean = getLanguage() == "hi"
 
+    fun backendLabelLanguage(): String = getLanguage()
+
     /**
      * Get localized string based on current language preference.
      * Pass English and Hindi variants.
@@ -43,6 +53,12 @@ object LanguageManager {
         return if (isHindi()) hi else en
     }
 }
+
+data class LanguageOption(
+    val code: String,
+    val displayName: String,
+    val helperText: String
+)
 
 /**
  * Localized labels for the app.

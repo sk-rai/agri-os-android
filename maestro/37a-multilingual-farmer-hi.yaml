@@ -1,0 +1,42 @@
+﻿appId: com.agrios.app
+name: Multilingual backend form labels render Hindi keys
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
+#
+# Contract: backend-driven form labels resolve as labels[currentLanguageCode]
+# then labels["en"]. Hindi keys are expected to exist for audited profile forms.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Choose your language"
+    timeout: 20000
+- tapOn: "Hindi"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: "Create Farm Profile|.*कृषि प्रो.*बनाएं.*|Farmer Enrollment|Loading profile form.*"
+    timeout: 60000
+- tapOn:
+    text: "Create Farm Profile|.*कृषि प्रो.*बनाएं.*"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*Farmer.*|.*किसान.*|.*प्रोफाइल.*|Loading profile form.*"
+    timeout: 30000
+- assertNotVisible: ".*\\{.*en.*\\}.*"
+- assertNotVisible: ".*labels.*"
+- takeScreenshot: "37a-multilingual-farmer-hi"

@@ -1,0 +1,44 @@
+appId: com.agrios.app
+name: Multilingual backend form labels fall back to English for Kannada
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/seed_android_dynamic_profile_test_context.py --reset --apply
+#
+# Kannada native labels are not complete yet. Android must request language=kn
+# for backend-driven labels and render labels["en"] fallback, not blanks/raw JSON.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Choose your language"
+    timeout: 20000
+- tapOn: "Kannada"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: "Create Farm Profile|Farmer Enrollment|Loading profile form.*"
+    timeout: 60000
+- tapOn:
+    text: "Create Farm Profile"
+    optional: true
+- extendedWaitUntil:
+    visible: "Farmer Registration|Farmer Enrollment|Loading profile form.*"
+    timeout: 30000
+- assertVisible: "Farmer Name|Farmer.*"
+- assertVisible: "Village.*|PIN Code|Mobile Number.*"
+- assertNotVisible: ".*\\{.*en.*\\}.*"
+- assertNotVisible: ".*labels.*"
+- takeScreenshot: "37b-multilingual-farmer-kn-fallback"

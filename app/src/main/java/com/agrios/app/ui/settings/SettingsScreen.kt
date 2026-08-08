@@ -15,7 +15,7 @@ import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.local.entity.AuthStateEntity
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
@@ -84,28 +84,23 @@ fun SettingsScreen(
                         LanguageManager.localize("🌐 Language", "🌐 भाषा"),
                         style = MaterialTheme.typography.titleSmall
                     )
+                    val currentLanguage = LanguageManager.supportedLanguages
+                        .firstOrNull { it.code == LanguageManager.getLanguage() }
+                        ?: LanguageManager.supportedLanguages.first()
                     Text(
-                        LanguageManager.localize(
-                            "Current: English",
-                            "वर्तमान: हिंदी"
-                        ),
+                        "Current: ${currentLanguage.displayName}",
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = !LanguageManager.isHindi(),
-                            onClick = {
-                                LanguageManager.setLanguage("en")
-                            },
-                            label = { Text("English") }
-                        )
-                        FilterChip(
-                            selected = LanguageManager.isHindi(),
-                            onClick = {
-                                LanguageManager.setLanguage("hi")
-                            },
-                            label = { Text("हिंदी") }
-                        )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LanguageManager.supportedLanguages.forEach { option ->
+                            FilterChip(
+                                selected = LanguageManager.getLanguage() == option.code,
+                                onClick = {
+                                    LanguageManager.setLanguage(option.code)
+                                },
+                                label = { Text(option.displayName) }
+                            )
+                        }
                     }
                     Text(
                         LanguageManager.localize(
