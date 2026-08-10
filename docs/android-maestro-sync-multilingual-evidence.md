@@ -244,6 +244,13 @@ Expected Android result:
 - no duplicate/noisy cards for same event id;
 - resolving one card should not hide unrelated pending conflicts.
 
+Regression note:
+
+- If a previously visible local conflict card has already been deleted on the backend
+  (for example after a fixture reset), `Use server version` / `Refresh stage` treats
+  the missing pending conflict or ACK `404` as already cleared server-side, removes
+  the local card, and does not surface a recovery failure to the farmer.
+
 ## Optional queue/resilience flows
 
 Run after the priority evidence set, if time permits.

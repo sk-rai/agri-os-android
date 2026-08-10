@@ -1294,11 +1294,25 @@ fun HomeScreen(
                 refreshBackendOwnedContext(currentFarmer)
                 val conflictId = withContext(Dispatchers.IO) {
                     val pending = api.getPendingConflicts(limit = 100)
+                    if (pending.code() == 404) {
+                        return@withContext null
+                    }
                     if (!pending.isSuccessful) {
                         error("Could not fetch pending conflicts (${pending.code()})")
                     }
                     findPendingConflictId(pending.body(), item.eventId)
-                        ?: error("Pending conflict not found for ${item.eventId}")
+                }
+                if (conflictId == null) {
+                    withContext(Dispatchers.IO) {
+                        db.syncQueueDao().deleteByEventId(item.eventId)
+                    }
+                    lastSyncMessage = when (conflictType) {
+                        "VERSION_MISMATCH" -> "Server conflict already cleared; local edit discarded"
+                        "WORKFLOW_INVALID" -> "Server conflict already cleared; local action discarded"
+                        else -> "Server conflict already cleared; local draft discarded"
+                    }
+                    Log.d(TAG, "Cleared stale local conflict row after missing server conflict: eventId=${item.eventId}")
+                    return@launch
                 }
                 val resolved = withContext(Dispatchers.IO) {
                     api.resolveConflict(
@@ -1308,6 +1322,18 @@ fun HomeScreen(
                             comment = "Android user discarded local conflicted draft after refreshing context."
                         )
                     )
+                }
+                if (resolved.code() == 404) {
+                    withContext(Dispatchers.IO) {
+                        db.syncQueueDao().deleteByEventId(item.eventId)
+                    }
+                    lastSyncMessage = when (conflictType) {
+                        "VERSION_MISMATCH" -> "Server conflict already cleared; local edit discarded"
+                        "WORKFLOW_INVALID" -> "Server conflict already cleared; local action discarded"
+                        else -> "Server conflict already cleared; local draft discarded"
+                    }
+                    Log.d(TAG, "Cleared stale local conflict row after 404 acknowledgement: eventId=${item.eventId}, conflictId=$conflictId")
+                    return@launch
                 }
                 if (!resolved.isSuccessful) {
                     error("Conflict acknowledgement failed (${resolved.code()})")
