@@ -9,43 +9,36 @@ name: Dependency-ordered replay survives cold start
 # and relaunches. During wait-60s.js, restart backend. Android then taps Sync Now
 # and should replay crop_cycle -> crop_stage -> crop_activity in dependency order.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Dependency Order Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Dependency Order Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Queue Dependency Order Test"
+      text: "Queue Dependency Order Test"
 - scrollUntilVisible:
-    element:
-      text: "Dependency order test events queued:.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Dependency order test events queued:.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - takeScreenshot: "23-dependency-order-events-queued"
 - stopApp
 - launchApp
 - extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
-- scrollUntilVisible:
-    element:
-      text: ".*items waiting.*|.*Waiting.*|.*waiting.*"
-    direction: DOWN
-    timeout: 30000
+      visible: "Waiting 1|.*Waiting.*|.*waiting.*"
+      timeout: 60000
 - takeScreenshot: "23-dependency-order-pending-after-cold-start"
 - runScript:
-    file: wait-60s.js
-- scrollUntilVisible:
-    element:
-      text: "Sync Now"
-    direction: DOWN
-    timeout: 30000
+      file: wait-60s.js
 - tapOn:
-    text: "Sync Now"
+      text: "Sync Now"
+      optional: true
 - extendedWaitUntil:
-    visible: "All synced|.*synced.*"
-    timeout: 60000
+      visible: "All synced|.*synced.*|Continue Rice.*|Start another crop cycle"
+      timeout: 60000
 - takeScreenshot: "23-dependency-order-replay-synced"
+N

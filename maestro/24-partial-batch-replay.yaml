@@ -12,56 +12,65 @@ name: Partial batch replay keeps dependency-missing row retryable
 # queues the missing crop_cycle dependency and syncs again; cycle commits first,
 # then the same stage event retries and commits.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Partial Batch Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Partial Batch Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Queue Partial Batch Test"
+      text: "Queue Partial Batch Test"
 - scrollUntilVisible:
-    element:
-      text: "Partial batch test events queued:.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Partial batch test events queued:.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - takeScreenshot: "24-partial-batch-events-queued"
 - scrollUntilVisible:
-    element:
-      text: "Sync Now"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Sync Now"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Sync Now"
+      text: "Sync Now"
 - extendedWaitUntil:
-    visible: ".*synced.*|.*items waiting.*|.*Waiting.*|.*waiting.*"
-    timeout: 60000
+      visible: ".*synced.*|Waiting 1|.*items waiting.*|.*Waiting.*|.*waiting.*"
+      timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: ".*items waiting.*|.*Waiting.*|.*waiting.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Waiting 1|.*items waiting.*|.*Waiting.*|.*waiting.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - takeScreenshot: "24-partial-batch-valid-synced-missing-waiting"
 - scrollUntilVisible:
-    element:
+      element:
+          text: "Queue Missing Dependency"
+      direction: UP
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
+- tapOn:
       text: "Queue Missing Dependency"
-    direction: UP
-    timeout: 30000
-- tapOn:
-    text: "Queue Missing Dependency"
 - extendedWaitUntil:
-    visible: "Partial batch dependency queued:.*"
-    timeout: 30000
+      visible: "Partial batch dependency queued:.*"
+      timeout: 30000
 - scrollUntilVisible:
-    element:
-      text: "Sync Now"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Sync Now"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Sync Now"
+      text: "Sync Now"
 - extendedWaitUntil:
-    visible: "All synced|.*synced.*"
-    timeout: 60000
+      visible: "All synced|.*synced.*|Continue Rice.*|Start another crop cycle"
+      timeout: 60000
 - takeScreenshot: "24-partial-batch-dependency-retry-synced"

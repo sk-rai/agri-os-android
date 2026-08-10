@@ -9,17 +9,16 @@ name: Device restart persistence phase A queues offline activity before restart
 # After this phase finishes, restart the emulator/device while preserving app data,
 # restart backend, then run 21b-device-restart-activity-replay-after-restart.yaml.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Device Restart Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Device Restart Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Queue Device Restart Test"
+      text: "Queue Device Restart Test"
 - extendedWaitUntil:
-    visible: "Device restart test event queued:.*"
-    timeout: 30000
+      visible: "Device restart test event queued:.*"
+      timeout: 30000
 - takeScreenshot: "21-device-restart-event-queued-before-restart"

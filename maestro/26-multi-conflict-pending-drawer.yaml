@@ -11,42 +11,55 @@ name: Multi-conflict pending drawer shows distinct cards
 # Android should show both interventions without duplicate/noisy queue internals.
 # This flow intentionally stops with both conflicts pending so the backend verifier can prove pending endpoint ordering/dedup.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Multi Conflict Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Multi Conflict Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Queue Multi Conflict Test"
+      text: "Queue Multi Conflict Test"
 - scrollUntilVisible:
-    element:
-      text: "Multi-conflict test events queued:.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Multi-conflict test events queued:.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - takeScreenshot: "26-multi-conflict-events-queued"
 - scrollUntilVisible:
-    element:
-      text: "Sync Now"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Sync Now"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Sync Now"
+      text: "Sync Now"
 - extendedWaitUntil:
-    visible: "Workflow changed on backend"
-    timeout: 60000
+      visible: "Workflow changed on backend"
+      timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Refresh this crop cycle/stage before retrying the action.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Refresh this crop cycle/stage before retrying the action.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - scrollUntilVisible:
-    element:
-      text: "Manual review needed: server has a newer version"
-    direction: DOWN
-    timeout: 30000
-- assertVisible: ".*Activity changed on both device and backend.*|.*Refresh before editing again.*"
+      element:
+          text: "Manual review needed: server has a newer version"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
+- scrollUntilVisible:
+      element:
+          text: ".*Activity changed on both device and backend.*|.*Refresh before editing again.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - assertNotVisible: "Refresh required: local context is stale"
 - takeScreenshot: "26-multi-conflict-both-visible"

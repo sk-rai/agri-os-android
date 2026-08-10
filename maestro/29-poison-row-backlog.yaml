@@ -9,37 +9,42 @@ name: Poison row backlog routes conflict and drains valid rows
 # at index 10. Sync should route only the poison row to workflow conflict UI while
 # continuing to drain later valid batches.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Poison Backlog Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Poison Backlog Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Queue Poison Backlog Test"
+      text: "Queue Poison Backlog Test"
 - scrollUntilVisible:
-    element:
-      text: "Poison row backlog test events queued:.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Poison row backlog test events queued:.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - takeScreenshot: "29-poison-row-backlog-events-queued"
 - scrollUntilVisible:
-    element:
-      text: "Sync Now"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Sync Now"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Sync Now"
+      text: "Sync Now"
 - extendedWaitUntil:
-    visible: "Workflow changed on backend"
-    timeout: 120000
+      visible: "Workflow changed on backend"
+      timeout: 120000
 - scrollUntilVisible:
-    element:
-      text: "Refresh this crop cycle/stage before retrying the action.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Refresh this crop cycle/stage before retrying the action.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - assertNotVisible: "Manual review needed: server has a newer version"
 - assertNotVisible: "Refresh required: local context is stale"
 - takeScreenshot: "29-poison-row-backlog-workflow-conflict-visible"

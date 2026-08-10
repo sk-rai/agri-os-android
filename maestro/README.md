@@ -278,3 +278,7 @@ Expected behavior:
 - Kannada (`kn`), Marathi (`mr`), and Punjabi (`pa`) currently fall back to English because backend native labels are not complete yet.
 - Android must not show blank labels, raw JSON, or hardcoded/on-device translations for backend-owned form labels.
 - Existing flows `07`-`12` continue to exercise parcel, soil, crop-cycle, and activity form screens; flows `14`-`19` and `26` cover stale-context and conflict-card copy.
+
+## Sync/conflict + multilingual evidence collection
+
+Use `docs/android-maestro-sync-multilingual-evidence.md` to collect the current Android evidence pass against the latest backend sync/conflict contracts. The priority order is stale-context failure, `VERSION_MISMATCH`, `WORKFLOW_INVALID`, multi-conflict pending drawer, then optional queue/resilience flows.

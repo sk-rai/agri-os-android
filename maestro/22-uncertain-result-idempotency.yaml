@@ -10,53 +10,58 @@ name: Uncertain-result retry reuses same sync event idempotently
 # queue row back to PENDING without changing event_id/entity_id/payload. The
 # second Sync Now retries the exact same event_id/entity_id.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Uncertain Result Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Uncertain Result Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Queue Uncertain Result Test"
+      text: "Queue Uncertain Result Test"
 - extendedWaitUntil:
-    visible: "Uncertain result test event queued:.*"
-    timeout: 30000
+      visible: "Uncertain result test event queued:.*"
+      timeout: 30000
 - takeScreenshot: "22-uncertain-result-event-queued"
 - scrollUntilVisible:
-    element:
-      text: "Sync Now"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Sync Now"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Sync Now"
+      text: "Sync Now"
 - extendedWaitUntil:
-    visible: "All synced|.*synced.*"
-    timeout: 60000
+      visible: "All synced|.*synced.*|Start another crop cycle|Continue Rice.*"
+      timeout: 60000
 - takeScreenshot: "22-uncertain-result-first-replay-synced"
 - scrollUntilVisible:
-    element:
-      text: "Simulate Uncertain Retry"
-    direction: UP
-    timeout: 30000
+      element:
+          text: "Simulate Uncertain Retry"
+      direction: UP
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Simulate Uncertain Retry"
+      text: "Simulate Uncertain Retry"
 - extendedWaitUntil:
-    visible: "Uncertain result retry queued with same event:.*"
-    timeout: 30000
+      visible: "Uncertain result retry queued with same event:.*"
+      timeout: 30000
 - extendedWaitUntil:
-    visible: ".*items waiting.*|.*Waiting.*|.*waiting.*"
-    timeout: 30000
+      visible: "Waiting 1|.*items waiting.*|.*Waiting.*|.*waiting.*"
+      timeout: 30000
 - takeScreenshot: "22-uncertain-result-same-event-retry-queued"
 - scrollUntilVisible:
-    element:
-      text: "Sync Now"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Sync Now"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Sync Now"
+      text: "Sync Now"
 - extendedWaitUntil:
-    visible: "All synced|.*synced.*"
-    timeout: 60000
+      visible: "All synced|.*synced.*|Start another crop cycle|Continue Rice.*"
+      timeout: 60000
 - takeScreenshot: "22-uncertain-result-idempotent-retry-synced"

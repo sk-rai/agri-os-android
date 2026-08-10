@@ -9,24 +9,36 @@ name: Workflow invalid conflict shows server-authority guidance
 #   event_id=0f7e0a6b-8472-5d6d-8a14-a9d000000121
 #   entity_id=0f7e0a6b-8472-5d6d-8a14-a9d000000122
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Workflow Invalid Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Workflow Invalid Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn: "Queue Workflow Invalid Test"
 - extendedWaitUntil:
-    visible: "Workflow invalid test event queued:.*"
-    timeout: 30000
+      visible: "Workflow invalid test event queued:.*"
+      timeout: 30000
 - takeScreenshot: "16-workflow-invalid-event-queued"
+- scrollUntilVisible:
+      element:
+          text: "Sync Now"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn: "Sync Now"
 - extendedWaitUntil:
-    visible: "Workflow changed on backend"
-    timeout: 60000
-- assertVisible: "Refresh this crop cycle/stage before retrying the action.*"
+      visible: "Workflow changed on backend"
+      timeout: 60000
+- scrollUntilVisible:
+      element:
+          text: "Refresh this crop cycle/stage before retrying the action.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - assertNotVisible: "Refresh required: local context is stale"
 - assertNotVisible: "Manual review needed: server has a newer version"
 - takeScreenshot: "16-workflow-invalid-server-authority"

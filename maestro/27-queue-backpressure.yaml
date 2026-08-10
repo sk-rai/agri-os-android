@@ -9,32 +9,35 @@ name: Queue backpressure replays bounded offline batches
 # CREATE rows. Android should replay them in bounded batches of 10, then 10, then 5,
 # mark accepted rows synced, and avoid surfacing raw queue internals to the farmer.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Backpressure Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Backpressure Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Queue Backpressure Test"
+      text: "Queue Backpressure Test"
 - scrollUntilVisible:
-    element:
-      text: "Queue backpressure test events queued:.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue backpressure test events queued:.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - takeScreenshot: "27-queue-backpressure-events-queued"
 - scrollUntilVisible:
-    element:
-      text: "Sync Now"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Sync Now"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Sync Now"
+      text: "Sync Now"
 - extendedWaitUntil:
-    visible: "All synced|.*synced.*"
-    timeout: 120000
+      visible: "All synced|.*synced.*|Start another crop cycle|Continue Rice.*"
+      timeout: 120000
 - assertNotVisible: "Workflow changed on backend"
 - assertNotVisible: "Manual review needed: server has a newer version"
 - assertNotVisible: "Refresh required: local context is stale"

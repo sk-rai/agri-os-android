@@ -10,22 +10,37 @@ name: Version mismatch conflict shows manual review guidance
 #   entity_id=0f7e0a6b-8472-5d6d-8a14-a9d000000112
 - launchApp
 - extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
+        visible: "Queue Version Mismatch Test"
+        timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Version Mismatch Test"
-    direction: DOWN
-    timeout: 30000
+        element:
+              text: "Queue Version Mismatch Test"
+        direction: DOWN
+        timeout: 30000
+        visibilityPercentage: 100
+        centerElement: false
 - tapOn: "Queue Version Mismatch Test"
 - extendedWaitUntil:
-    visible: "Version mismatch test event queued:.*"
-    timeout: 30000
+        visible: "Version mismatch test event queued:.*"
+        timeout: 30000
 - takeScreenshot: "15-version-mismatch-event-queued"
+- scrollUntilVisible:
+        element:
+              text: "Sync Now"
+        direction: DOWN
+        timeout: 30000
+        visibilityPercentage: 100
+        centerElement: false
 - tapOn: "Sync Now"
 - extendedWaitUntil:
-    visible: "Manual review needed: server has a newer version"
-    timeout: 60000
-- assertVisible: "Activity changed on both device and backend.*|.*Refresh before editing again.*"
+        visible: "Manual review needed: server has a newer version"
+        timeout: 60000
+- scrollUntilVisible:
+        element:
+              text: ".*Activity changed on both device and backend.*|.*Refresh before editing again.*"
+        direction: DOWN
+        timeout: 30000
+        visibilityPercentage: 80
+        centerElement: false
 - assertNotVisible: "Refresh required: local context is stale"
 - takeScreenshot: "15-version-mismatch-manual-review"

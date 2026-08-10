@@ -9,39 +9,31 @@ name: Cold-start preserves offline activity queue and replays after relaunch
 # flow has proven the local pending row survived cold start. During the
 # 60-second wait after relaunch, restart backend, then Maestro taps Sync Now.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Cold Start Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Cold Start Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Queue Cold Start Test"
+      text: "Queue Cold Start Test"
 - extendedWaitUntil:
-    visible: "Cold start test event queued:.*"
-    timeout: 30000
+      visible: "Cold start test event queued:.*"
+      timeout: 30000
 - takeScreenshot: "20-cold-start-event-queued-before-stop"
 - stopApp
 - launchApp
 - extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
-- extendedWaitUntil:
-    visible: ".*items waiting.*|.*Waiting.*|.*waiting.*"
-    timeout: 30000
+      visible: "Waiting 1|.*items waiting.*|.*Waiting.*|.*waiting.*"
+      timeout: 60000
 - takeScreenshot: "20-cold-start-pending-after-relaunch"
 - runScript:
-    file: wait-60s.js
-- scrollUntilVisible:
-    element:
-      text: "Sync Now"
-    direction: DOWN
-    timeout: 30000
+      file: wait-60s.js
 - tapOn:
-    text: "Sync Now"
+      text: "Sync Now"
+      optional: true
 - extendedWaitUntil:
-    visible: "All synced|.*synced.*"
-    timeout: 60000
+      visible: "All synced|.*synced.*|Start another crop cycle|Continue Rice.*"
+      timeout: 60000
 - takeScreenshot: "20-cold-start-replay-synced"

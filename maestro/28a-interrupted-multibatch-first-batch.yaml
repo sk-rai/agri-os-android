@@ -9,37 +9,42 @@ name: Interrupted multibatch resume phase A commits first batch only
 # first-batch sync hook to commit only the first bounded batch of 10. Run the
 # backend verifier with --phase first_batch immediately after this flow.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: "Queue Interrupted Resume Test"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Queue Interrupted Resume Test"
+      direction: DOWN
+      timeout: 60000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Queue Interrupted Resume Test"
+      text: "Queue Interrupted Resume Test"
 - scrollUntilVisible:
-    element:
-      text: "Interrupted multibatch test events queued:.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Interrupted multibatch test events queued:.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - takeScreenshot: "28-interrupted-multibatch-events-queued"
 - scrollUntilVisible:
-    element:
-      text: "Sync First Batch Only"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Sync First Batch Only"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 100
+      centerElement: false
 - tapOn:
-    text: "Sync First Batch Only"
+      text: "Sync First Batch Only"
 - extendedWaitUntil:
-    visible: "Interrupted resume first batch synced: 10"
-    timeout: 60000
+      visible: "Interrupted resume first batch synced: 10"
+      timeout: 60000
 - scrollUntilVisible:
-    element:
-      text: ".*items waiting.*|.*Waiting.*|.*waiting.*"
-    direction: DOWN
-    timeout: 30000
+      element:
+          text: "Waiting 15|.*items waiting.*|.*Waiting.*|.*waiting.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - assertNotVisible: "Workflow changed on backend"
 - assertNotVisible: "Manual review needed: server has a newer version"
 - assertNotVisible: "Refresh required: local context is stale"

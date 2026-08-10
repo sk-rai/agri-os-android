@@ -6,11 +6,14 @@ name: Interrupted multibatch resume phase B relaunches and allows queue drain
 # disappear before Maestro observes it. The backend complete verifier is the
 # source of truth for final 25/25 committed state.
 - launchApp
-- extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
 - waitForAnimationToEnd:
-    timeout: 60000
+      timeout: 60000
+- tapOn:
+      text: "Sync Now"
+      optional: true
+- extendedWaitUntil:
+      visible: "All synced|.*synced.*|Waiting 15|.*Waiting.*|Start another crop cycle|Continue Rice.*"
+      timeout: 120000
 - assertNotVisible: "Workflow changed on backend"
 - assertNotVisible: "Manual review needed: server has a newer version"
 - assertNotVisible: "Refresh required: local context is stale"

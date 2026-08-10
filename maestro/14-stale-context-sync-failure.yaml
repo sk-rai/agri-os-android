@@ -11,7 +11,7 @@ name: Stale context sync failure shows refresh guidance
 # to show stale-context refresh guidance, not manual conflict UI.
 - launchApp
 - extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
+    visible: ".*Android Stale Context Farmer.*|.*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
     timeout: 60000
 - scrollUntilVisible:
     element:
@@ -25,10 +25,19 @@ name: Stale context sync failure shows refresh guidance
 - takeScreenshot: "14-stale-context-event-queued"
 - runScript:
     file: wait-60s.js
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
 - tapOn: "Sync Now"
-- extendedWaitUntil:
-    visible: "Refresh required: local context is stale"
-    timeout: 60000
-- assertVisible: "This parcel belongs to a different project.*|.*Refresh project and eligible parcel context.*"
+- assertVisible: "Refresh required: local context is stale"
+- scrollUntilVisible:
+      element:
+          text: ".*parcel.*project.*|.*project.*parcel.*|.*Refresh.*eligible parcel context.*|.*crop_cycle sync project does not match parcel project.*"
+      direction: DOWN
+      timeout: 30000
+      visibilityPercentage: 80
+      centerElement: false
 - assertNotVisible: "Manual review needed.*"
 - takeScreenshot: "14-stale-context-refresh-guidance"

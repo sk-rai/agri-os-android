@@ -11,10 +11,15 @@ name: Device restart persistence phase B observes queue after restart
 # If replay has not fired yet, it accepts the pending/waiting state; tap Sync Now manually
 # and use the backend verifier as the durable source of truth.
 - launchApp
+- waitForAnimationToEnd:
+      timeout: 60000
+- tapOn:
+      text: "Sync Now"
+      optional: true
 - extendedWaitUntil:
-    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*"
-    timeout: 60000
-- extendedWaitUntil:
-    visible: "All synced|.*synced.*|.*items waiting.*|.*Waiting.*|.*waiting.*"
-    timeout: 60000
+      visible: "All synced|.*synced.*|Waiting 1|.*items waiting.*|.*Waiting.*|.*waiting.*|Start another crop cycle|Continue Rice.*"
+      timeout: 120000
+- assertNotVisible: "Workflow changed on backend"
+- assertNotVisible: "Manual review needed: server has a newer version"
+- assertNotVisible: "Refresh required: local context is stale"
 - takeScreenshot: "21-device-restart-after-relaunch-status"
