@@ -112,6 +112,15 @@ interface AgriOsApi {
         @Query("project_id") projectId: String? = null
     ): Response<LandIntelligenceContextDto>
 
+    @GET("profile/land-intelligence-summary")
+    suspend fun getLandIntelligenceSummary(
+        @Query("pin_code") pinCode: String,
+        @Query("language_code") languageCode: String? = null,
+        @Query("season_code") seasonCode: String? = null,
+        @Query("crop_code") cropCode: String? = null,
+        @Query("project_id") projectId: String? = null
+    ): Response<com.google.gson.JsonElement>
+
     @GET("farmers/me/profile")
     suspend fun getMyFarmerProfile(): Response<FarmerProfileHydrationDto>
 

@@ -28,7 +28,11 @@ data class HydratedFarmerDto(
     @SerializedName("age") val age: Int? = null,
     @SerializedName("gender") val gender: String? = null,
     @SerializedName("language_preference") val languagePreference: String? = null,
-    @SerializedName("status") val status: String? = null
+    @SerializedName("status") val status: String? = null,
+    @SerializedName("pin_code") val pinCode: String? = null,
+    @SerializedName("home_digipin") val homeDigipin: String? = null,
+    @SerializedName("home_digipin_algorithm_version") val homeDigipinAlgorithmVersion: String? = null,
+    @SerializedName("home_digipin_generated_at") val homeDigipinGeneratedAt: String? = null
 )
 
 data class HydratedParcelDto(
@@ -45,6 +49,10 @@ data class HydratedParcelDto(
     @SerializedName("centroid_lat") val centroidLat: Double? = null,
     @SerializedName("centroid_lng") val centroidLng: Double? = null,
     @SerializedName("computed_area_hectares") val computedAreaHectares: Double? = null,
+    @SerializedName("pin_code") val pinCode: String? = null,
+    @SerializedName("centroid_digipin") val centroidDigipin: String? = null,
+    @SerializedName("centroid_digipin_algorithm_version") val centroidDigipinAlgorithmVersion: String? = null,
+    @SerializedName("centroid_digipin_generated_at") val centroidDigipinGeneratedAt: String? = null,
     @SerializedName("irrigation_source") val irrigationSource: String? = null,
     @SerializedName("annual_rent") val annualRent: Double? = null,
     @SerializedName("share_percentage") val sharePercentage: Int? = null,

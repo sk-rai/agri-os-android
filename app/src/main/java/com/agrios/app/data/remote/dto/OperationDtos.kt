@@ -17,7 +17,11 @@ data class FarmerResponseDto(
     @SerializedName("village_id") val villageId: String,
     @SerializedName("primary_crop_code") val primaryCropCode: String? = null,
     @SerializedName("display_name") val displayName: String? = null,
-    @SerializedName("assistance_mode") val assistanceMode: String? = null
+    @SerializedName("assistance_mode") val assistanceMode: String? = null,
+    @SerializedName("pin_code") val pinCode: String? = null,
+    @SerializedName("home_digipin") val homeDigipin: String? = null,
+    @SerializedName("home_digipin_algorithm_version") val homeDigipinAlgorithmVersion: String? = null,
+    @SerializedName("home_digipin_generated_at") val homeDigipinGeneratedAt: String? = null
 )
 
 // --- Parcel ---
@@ -37,7 +41,11 @@ data class ParcelResponseDto(
     @SerializedName("reported_area") val reportedArea: Double,
     @SerializedName("reported_area_unit") val reportedAreaUnit: String,
     @SerializedName("area_hectares") val areaHectares: Double? = null,
-    @SerializedName("geometry_source") val geometrySource: String? = null
+    @SerializedName("geometry_source") val geometrySource: String? = null,
+    @SerializedName("pin_code") val pinCode: String? = null,
+    @SerializedName("centroid_digipin") val centroidDigipin: String? = null,
+    @SerializedName("centroid_digipin_algorithm_version") val centroidDigipinAlgorithmVersion: String? = null,
+    @SerializedName("centroid_digipin_generated_at") val centroidDigipinGeneratedAt: String? = null
 )
 
 // --- Sync ---

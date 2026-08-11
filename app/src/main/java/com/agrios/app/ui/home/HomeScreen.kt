@@ -28,12 +28,14 @@ import com.agrios.app.data.local.entity.FarmerEntity
 import com.agrios.app.data.local.entity.SyncQueueEntity
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
+import com.agrios.app.data.remote.dto.ParcelGeometryUpdateRequest
 import com.agrios.app.data.remote.dto.ResolveConflictDto
 import com.agrios.app.data.repository.OfflineCropSyncRepository
 import com.agrios.app.data.repository.ProfileHydrationRepository
 import com.agrios.app.ui.components.SyncStatusBadge
 import com.google.gson.Gson
 import com.google.gson.JsonElement
+import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -107,6 +109,7 @@ fun HomeScreen(
     var interruptedMultibatchResumeTestIds by remember { mutableStateOf<String?>(null) }
     var poisonRowBacklogTestIds by remember { mutableStateOf<String?>(null) }
     var personaLifecycleStatus by remember { mutableStateOf<String?>(null) }
+    var landSummaryDigiPinStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showDynamicSyncTestTools = isDebugBuild && currentMobileDigits
@@ -253,17 +256,17 @@ fun HomeScreen(
                 syncManager.fixAndRetryFailedItems()
                 val result = syncManager.processQueue()
                 lastSyncMessage = when {
-                    result.accepted > 0 -> "✅ ${result.accepted} ${LanguageManager.localize("synced", "सिंक हुए")}"
-                    result.failed > 0 -> "❌ ${result.failed} ${LanguageManager.localize("failed", "विफल")}"
-                    result.conflicts > 0 -> "⚠️ ${result.conflicts} ${LanguageManager.localize("conflicts", "विरोध")}"
+                    result.accepted > 0 -> "âœ… ${result.accepted} ${LanguageManager.localize("synced", "à¤¸à¤¿à¤‚à¤• à¤¹à¥à¤")}"
+                    result.failed > 0 -> "âŒ ${result.failed} ${LanguageManager.localize("failed", "à¤µà¤¿à¤«à¤²")}"
+                    result.conflicts > 0 -> "âš ï¸ ${result.conflicts} ${LanguageManager.localize("conflicts", "à¤µà¤¿à¤°à¥‹à¤§")}"
                     pendingCount > 0 -> LanguageManager.localize(
                         "Still waiting - parent records/dependencies may need to sync first",
-                        "अभी प्रतीक्षा में - पहले मूल रिकॉर्ड/निर्भरताएं सिंक हो सकती हैं"
+                        "à¤…à¤­à¥€ à¤ªà¥à¤°à¤¤à¥€à¤•à¥à¤·à¤¾ à¤®à¥‡à¤‚ - à¤ªà¤¹à¤²à¥‡ à¤®à¥‚à¤² à¤°à¤¿à¤•à¥‰à¤°à¥à¤¡/à¤¨à¤¿à¤°à¥à¤­à¤°à¤¤à¤¾à¤à¤‚ à¤¸à¤¿à¤‚à¤• à¤¹à¥‹ à¤¸à¤•à¤¤à¥€ à¤¹à¥ˆà¤‚"
                     )
-                    else -> LanguageManager.localize("All synced", "सब सिंक हो गया")
+                    else -> LanguageManager.localize("All synced", "à¤¸à¤¬ à¤¸à¤¿à¤‚à¤• à¤¹à¥‹ à¤—à¤¯à¤¾")
                 }
             } catch (e: Exception) {
-                lastSyncMessage = "❌ ${e.message}"
+                lastSyncMessage = "âŒ ${e.message}"
             } finally {
                 isSyncing = false
             }
@@ -1350,6 +1353,79 @@ fun HomeScreen(
         }
     }
 
+    fun checkLandSummaryDigiPinContract() {
+        scope.launch {
+            lastSyncMessage = null
+            landSummaryDigiPinStatus = "Land summary + DigiPin check running..."
+            try {
+                val summaryResponse = withContext(Dispatchers.IO) {
+                    api.getLandIntelligenceSummary(
+                        pinCode = "560001",
+                        languageCode = "en",
+                        seasonCode = "KHARIF",
+                        cropCode = "RICE"
+                    )
+                }
+                if (!summaryResponse.isSuccessful) {
+                    error("land summary ${summaryResponse.code()}")
+                }
+                val summaryBody = summaryResponse.body() ?: error("land summary empty body")
+                val summaryPayload = summaryBody.jsonObject("summary_payload") ?: error("land summary missing payload")
+                val scopeBody = summaryBody.jsonObject("scope")
+                val contract = summaryBody.jsonObject("android_contract")
+
+                val geoJson = JsonParser.parseString(
+                    """{"type":"Point","coordinates":[77.5946,12.9716]}"""
+                )
+                val parcelsResponse = withContext(Dispatchers.IO) { api.getParcels() }
+                if (!parcelsResponse.isSuccessful) {
+                    error("parcels ${parcelsResponse.code()}")
+                }
+                val currentFarmer = farmer ?: error("farmer profile unavailable")
+                val parcel = parcelsResponse.body()
+                    .orEmpty()
+                    .firstOrNull { it.farmerId == currentFarmer.id }
+                    ?: error("parcel unavailable for farmer")
+
+                val geometryResponse = withContext(Dispatchers.IO) {
+                    api.updateParcelGeometry(
+                        parcelId = parcel.id,
+                        body = ParcelGeometryUpdateRequest(
+                            geometrySource = "PIN_DROP",
+                            geojson = geoJson,
+                            accuracyMeters = 5.0
+                        )
+                    )
+                }
+                if (!geometryResponse.isSuccessful) {
+                    error("parcel geometry ${geometryResponse.code()}")
+                }
+                val geometryBody = geometryResponse.body()
+                val backendDigiPin = geometryBody?.centroidDigipin ?: "null"
+
+                val statusLines = listOf(
+                    "Land summary + DigiPin check: ready",
+                    "land_summary_schema=${summaryBody.jsonString("schema_version")}",
+                    "land_summary_scope=${scopeBody?.jsonString("scope_type")} ${scopeBody?.jsonString("scope_code")}",
+                    "land_summary_informational_only=${contract?.jsonBoolean("display_as_informational_only")}",
+                    "land_summary_do_not_block_onboarding=${contract?.jsonBoolean("do_not_block_onboarding")}",
+                    "land_summary_detail_clickthrough_deferred=${contract?.jsonBoolean("detail_clickthrough_deferred_to_v2")}",
+                    "land_summary_card_count=${summaryPayload.jsonArraySize("cards") ?: 0}",
+                    "land_summary_main_crops=${summaryPayload.jsonArraySize("main_crops") ?: 0}",
+                    "land_summary_alternate_crops=${summaryPayload.jsonArraySize("alternate_crops") ?: 0}",
+                    "parcel_geometry_digipin=$backendDigiPin",
+                    "digipin_source=BACKEND_RESPONSE",
+                    "android_computed_digipin=false"
+                )
+                landSummaryDigiPinStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Land summary + DigiPin check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                landSummaryDigiPinStatus = "Land summary + DigiPin check failed: ${e.message}"
+                Log.e(TAG, "Land summary + DigiPin check failed", e)
+            }
+        }
+    }
+
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
         val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
         val projectId = AndroidDynamicTestContext.projectIdFor(authState)
@@ -1498,11 +1574,11 @@ fun HomeScreen(
                                 strokeWidth = 2.dp
                             )
                         } else {
-                            Icon(Icons.Default.Refresh, contentDescription = LanguageManager.localize("Sync", "सिंक"))
+                            Icon(Icons.Default.Refresh, contentDescription = LanguageManager.localize("Sync", "à¤¸à¤¿à¤‚à¤•"))
                         }
                     }
                     IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = LanguageManager.localize("Settings", "सेटिंग्स"))
+                        Icon(Icons.Default.Settings, contentDescription = LanguageManager.localize("Settings", "à¤¸à¥‡à¤Ÿà¤¿à¤‚à¤—à¥à¤¸"))
                     }
                 }
             )
@@ -1527,7 +1603,7 @@ fun HomeScreen(
                     }
                 }
             } else if (hasProfile && farmer != null) {
-                // ═══════════ PROFILE EXISTS — show farmer info + crop actions ═══════════
+                // â•â•â•â•â•â•â•â•â•â•â• PROFILE EXISTS â€” show farmer info + crop actions â•â•â•â•â•â•â•â•â•â•â•
 
                 // Farmer info header (tappable)
                 Card(
@@ -1538,21 +1614,21 @@ fun HomeScreen(
                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "👤 ${farmer.displayName ?: farmer.mobileNumber}",
+                                "ðŸ‘¤ ${farmer.displayName ?: farmer.mobileNumber}",
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                "📍 ${farmer.villageName ?: ""} | ${farmer.mobileNumber}",
+                                "ðŸ“ ${farmer.villageName ?: ""} | ${farmer.mobileNumber}",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                        Text("✏️", style = MaterialTheme.typography.titleMedium)
+                        Text("âœï¸", style = MaterialTheme.typography.titleMedium)
                     }
                 }
 
                 // Crop actions
                 Text(
-                    LanguageManager.localize("Crop Management", "फसल प्रबंधन"),
+                    LanguageManager.localize("Crop Management", "à¤«à¤¸à¤² à¤ªà¥à¤°à¤¬à¤‚à¤§à¤¨"),
                     style = MaterialTheme.typography.titleSmall
                 )
 
@@ -1585,7 +1661,7 @@ fun HomeScreen(
                                 listOfNotNull(
                                     cycle.seasonCode,
                                     currentStage?.getDisplayName()
-                                ).joinToString(" • "),
+                                ).joinToString(" â€¢ "),
                                 style = MaterialTheme.typography.bodySmall
                             )
                             currentStage?.expectedStartDate?.let { startDate ->
@@ -1635,13 +1711,13 @@ fun HomeScreen(
                         Spacer(Modifier.width(16.dp))
                         Column {
                             Text(
-                                if (activeCycles.isEmpty()) LanguageManager.localize("Start Crop Cycle", "फसल चक्र शुरू करें")
-                                else LanguageManager.localize("Start another crop cycle", "एक और फसल चक्र शुरू करें"),
+                                if (activeCycles.isEmpty()) LanguageManager.localize("Start Crop Cycle", "à¤«à¤¸à¤² à¤šà¤•à¥à¤° à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚")
+                                else LanguageManager.localize("Start another crop cycle", "à¤à¤• à¤”à¤° à¤«à¤¸à¤² à¤šà¤•à¥à¤° à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚"),
                                 style = MaterialTheme.typography.titleSmall
                             )
                             Text(
-                                if (activeCycles.isEmpty()) LanguageManager.localize("Begin a new crop season", "नया फसल मौसम शुरू करें")
-                                else LanguageManager.localize("For another land parcel or crop", "दूसरे खेत या फसल के लिए"),
+                                if (activeCycles.isEmpty()) LanguageManager.localize("Begin a new crop season", "à¤¨à¤¯à¤¾ à¤«à¤¸à¤² à¤®à¥Œà¤¸à¤® à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚")
+                                else LanguageManager.localize("For another land parcel or crop", "à¤¦à¥‚à¤¸à¤°à¥‡ à¤–à¥‡à¤¤ à¤¯à¤¾ à¤«à¤¸à¤² à¤•à¥‡ à¤²à¤¿à¤"),
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -1649,16 +1725,16 @@ fun HomeScreen(
                 }
 
             } else {
-                // ═══════════ NO PROFILE — show enrollment ═══════════
+                // â•â•â•â•â•â•â•â•â•â•â• NO PROFILE â€” show enrollment â•â•â•â•â•â•â•â•â•â•â•
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(LanguageManager.localize("Welcome", "स्वागत है"), style = MaterialTheme.typography.titleMedium)
+                        Text(LanguageManager.localize("Welcome", "à¤¸à¥à¤µà¤¾à¤—à¤¤ à¤¹à¥ˆ"), style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
-                        Text(LanguageManager.localize("Set up your farm profile to get started", "शुरू करने के लिए अपना कृषि प्रोफ़ाइल बनाएं"), style = MaterialTheme.typography.bodyMedium)
+                        Text(LanguageManager.localize("Set up your farm profile to get started", "à¤¶à¥à¤°à¥‚ à¤•à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤…à¤ªà¤¨à¤¾ à¤•à¥ƒà¤·à¤¿ à¤ªà¥à¤°à¥‹à¤«à¤¼à¤¾à¤‡à¤² à¤¬à¤¨à¤¾à¤à¤‚"), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
 
@@ -1670,14 +1746,23 @@ fun HomeScreen(
                         Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text(LanguageManager.localize("Create Farm Profile", "कृषि प्रोफ़ाइल बनाएं"), style = MaterialTheme.typography.titleSmall)
-                            Text(LanguageManager.localize("Farmer details + land + soil", "किसान विवरण + भूमि + मिट्टी"), style = MaterialTheme.typography.bodySmall)
+                            Text(LanguageManager.localize("Create Farm Profile", "à¤•à¥ƒà¤·à¤¿ à¤ªà¥à¤°à¥‹à¤«à¤¼à¤¾à¤‡à¤² à¤¬à¤¨à¤¾à¤à¤‚"), style = MaterialTheme.typography.titleSmall)
+                            Text(LanguageManager.localize("Farmer details + land + soil", "à¤•à¤¿à¤¸à¤¾à¤¨ à¤µà¤¿à¤µà¤°à¤£ + à¤­à¥‚à¤®à¤¿ + à¤®à¤¿à¤Ÿà¥à¤Ÿà¥€"), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
             }
 
             if (showDynamicSyncTestTools) {
+                OutlinedButton(
+                    onClick = { checkLandSummaryDigiPinContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Land Summary + DigiPin")
+                }
+                landSummaryDigiPinStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
                 OutlinedButton(
                     onClick = { queueStaleContextTestEvent() },
                     modifier = Modifier.fillMaxWidth()
@@ -1847,7 +1932,7 @@ fun HomeScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            LanguageManager.localize("Sync Status", "सिंक स्थिति"),
+                            LanguageManager.localize("Sync Status", "à¤¸à¤¿à¤‚à¤• à¤¸à¥à¤¥à¤¿à¤¤à¤¿"),
                             style = MaterialTheme.typography.titleSmall
                         )
                         Spacer(Modifier.height(4.dp))
@@ -1856,16 +1941,16 @@ fun HomeScreen(
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    LanguageManager.localize("Syncing...", "सिंक हो रहा है..."),
+                                    LanguageManager.localize("Syncing...", "à¤¸à¤¿à¤‚à¤• à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ..."),
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
                         } else {
                             if (pendingCount > 0) {
-                                Text("🔄 $pendingCount ${LanguageManager.localize("items waiting", "आइटम प्रतीक्षा में")}")
+                                Text("ðŸ”„ $pendingCount ${LanguageManager.localize("items waiting", "à¤†à¤‡à¤Ÿà¤® à¤ªà¥à¤°à¤¤à¥€à¤•à¥à¤·à¤¾ à¤®à¥‡à¤‚")}")
                             }
                             if (conflictCount > 0) {
-                                Text("⚠️ $conflictCount ${LanguageManager.localize("need attention", "ध्यान दें")}")
+                                Text("âš ï¸ $conflictCount ${LanguageManager.localize("need attention", "à¤§à¥à¤¯à¤¾à¤¨ à¤¦à¥‡à¤‚")}")
                             }
                             if (failedCount > 0) {
                                 Text("Failed $failedCount sync items")
