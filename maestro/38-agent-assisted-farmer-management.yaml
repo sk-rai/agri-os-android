@@ -1,0 +1,166 @@
+appId: com.agrios.app
+name: Agent-assisted farmer management honors assignments
+---
+# WSL prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_persona_lifecycle_extensions.py --reset --apply
+#
+# Backend verifier after this flow:
+#   ../venv/bin/python scripts/verify_android_agent_assisted_farmer_management.py
+#
+# Current fixture scope:
+# - +919900001301 is both a farmer and assigned field agent. Android must expose
+#   mode choice and allow updates to the assisted farmer/parcel.
+# - +919900001701 is an active but unassigned field agent. Android must show an
+#   empty assigned-only worklist and translate direct 403 FARMER_ASSIGNMENT_REQUIRED
+#   probes into clean assignment guidance, not stale-context/sync-conflict copy.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900001301"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Agent Assisted Management"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Agent Assisted Management"
+- scrollUntilVisible:
+    element:
+      text: "Agent assisted management check: assigned agent ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "mode_bootstrap=MODE_CHOOSER"
+- assertVisible: "Choose how to continue"
+- assertVisible: "My farm"
+- assertVisible: "Assigned farmers"
+- assertVisible: "agent_worklist_farmers=1"
+- assertVisible: "assisted_farmer_visible=true"
+- assertVisible: "independent_farmer_visible=false"
+- assertVisible: "assigned_farmer_patch_status=200"
+- assertVisible: "assigned_farmer_patch_ok=true"
+- assertVisible: "assigned_parcel_patch_status=200"
+- scrollUntilVisible:
+    element:
+      text: "assigned_parcel_patch_ok=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- takeScreenshot: "38-agent-assisted-assigned-agent-management"
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900001701"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Agent Assisted Management"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Agent Assisted Management"
+- scrollUntilVisible:
+    element:
+      text: "Agent assisted management check: unassigned agent ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "Assigned farmers"
+- assertVisible: "agent_worklist_farmers=0"
+- assertVisible: "assisted_farmer_visible=false"
+- assertVisible: "unassigned_farmer_patch_status=403"
+- assertVisible: "unassigned_farmer_patch_code=FARMER_ASSIGNMENT_REQUIRED"
+- scrollUntilVisible:
+    element:
+      text: "unassigned_parcel_patch_status=403"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "unassigned_parcel_patch_code=FARMER_ASSIGNMENT_REQUIRED"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "You are not assigned to manage this farmer."
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "no_stale_context_copy=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "no_sync_conflict_copy=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertNotVisible: "Refresh required: local context is stale"
+- assertNotVisible: "Workflow changed on backend"
+- assertNotVisible: "Manual review needed: server has a newer version"
+- takeScreenshot: "38-agent-assisted-unassigned-agent-denied"

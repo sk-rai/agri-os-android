@@ -14,6 +14,9 @@ object AndroidDynamicTestContext {
     const val PROJECT_ID = "0f7e0a6b-8472-5d6d-8a14-a9d000000001"
     const val PERSONA_TENANT_ID = "android-persona-lifecycle-test"
     const val PERSONA_PROJECT_ID = "0f7e0a6b-8472-5d6d-8a14-a9d000000201"
+    const val PERSONA_ASSISTED_FARMER_ID = "0f7e0a6b-8472-5d6d-8a14-a9d000001402"
+    const val PERSONA_ASSISTED_PARCEL_ID = "0f7e0a6b-8472-5d6d-8a14-a9d000001403"
+    const val PERSONA_INDEPENDENT_FARMER_ID = "0f7e0a6b-8472-5d6d-8a14-a9d000001102"
     private const val TEST_MOBILE_DIGITS = "919900000002"
     private val PERSONA_MOBILE_DIGITS = setOf(
         "919900001101",

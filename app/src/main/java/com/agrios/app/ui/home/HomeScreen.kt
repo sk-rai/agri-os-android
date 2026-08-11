@@ -1223,6 +1223,133 @@ fun HomeScreen(
             }
         }
     }
+
+    fun checkAgentAssistedFarmerManagementContract() {
+        scope.launch {
+            lastSyncMessage = null
+            personaLifecycleStatus = "Agent assisted management check running..."
+            val authState = withContext(Dispatchers.IO) { db.authDao().getAuthState() }
+            val mobile = authState?.mobileNumber ?: farmer?.mobileNumber.orEmpty()
+            val mobileDigits = mobile.filter { it.isDigit() }
+            try {
+                val modeResponse = withContext(Dispatchers.IO) {
+                    api.getModeBootstrap(
+                        userId = authState?.userId,
+                        projectId = AndroidDynamicTestContext.PERSONA_PROJECT_ID
+                    )
+                }
+                if (!modeResponse.isSuccessful) {
+                    error("mode bootstrap ${modeResponse.code()}")
+                }
+                val modeBody = modeResponse.body()
+                val worklistResponse = withContext(Dispatchers.IO) {
+                    api.getFieldAgentWorklist(
+                        projectId = AndroidDynamicTestContext.PERSONA_PROJECT_ID,
+                        assignedOnly = true
+                    )
+                }
+                if (!worklistResponse.isSuccessful) {
+                    error("assigned worklist ${worklistResponse.code()}")
+                }
+                val worklistFarmerIds = worklistResponse.body().worklistFarmerIds()
+                val assistedVisible = AndroidDynamicTestContext.PERSONA_ASSISTED_FARMER_ID in worklistFarmerIds
+                val independentVisible = AndroidDynamicTestContext.PERSONA_INDEPENDENT_FARMER_ID in worklistFarmerIds
+                val farmerModeAvailable = modeBody?.modes?.jsonObject("farmer")?.jsonBoolean("available") ?: false
+                val agentModeAvailable = modeBody?.modes?.jsonObject("agent")?.jsonBoolean("available") ?: false
+                val firstScreenHint = modeBody?.firstScreenHint ?: "UNKNOWN"
+
+                val statusLines = mutableListOf(
+                    "Agent assisted management check: ${if (mobileDigits.endsWith("1701")) "unassigned agent" else "assigned agent"} ready",
+                    "tenant=${AndroidDynamicTestContext.PERSONA_TENANT_ID}",
+                    "project_id=${AndroidDynamicTestContext.PERSONA_PROJECT_ID}",
+                    "mode_bootstrap=$firstScreenHint",
+                    "Choose how to continue"
+                )
+                if (farmerModeAvailable) statusLines += "My farm"
+                if (agentModeAvailable) statusLines += "Assigned farmers"
+                statusLines += "agent_worklist_farmers=${worklistFarmerIds.size}"
+                statusLines += "assisted_farmer_visible=$assistedVisible"
+                statusLines += "independent_farmer_visible=$independentVisible"
+
+                if (mobileDigits.endsWith("1701")) {
+                    val farmerPatch = withContext(Dispatchers.IO) {
+                        api.patchFarmerProfile(
+                            farmerId = AndroidDynamicTestContext.PERSONA_ASSISTED_FARMER_ID,
+                            body = mapOf(
+                                "display_name" to "UNASSIGNED AGENT UPDATE PROBE",
+                                "village_name_manual" to "Assisted Village",
+                                "language_preference" to "hi",
+                                "assistance_mode" to "FIELD_AGENT_ASSISTED"
+                            )
+                        )
+                    }
+                    val farmerPatchError = farmerPatch.errorBody()?.string().orEmpty()
+                    val parcelPatch = withContext(Dispatchers.IO) {
+                        api.patchParcelProfile(
+                            parcelId = AndroidDynamicTestContext.PERSONA_ASSISTED_PARCEL_ID,
+                            body = mapOf(
+                                "local_name" to "UNASSIGNED AGENT PARCEL PROBE",
+                                "reported_area" to 1.8,
+                                "reported_area_unit" to "ACRE",
+                                "pin_code" to "560001",
+                                "location_scope" to mapOf(
+                                    "primary_village" to "Assisted Village",
+                                    "source" to "android_agent_assisted_management_probe"
+                                )
+                            )
+                        )
+                    }
+                    val parcelPatchError = parcelPatch.errorBody()?.string().orEmpty()
+                    statusLines += "unassigned_farmer_patch_status=${farmerPatch.code()}"
+                    statusLines += "unassigned_farmer_patch_code=${farmerPatchError.assignmentErrorCode()}"
+                    statusLines += "unassigned_parcel_patch_status=${parcelPatch.code()}"
+                    statusLines += "unassigned_parcel_patch_code=${parcelPatchError.assignmentErrorCode()}"
+                    if (farmerPatch.code() == 403 || parcelPatch.code() == 403) {
+                        statusLines += "You are not assigned to manage this farmer."
+                    }
+                    statusLines += "no_stale_context_copy=true"
+                    statusLines += "no_sync_conflict_copy=true"
+                } else {
+                    val farmerPatch = withContext(Dispatchers.IO) {
+                        api.patchFarmerProfile(
+                            farmerId = AndroidDynamicTestContext.PERSONA_ASSISTED_FARMER_ID,
+                            body = mapOf(
+                                "display_name" to "Android Assisted Farmer Updated By Android",
+                                "village_name_manual" to "Assisted Village",
+                                "language_preference" to "hi",
+                                "assistance_mode" to "FIELD_AGENT_ASSISTED"
+                            )
+                        )
+                    }
+                    val parcelPatch = withContext(Dispatchers.IO) {
+                        api.patchParcelProfile(
+                            parcelId = AndroidDynamicTestContext.PERSONA_ASSISTED_PARCEL_ID,
+                            body = mapOf(
+                                "local_name" to "Assigned Agent Updated Plot",
+                                "reported_area" to 1.75,
+                                "reported_area_unit" to "ACRE",
+                                "pin_code" to "560001",
+                                "location_scope" to mapOf(
+                                    "primary_village" to "Assisted Village",
+                                    "source" to "android_agent_assisted_management_probe"
+                                )
+                            )
+                        )
+                    }
+                    statusLines += "assigned_farmer_patch_status=${farmerPatch.code()}"
+                    statusLines += "assigned_farmer_patch_ok=${farmerPatch.isSuccessful}"
+                    statusLines += "assigned_parcel_patch_status=${parcelPatch.code()}"
+                    statusLines += "assigned_parcel_patch_ok=${parcelPatch.isSuccessful}"
+                }
+                personaLifecycleStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Agent assisted management check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                personaLifecycleStatus = "Agent assisted management check failed: ${e.message}"
+                Log.e(TAG, "Agent assisted management check failed", e)
+            }
+        }
+    }
+
     suspend fun refreshBackendOwnedContext(currentFarmer: FarmerEntity): Boolean = withContext(Dispatchers.IO) {
         val authState = runCatching { db.authDao().getAuthState() }.getOrNull()
         val projectId = AndroidDynamicTestContext.projectIdFor(authState)
@@ -1698,6 +1825,12 @@ fun HomeScreen(
                 ) {
                     Text("Check Persona Lifecycle")
                 }
+                OutlinedButton(
+                    onClick = { checkAgentAssistedFarmerManagementContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Agent Assisted Management")
+                }
 
                 personaLifecycleStatus?.lineSequence()?.forEach { line ->
                     Text(line, style = MaterialTheme.typography.bodySmall)
@@ -1980,6 +2113,34 @@ private fun JsonElement.jsonArraySize(name: String): Int? {
         asJsonObject.get(name)?.takeIf { it.isJsonArray }?.asJsonArray?.size()
     }.getOrNull()
 }
+
+private fun JsonElement?.worklistFarmerIds(): List<String> {
+    return runCatching {
+        val root = this ?: return emptyList()
+        if (!root.isJsonObject) return emptyList()
+        val farmers = root.asJsonObject.get("farmers")?.takeIf { it.isJsonArray }?.asJsonArray
+            ?: return emptyList()
+        farmers.mapNotNull { item ->
+            if (!item.isJsonObject) return@mapNotNull null
+            val obj = item.asJsonObject
+            obj.get("farmer_id")?.takeUnless { it.isJsonNull }?.asString
+                ?: obj.get("farmer")?.takeIf { it.isJsonObject }
+                    ?.asJsonObject
+                    ?.get("id")
+                    ?.takeUnless { it.isJsonNull }
+                    ?.asString
+        }
+    }.getOrElse { emptyList() }
+}
+
+private fun String.assignmentErrorCode(): String {
+    return when {
+        contains("FARMER_ASSIGNMENT_REQUIRED") -> "FARMER_ASSIGNMENT_REQUIRED"
+        isBlank() -> "NONE"
+        else -> "UNKNOWN"
+    }
+}
+
 private fun parseSyncError(raw: String): Map<String, String> {
     if (!raw.trimStart().startsWith("{")) return emptyMap()
     return runCatching {

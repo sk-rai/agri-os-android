@@ -96,6 +96,12 @@ interface AgriOsApi {
         @Path("farmerId") farmerId: String
     ): Response<com.google.gson.JsonElement>
 
+    @PATCH("farmers/{farmerId}")
+    suspend fun patchFarmerProfile(
+        @Path("farmerId") farmerId: String,
+        @Body body: Map<String, @JvmSuppressWildcards Any?>
+    ): Response<com.google.gson.JsonElement>
+
     @GET("profile/land-intelligence-context")
     suspend fun getLandIntelligenceContext(
         @Query("state_lgd_code") stateLgdCode: String? = null,
@@ -135,6 +141,12 @@ interface AgriOsApi {
 
     @GET("parcels")
     suspend fun getParcels(): Response<List<ParcelResponseDto>>
+
+    @PATCH("parcels/{parcelId}")
+    suspend fun patchParcelProfile(
+        @Path("parcelId") parcelId: String,
+        @Body body: Map<String, @JvmSuppressWildcards Any?>
+    ): Response<com.google.gson.JsonElement>
 
     @PATCH("parcels/{parcelId}/geometry")
     suspend fun updateParcelGeometry(

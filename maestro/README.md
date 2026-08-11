@@ -247,6 +247,25 @@ Duplicate cleanup is backend-owned for this contract. After `36-persona-duplicat
 ../venv/bin/python scripts/verify_android_persona_lifecycle_extensions.py --archive-duplicate
 ```
 
+Agent-assisted farmer management uses the same persona extension fixture. It covers
+the current backend assignment contract: dual farmer/agent `+919900001301` can manage
+the assisted farmer/parcel, while active unassigned agent `+919900001701` sees an empty
+assigned-only worklist and gets clean `FARMER_ASSIGNMENT_REQUIRED` guidance for direct
+update probes.
+
+```bash
+cd ~/projects/farmint/backend
+../venv/bin/python scripts/prepare_android_persona_lifecycle_extensions.py --reset --apply
+```
+
+```powershell
+maestro test maestro\38-agent-assisted-farmer-management.yaml
+```
+
+```bash
+../venv/bin/python scripts/verify_android_agent_assisted_farmer_management.py
+```
+
 ## Multilingual backend-driven form label flows
 
 Flows `37a`-`37d` validate the Android side of `docs/android-multilingual-profile-form-test.md` from the backend repo. See `maestro/MULTILINGUAL_FORM_SUITE.md` for the compact runbook. They focus on backend-driven form-label resolution:
