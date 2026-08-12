@@ -27,6 +27,7 @@ import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.local.entity.FarmerEntity
 import com.agrios.app.data.local.entity.SyncQueueEntity
 import com.agrios.app.data.remote.api.AgriOsApi
+import com.agrios.app.data.remote.dto.CreateFarmerDto
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
 import com.agrios.app.data.remote.dto.ParcelGeometryUpdateRequest
 import com.agrios.app.data.remote.dto.ResolveConflictDto
@@ -1374,6 +1375,44 @@ fun HomeScreen(
                 val scopeBody = summaryBody.jsonObject("scope")
                 val contract = summaryBody.jsonObject("android_contract")
 
+                val currentFarmer = farmer ?: error("farmer profile unavailable")
+
+                val farmerWithoutGpsResponse = withContext(Dispatchers.IO) {
+                    api.createFarmer(
+                        CreateFarmerDto(
+                            mobileNumber = "+9198${System.currentTimeMillis().toString().takeLast(8)}",
+                            villageId = null,
+                            villageNameManual = "Android DigiPin Probe Village",
+                            pinCode = "560001",
+                            primaryCropCode = "RICE",
+                            displayName = "Android DigiPin Null GPS Probe",
+                            enrollmentGpsLat = null,
+                            enrollmentGpsLng = null,
+                            assistanceMode = "DEALER_ASSISTED"
+                        )
+                    )
+                }
+                if (!farmerWithoutGpsResponse.isSuccessful) {
+                    error("farmer without GPS create ${farmerWithoutGpsResponse.code()}")
+                }
+                val farmerHomeDigiPinNullWithoutGps =
+                    farmerWithoutGpsResponse.body()?.homeDigipin == null
+
+                val farmerGpsResponse = withContext(Dispatchers.IO) {
+                    api.patchFarmerProfile(
+                        farmerId = currentFarmer.id,
+                        body = mapOf(
+                            "pin_code" to "560001",
+                            "enrollment_gps_lat" to 12.9716,
+                            "enrollment_gps_lng" to 77.5946
+                        )
+                    )
+                }
+                if (!farmerGpsResponse.isSuccessful) {
+                    error("farmer GPS patch ${farmerGpsResponse.code()}")
+                }
+                val farmerHomeDigiPin = farmerGpsResponse.body()?.jsonString("home_digipin") ?: "null"
+
                 val geoJson = JsonParser.parseString(
                     """{"type":"Point","coordinates":[77.5946,12.9716]}"""
                 )
@@ -1381,7 +1420,6 @@ fun HomeScreen(
                 if (!parcelsResponse.isSuccessful) {
                     error("parcels ${parcelsResponse.code()}")
                 }
-                val currentFarmer = farmer ?: error("farmer profile unavailable")
                 val parcel = parcelsResponse.body()
                     .orEmpty()
                     .firstOrNull { it.farmerId == currentFarmer.id }
@@ -1405,6 +1443,15 @@ fun HomeScreen(
 
                 val statusLines = listOf(
                     "Land summary + DigiPin check: ready",
+                    "digipin_smoke=farmer:$farmerHomeDigiPin farmer_null_without_gps:$farmerHomeDigiPinNullWithoutGps parcel:$backendDigiPin source:BACKEND_RESPONSE android:false",
+                    "land_summary_smoke=schema:${summaryBody.jsonString("schema_version")} scope:${scopeBody?.jsonString("scope_type")} ${scopeBody?.jsonString("scope_code")} flags:${contract?.jsonBoolean("display_as_informational_only")},${contract?.jsonBoolean("do_not_block_onboarding")},${contract?.jsonBoolean("detail_clickthrough_deferred_to_v2")} counts:${summaryPayload.jsonArraySize("cards") ?: 0},${summaryPayload.jsonArraySize("main_crops") ?: 0},${summaryPayload.jsonArraySize("alternate_crops") ?: 0}",
+                    "farmer_home_digipin=$farmerHomeDigiPin",
+                    "farmer_home_digipin_source=BACKEND_RESPONSE",
+                    "android_computed_farmer_digipin=false",
+                    "farmer_home_digipin_null_without_gps=$farmerHomeDigiPinNullWithoutGps",
+                    "parcel_geometry_digipin=$backendDigiPin",
+                    "digipin_source=BACKEND_RESPONSE",
+                    "android_computed_digipin=false",
                     "land_summary_schema=${summaryBody.jsonString("schema_version")}",
                     "land_summary_scope=${scopeBody?.jsonString("scope_type")} ${scopeBody?.jsonString("scope_code")}",
                     "land_summary_informational_only=${contract?.jsonBoolean("display_as_informational_only")}",
@@ -1412,10 +1459,7 @@ fun HomeScreen(
                     "land_summary_detail_clickthrough_deferred=${contract?.jsonBoolean("detail_clickthrough_deferred_to_v2")}",
                     "land_summary_card_count=${summaryPayload.jsonArraySize("cards") ?: 0}",
                     "land_summary_main_crops=${summaryPayload.jsonArraySize("main_crops") ?: 0}",
-                    "land_summary_alternate_crops=${summaryPayload.jsonArraySize("alternate_crops") ?: 0}",
-                    "parcel_geometry_digipin=$backendDigiPin",
-                    "digipin_source=BACKEND_RESPONSE",
-                    "android_computed_digipin=false"
+                    "land_summary_alternate_crops=${summaryPayload.jsonArraySize("alternate_crops") ?: 0}"
                 )
                 landSummaryDigiPinStatus = statusLines.joinToString("\n")
                 Log.d(TAG, "Land summary + DigiPin check: ${statusLines.joinToString(" | ")}")

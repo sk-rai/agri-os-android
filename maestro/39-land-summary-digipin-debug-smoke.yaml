@@ -1,4 +1,4 @@
-﻿appId: com.agrios.app
+appId: com.agrios.app
 name: Land summary and DigiPin debug smoke
 ---
 # Backend prerequisites:
@@ -54,14 +54,12 @@ name: Land summary and DigiPin debug smoke
     speed: 40
     visibilityPercentage: 80
     centerElement: false
-- assertVisible: "land_summary_schema=land_intelligence_summary.v1"
-- assertVisible: "land_summary_scope=PIN 560001"
-- assertVisible: "land_summary_informational_only=true"
-- assertVisible: "land_summary_do_not_block_onboarding=true"
-- assertVisible: "land_summary_detail_clickthrough_deferred=true"
-- assertVisible: "land_summary_card_count=4"
-- assertVisible: "land_summary_main_crops=2"
-- assertVisible: "land_summary_alternate_crops=2"
+- assertVisible: "digipin_smoke=farmer:4P3JK852C9 farmer_null_without_gps:true parcel:4P3JK852C9 source:BACKEND_RESPONSE android:false"
+- assertVisible: "land_summary_smoke=schema:land_intelligence_summary.v1 scope:PIN 560001 flags:true,true,true counts:4,2,2"
+- assertVisible: "farmer_home_digipin=4P3JK852C9"
+- assertVisible: "farmer_home_digipin_source=BACKEND_RESPONSE"
+- assertVisible: "android_computed_farmer_digipin=false"
+- assertVisible: "farmer_home_digipin_null_without_gps=true"
 - assertVisible: "parcel_geometry_digipin=4P3JK852C9"
 - assertVisible: "digipin_source=BACKEND_RESPONSE"
 - assertVisible: "android_computed_digipin=false"

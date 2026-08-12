@@ -5,9 +5,13 @@ import com.google.gson.annotations.SerializedName
 // --- Farmer ---
 data class CreateFarmerDto(
     @SerializedName("mobile_number") val mobileNumber: String,
-    @SerializedName("village_id") val villageId: String,
+    @SerializedName("village_id") val villageId: String? = null,
+    @SerializedName("village_name_manual") val villageNameManual: String? = null,
+    @SerializedName("pin_code") val pinCode: String? = null,
     @SerializedName("primary_crop_code") val primaryCropCode: String? = null,
     @SerializedName("display_name") val displayName: String? = null,
+    @SerializedName("enrollment_gps_lat") val enrollmentGpsLat: Double? = null,
+    @SerializedName("enrollment_gps_lng") val enrollmentGpsLng: Double? = null,
     @SerializedName("assistance_mode") val assistanceMode: String = "DEALER_ASSISTED"
 )
 
