@@ -1,6 +1,10 @@
 appId: com.agrios.app
-name: Persona lifecycle agent reassignment before primary has assisted farmer
+name: Persona transition inactive membership returns self service
 ---
+# Backend prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_persona_lifecycle.py --state transition-inactive --apply
+#   ../venv/bin/python scripts/verify_android_persona_lifecycle.py --state transition-inactive
 - launchApp:
     clearState: true
 - extendedWaitUntil:
@@ -13,7 +17,7 @@ name: Persona lifecycle agent reassignment before primary has assisted farmer
     timeout: 20000
 - tapOn:
     text: "Mobile Number.*"
-- inputText: "9900001301"
+- inputText: "9900001501"
 - hideKeyboard
 - tapOn:
     text: "Send OTP.*"
@@ -36,7 +40,7 @@ name: Persona lifecycle agent reassignment before primary has assisted farmer
 - tapOn: "Check Persona Lifecycle"
 - scrollUntilVisible:
     element:
-      text: "Persona lifecycle check: dual farmer-agent ready"
+      text: "Persona lifecycle check: transition farmer ready"
     direction: DOWN
     timeout: 30000
     speed: 40
@@ -44,20 +48,20 @@ name: Persona lifecycle agent reassignment before primary has assisted farmer
     centerElement: false
 - scrollUntilVisible:
     element:
-      text: "Assigned farmers"
+      text: "transition_farmer_id_preserved=true"
     direction: DOWN
     timeout: 30000
     speed: 40
     visibilityPercentage: 80
     centerElement: false
+- assertVisible: "transition_duplicate_farmer_created=false"
 - scrollUntilVisible:
     element:
-      text: "reassignment_primary_initial_visible=true"
+      text: "transition_inactive_mode=SELF_SERVICE"
     direction: DOWN
     timeout: 30000
     speed: 40
     visibilityPercentage: 80
     centerElement: false
-- assertVisible: "assisted_farmer_visible=true"
-- assertVisible: "duplicate_farmer_count=0"
-- takeScreenshot: "35a-persona-agent-reassignment-before"
+- assertVisible: "transition_inactive_active_project_count=0"
+- takeScreenshot: "33b-persona-transition-inactive"

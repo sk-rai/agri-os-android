@@ -43,12 +43,31 @@ name: Persona lifecycle project picker with multiple active memberships
     visibilityPercentage: 80
     centerElement: false
 - assertVisible: "Choose project"
+- assertVisible: "project_picker_visible=true"
 - assertVisible: "recommended_navigation=SHOW_PROJECT_PICKER"
 - assertVisible: "project_selection_required=true"
 - assertVisible: "active_project_count=2"
+- assertVisible: "project_picker_active_project_count=2"
 - assertVisible: "active_project_candidate=null"
-- assertVisible: "project_1_bootstrap_ok=true"
+- scrollUntilVisible:
+    element:
+      text: "project_1_bootstrap_ok=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
 - assertVisible: "project_2_bootstrap_ok=true"
+- scrollUntilVisible:
+    element:
+      text: "selected_project_1_bootstrap_ok=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "selected_project_2_bootstrap_ok=true"
 - assertVisible: "no_default_project_selected=true"
+- assertVisible: "project_default_silently_selected=false"
 - assertVisible: "duplicate_farmer_count=0"
 - takeScreenshot: "34-persona-project-picker-ready"

@@ -46,5 +46,6 @@ name: Persona lifecycle agent reassignment after second agent receives farmer
 - assertVisible: "project_enrollments=0"
 - assertVisible: "active_project_count=0"
 - assertVisible: "agent_worklist_farmers=1"
+- assertVisible: "reassignment_second_after_visible=true"
 - assertVisible: "duplicate_farmer_count=0"
 - takeScreenshot: "35b-persona-agent-reassignment-after"

@@ -1,6 +1,10 @@
 appId: com.agrios.app
-name: Persona lifecycle agent reassignment before primary has assisted farmer
+name: Persona agent reassignment primary loses assisted farmer
 ---
+# Backend prep before this flow:
+#   Run after WSL performs reassignment:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/verify_android_persona_lifecycle_extensions.py --perform-reassignment
 - launchApp:
     clearState: true
 - extendedWaitUntil:
@@ -52,12 +56,10 @@ name: Persona lifecycle agent reassignment before primary has assisted farmer
     centerElement: false
 - scrollUntilVisible:
     element:
-      text: "reassignment_primary_initial_visible=true"
+      text: "reassignment_primary_after_visible=false"
     direction: DOWN
     timeout: 30000
     speed: 40
     visibilityPercentage: 80
     centerElement: false
-- assertVisible: "assisted_farmer_visible=true"
-- assertVisible: "duplicate_farmer_count=0"
-- takeScreenshot: "35a-persona-agent-reassignment-before"
+- takeScreenshot: "35d-persona-agent-reassignment-primary-after"

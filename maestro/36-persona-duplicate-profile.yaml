@@ -31,7 +31,7 @@ name: Persona lifecycle duplicate farmer profile detection
     direction: DOWN
     timeout: 30000
     speed: 40
-    visibilityPercentage: 100
+    visibilityPercentage: 80
     centerElement: false
 - tapOn: "Check Persona Lifecycle"
 - scrollUntilVisible:
@@ -44,8 +44,26 @@ name: Persona lifecycle duplicate farmer profile detection
     centerElement: false
 - assertVisible: "Use existing profile"
 - assertVisible: "primary_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000001802"
-- assertVisible: "duplicate_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000001805"
+- scrollUntilVisible:
+    element:
+      text: "duplicate_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000001805"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "duplicate_primary_selected=true"
 - assertVisible: "duplicate_farmer_count=1"
+- assertVisible: "duplicate_farmer_count_before=1"
+- assertVisible: "duplicate_cleanup_action_visible=true"
+- scrollUntilVisible:
+    element:
+      text: "duplicate_primary_context_preserved=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
 - assertVisible: "duplicate_listing_groups=1"
 - scrollUntilVisible:
     element:

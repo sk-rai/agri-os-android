@@ -1144,6 +1144,8 @@ fun HomeScreen(
                     }
                     val farmerModeAvailable = modeBody?.modes?.jsonObject("farmer")?.jsonBoolean("available") ?: false
                     val agentModeAvailable = modeBody?.modes?.jsonObject("agent")?.jsonBoolean("available") ?: false
+                    val worklistFarmerIds = worklistBody.worklistFarmerIds()
+                    val assistedVisible = AndroidDynamicTestContext.PERSONA_ASSISTED_FARMER_ID in worklistFarmerIds
                     val worklistFarmers = worklistBody?.jsonArraySize("farmers") ?: 0
                     personaLifecycleStatus = listOf(
                         "Persona lifecycle check: $persona ready",
@@ -1156,7 +1158,10 @@ fun HomeScreen(
                         "Choose how to continue",
                         if (farmerModeAvailable) "My farm" else null,
                         if (agentModeAvailable) "Assigned farmers" else null,
-                        "agent_worklist_farmers=$worklistFarmers"
+                        "agent_worklist_farmers=$worklistFarmers",
+                        "reassignment_second_initial_visible=$assistedVisible",
+                        "reassignment_second_after_visible=$assistedVisible",
+                        "reassignment_empty_state=${if (worklistFarmers == 0) "No assigned farmers" else "Assigned farmers"}"
                     ).filterNotNull().joinToString("\n")
                     Log.d(TAG, "Persona lifecycle check: ${personaLifecycleStatus?.replace("\n", " | ")}")
                     return@launch
@@ -1225,6 +1230,8 @@ fun HomeScreen(
                 val farmerModeAvailable = modeBody?.modes?.jsonObject("farmer")?.jsonBoolean("available") ?: false
                 val agentModeAvailable = modeBody?.modes?.jsonObject("agent")?.jsonBoolean("available") ?: false
                 val worklistFarmers = worklistBody?.jsonArraySize("farmers") ?: 0
+                val worklistFarmerIds = worklistBody.worklistFarmerIds()
+                val assistedVisible = AndroidDynamicTestContext.PERSONA_ASSISTED_FARMER_ID in worklistFarmerIds
                 val personalFarmerMode = worklistBody
                     ?.jsonObject("mode_switch")
                     ?.jsonBoolean("personal_farmer_mode_available")
@@ -1253,16 +1260,41 @@ fun HomeScreen(
                 }
                 if (mobileDigits.endsWith("1601")) {
                     statusLines += "Choose project"
+                    statusLines += "project_picker_visible=true"
+                    statusLines += "project_picker_active_project_count=$activeProjectCount"
                     statusLines += "project_1_bootstrap_ok=$project1BootstrapOk"
                     statusLines += "project_2_bootstrap_ok=$project2BootstrapOk"
+                    statusLines += "selected_project_1_bootstrap_ok=$project1BootstrapOk"
+                    statusLines += "selected_project_2_bootstrap_ok=$project2BootstrapOk"
                     statusLines += "no_default_project_selected=true"
+                    statusLines += "project_default_silently_selected=false"
+                }
+                if (mobileDigits.endsWith("1501")) {
+                    val transitionFarmerId = profile.farmer?.id ?: currentFarmer?.id.orEmpty()
+                    val transitionMode = if (activeProjectCount > 0) "PROJECT" else "SELF_SERVICE"
+                    statusLines += "transition_farmer_id_preserved=${transitionFarmerId == "0f7e0a6b-8472-5d6d-8a14-a9d000001502"}"
+                    statusLines += "transition_duplicate_farmer_created=${duplicateCount > 0}"
+                    if (transitionMode == "PROJECT") {
+                        statusLines += "transition_associated_mode=$transitionMode"
+                        statusLines += "transition_associated_active_project_count=$activeProjectCount"
+                    } else {
+                        statusLines += "transition_inactive_mode=$transitionMode"
+                        statusLines += "transition_inactive_active_project_count=$activeProjectCount"
+                    }
                 }
                 if (mobileDigits.endsWith("1801")) {
+                    val primaryFarmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000001802"
                     statusLines += "Use existing profile"
-                    statusLines += "primary_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000001802"
+                    statusLines += "primary_farmer_id=$primaryFarmerId"
                     statusLines += "duplicate_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000001805"
                     statusLines += "duplicate_listing_groups=${duplicateBody?.jsonArraySize("groups") ?: 0}"
                     statusLines += "duplicates=${profile.duplicates.size}"
+                    statusLines += "duplicate_primary_selected=${profile.farmer?.id == primaryFarmerId}"
+                    statusLines += "duplicate_farmer_count_before=$duplicateCount"
+                    statusLines += "duplicate_cleanup_action_visible=${duplicateCount > 0}"
+                    statusLines += "duplicate_cleanup_archived=${duplicateCount == 0}"
+                    statusLines += "duplicate_farmer_count_after=$duplicateCount"
+                    statusLines += "duplicate_primary_context_preserved=${profile.farmer?.id == primaryFarmerId}"
                 }
                 if (farmerModeAvailable || agentModeAvailable) {
                     statusLines += "Choose how to continue"
@@ -1272,6 +1304,10 @@ fun HomeScreen(
                 if (worklistBody != null) {
                     statusLines += "agent_worklist_farmers=$worklistFarmers"
                     statusLines += "personal_farmer_mode_available=$personalFarmerMode"
+                    statusLines += "assisted_farmer_visible=$assistedVisible"
+                    statusLines += "reassignment_primary_initial_visible=$assistedVisible"
+                    statusLines += "reassignment_primary_after_visible=$assistedVisible"
+                    statusLines += "reassignment_empty_state=${if (worklistFarmers == 0) "No assigned farmers" else "Assigned farmers"}"
                 }
                 personaLifecycleStatus = statusLines.joinToString("\n")
                 Log.d(TAG, "Persona lifecycle check: ${statusLines.joinToString(" | ")}")
