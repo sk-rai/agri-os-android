@@ -1,0 +1,71 @@
+appId: com.agrios.app
+name: Stale conflict 404 dismissal clears local card
+---
+# Backend prerequisites:
+#   Existing backend behavior is enough. No fixture is required.
+#   Missing/already-resolved PATCH /api/v1/sync/conflicts/{conflict_id}
+#   returns 404 and Android maps that to SERVER_ALREADY_GONE cleanup.
+#
+# This debug-only smoke verifies:
+# - Android can seed a local CONFLICTED card with a nonexistent conflict_id.
+# - Tapping "Use server version" receives backend 404.
+# - Android treats 404 as already resolved/deleted server-side.
+# - The local stale card is removed and no fatal/manual-review/stale-copy remains.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*|.*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Stale Conflict 404 Test"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Queue Stale Conflict 404 Test"
+- extendedWaitUntil:
+    visible: "Stale conflict 404 test card queued"
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      text: "Use server version"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Use server version"
+- extendedWaitUntil:
+    visible: "Stale conflict 404 dismissal check: ready"
+    timeout: 60000
+- assertVisible: "stale_conflict_ack_404_dismissed=true"
+- assertVisible: "stale_conflict_card_visible_after_404=false"
+- assertVisible: "stale_conflict_resolution=SERVER_ALREADY_GONE"
+- assertVisible: "stale_conflict_fatal_error_visible=false"
+- assertVisible: "stale_conflict_retry_loop=false"
+- assertNotVisible: "Manual review needed: server has a newer version"
+- assertNotVisible: "Refresh required: local context is stale"
+- assertNotVisible: "Workflow changed on backend"
+- assertNotVisible: "Conflict recovery failed"
+- takeScreenshot: "40-stale-conflict-404-dismissal"

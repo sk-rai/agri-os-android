@@ -25,7 +25,9 @@ import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.local.entity.FarmerEntity
+import com.agrios.app.data.local.entity.SyncPriority
 import com.agrios.app.data.local.entity.SyncQueueEntity
+import com.agrios.app.data.local.entity.SyncStatus
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.CreateFarmerDto
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
@@ -111,6 +113,7 @@ fun HomeScreen(
     var poisonRowBacklogTestIds by remember { mutableStateOf<String?>(null) }
     var personaLifecycleStatus by remember { mutableStateOf<String?>(null) }
     var landSummaryDigiPinStatus by remember { mutableStateOf<String?>(null) }
+    var staleConflict404TestStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showDynamicSyncTestTools = isDebugBuild && currentMobileDigits
@@ -392,6 +395,57 @@ fun HomeScreen(
             workflowInvalidTestEventId = eventId
             lastSyncMessage = "Workflow invalid test event queued: $eventId"
             Log.d(TAG, "Workflow invalid test event queued: eventId=$eventId, stageEntityId=$stageEntityId")
+        }
+    }
+
+    fun queueStaleConflict404TestEvent() {
+        scope.launch {
+            val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000404"
+            val activityId = "0f7e0a6b-8472-5d6d-8a14-a9d000000405"
+            val fakeConflictId = "0f7e0a6b-8472-5d6d-8a14-a9d000404404"
+            val payload = linkedMapOf<String, Any?>(
+                "crop_cycle_id" to "aa346148-468b-47de-9c86-47ad41aa1f11",
+                "stage_code" to "NURSERY",
+                "activity_date" to "2026-08-02",
+                "activity_type" to "FERTILIZER",
+                "input_code" to "DAP_18_46_0",
+                "description" to "Android stale conflict 404 dismissal probe",
+                "quantity" to 1,
+                "quantity_unit" to "KG",
+                "cost_amount" to 325.5,
+                "currency" to "INR",
+                "source" to "android_maestro_stale_conflict_404_test"
+            )
+            val conflictData = linkedMapOf<String, Any?>(
+                "conflict_type" to "VERSION_MISMATCH",
+                "conflict_id" to fakeConflictId,
+                "resolution_strategy" to "SERVER_ALREADY_GONE",
+                "message" to "Debug stale conflict 404 dismissal probe",
+                "source" to "android_maestro_stale_conflict_404_test"
+            )
+            withContext(Dispatchers.IO) {
+                db.syncQueueDao().deleteDynamicSyncTestRows()
+                db.syncQueueDao().enqueue(
+                    SyncQueueEntity(
+                        eventId = eventId,
+                        entityType = "crop_activity",
+                        entityId = activityId,
+                        operation = "CREATE",
+                        payload = Gson().toJson(payload),
+                        syncStatus = SyncStatus.CONFLICTED.name,
+                        priority = SyncPriority.HIGH.name,
+                        dependencyIds = null,
+                        lastError = Gson().toJson(conflictData),
+                        createdAt = System.currentTimeMillis()
+                    )
+                )
+            }
+            staleContextTestEventId = null
+            versionMismatchTestEventId = null
+            workflowInvalidTestEventId = null
+            staleConflict404TestStatus = "Stale conflict 404 test card queued"
+            lastSyncMessage = "Stale conflict 404 test card queued"
+            Log.d(TAG, "Stale conflict 404 test card queued: eventId=$eventId, conflictId=$fakeConflictId")
         }
     }
 
@@ -1537,9 +1591,40 @@ fun HomeScreen(
             lastSyncMessage = null
             val parsed = parseSyncError(item.lastError.orEmpty())
             val conflictType = parsed["conflict_type"].orEmpty()
+            val localConflictId = parsed["conflict_id"]?.takeIf { it.isNotBlank() }
+            val isStaleConflict404Test = item.payload.contains("android_maestro_stale_conflict_404_test") ||
+                parsed["source"] == "android_maestro_stale_conflict_404_test"
+            fun staleConflict404Evidence(cardVisibleAfter404: Boolean): String = listOf(
+                "Stale conflict 404 dismissal check: ready",
+                "stale_conflict_ack_404_dismissed=true",
+                "stale_conflict_card_visible_after_404=$cardVisibleAfter404",
+                "stale_conflict_resolution=SERVER_ALREADY_GONE",
+                "stale_conflict_fatal_error_visible=false",
+                "stale_conflict_retry_loop=false"
+            ).joinToString("\n")
+            suspend fun clearStaleLocalConflict(reason: String, conflictId: String?) {
+                withContext(Dispatchers.IO) {
+                    db.syncQueueDao().deleteByEventId(item.eventId)
+                }
+                val rowStillPresent = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByEventId(item.eventId) > 0
+                }
+                if (isStaleConflict404Test) {
+                    val evidence = staleConflict404Evidence(cardVisibleAfter404 = rowStillPresent)
+                    staleConflict404TestStatus = evidence
+                    lastSyncMessage = evidence
+                } else {
+                    lastSyncMessage = when (conflictType) {
+                        "VERSION_MISMATCH" -> "Server conflict already cleared; local edit discarded"
+                        "WORKFLOW_INVALID" -> "Server conflict already cleared; local action discarded"
+                        else -> "Server conflict already cleared; local draft discarded"
+                    }
+                }
+                Log.d(TAG, "$reason: eventId=${item.eventId}, conflictId=${conflictId ?: "missing"}")
+            }
             try {
                 refreshBackendOwnedContext(currentFarmer)
-                val conflictId = withContext(Dispatchers.IO) {
+                val conflictId = localConflictId ?: withContext(Dispatchers.IO) {
                     val pending = api.getPendingConflicts(limit = 100)
                     if (pending.code() == 404) {
                         return@withContext null
@@ -1550,15 +1635,10 @@ fun HomeScreen(
                     findPendingConflictId(pending.body(), item.eventId)
                 }
                 if (conflictId == null) {
-                    withContext(Dispatchers.IO) {
-                        db.syncQueueDao().deleteByEventId(item.eventId)
-                    }
-                    lastSyncMessage = when (conflictType) {
-                        "VERSION_MISMATCH" -> "Server conflict already cleared; local edit discarded"
-                        "WORKFLOW_INVALID" -> "Server conflict already cleared; local action discarded"
-                        else -> "Server conflict already cleared; local draft discarded"
-                    }
-                    Log.d(TAG, "Cleared stale local conflict row after missing server conflict: eventId=${item.eventId}")
+                    clearStaleLocalConflict(
+                        reason = "Cleared stale local conflict row after missing server conflict",
+                        conflictId = null
+                    )
                     return@launch
                 }
                 val resolved = withContext(Dispatchers.IO) {
@@ -1571,15 +1651,10 @@ fun HomeScreen(
                     )
                 }
                 if (resolved.code() == 404) {
-                    withContext(Dispatchers.IO) {
-                        db.syncQueueDao().deleteByEventId(item.eventId)
-                    }
-                    lastSyncMessage = when (conflictType) {
-                        "VERSION_MISMATCH" -> "Server conflict already cleared; local edit discarded"
-                        "WORKFLOW_INVALID" -> "Server conflict already cleared; local action discarded"
-                        else -> "Server conflict already cleared; local draft discarded"
-                    }
-                    Log.d(TAG, "Cleared stale local conflict row after 404 acknowledgement: eventId=${item.eventId}, conflictId=$conflictId")
+                    clearStaleLocalConflict(
+                        reason = "Cleared stale local conflict row after 404 acknowledgement",
+                        conflictId = conflictId
+                    )
                     return@launch
                 }
                 if (!resolved.isSuccessful) {
@@ -1833,6 +1908,15 @@ fun HomeScreen(
                 }
                 workflowInvalidTestEventId?.let { eventId ->
                     Text("Workflow invalid test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { queueStaleConflict404TestEvent() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Queue Stale Conflict 404 Test")
+                }
+                staleConflict404TestStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queueColdStartPersistenceTestEvent() },

@@ -52,6 +52,9 @@ interface SyncQueueDao {
     @Query("DELETE FROM sync_queue WHERE event_id = :eventId")
     suspend fun deleteByEventId(eventId: String)
 
+    @Query("SELECT COUNT(*) FROM sync_queue WHERE event_id = :eventId")
+    suspend fun countByEventId(eventId: String): Int
+
     @Query("SELECT COUNT(*) FROM sync_queue WHERE sync_status = 'PENDING'")
     fun observePendingCount(): Flow<Int>
 
@@ -90,8 +93,10 @@ interface SyncQueueDao {
            OR payload LIKE '%queue_backpressure_test%'
            OR payload LIKE '%interrupted_multibatch_resume_test%'
            OR payload LIKE '%poison_row_backlog_test%'
+           OR payload LIKE '%stale_conflict_404_test%'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000111'
            OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000121'
+           OR event_id = '0f7e0a6b-8472-5d6d-8a14-a9d000000404'
     """)
     suspend fun deleteDynamicSyncTestRows()
 
