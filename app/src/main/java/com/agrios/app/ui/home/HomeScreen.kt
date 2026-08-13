@@ -115,6 +115,7 @@ fun HomeScreen(
     var landSummaryDigiPinStatus by remember { mutableStateOf<String?>(null) }
     var staleConflict404TestStatus by remember { mutableStateOf<String?>(null) }
     var fpoWorkflowStatus by remember { mutableStateOf<String?>(null) }
+    var fpoSearchDrilldownStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
@@ -1525,6 +1526,106 @@ fun HomeScreen(
         }
     }
 
+    fun checkFpoSearchDrilldownContract() {
+        scope.launch {
+            fpoSearchDrilldownStatus = "FPO search drilldown check running..."
+            try {
+                val projectId = "0f7e0a6b-8472-5d6d-8a14-a9d000002001"
+                val maizeFarmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.num(name: String): Int? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asInt }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "enrollments", "data", "results", "farmers").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+                fun JsonElement?.arrayItems(name: String): List<JsonElement> = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() ?: emptyList() }.getOrDefault(emptyList())
+
+                suspend fun searchEnrollments(query: String): List<JsonElement> {
+                    val response = withContext(Dispatchers.IO) {
+                        api.searchProjectEnrollments(projectId = projectId, status = "ACTIVE", query = query, limit = 100)
+                    }
+                    if (!response.isSuccessful) error("fpo enrollment search $query ${response.code()}")
+                    return response.body().items()
+                }
+
+                val rampurItems = searchEnrollments("Rampur")
+                val riceItems = searchEnrollments("Rice")
+                val maizeMobileItems = searchEnrollments("+919900002106")
+                val maizeMobileVisible = maizeMobileItems.any { item ->
+                    item.str("farmer_id") == maizeFarmerId || item.str("mobile_number") == "+919900002106" || item.obj("farmer").str("id") == maizeFarmerId
+                }
+
+                val riceTraceResponse = withContext(Dispatchers.IO) {
+                    api.getProjectTraceFiltered(projectId = projectId, cropCode = "RICE", limit = 100)
+                }
+                if (!riceTraceResponse.isSuccessful) error("fpo rice trace ${riceTraceResponse.code()}")
+                val riceTraceBody = riceTraceResponse.body()
+                val riceCycleCount = riceTraceBody.obj("summary").num("crop_cycle_count") ?: riceTraceBody.arrayItems("crop_cycles").size
+
+                val completedWheatResponse = withContext(Dispatchers.IO) {
+                    api.getProjectTraceFiltered(projectId = projectId, cropCode = "WHEAT", cycleStatus = "COMPLETED", limit = 100)
+                }
+                if (!completedWheatResponse.isSuccessful) error("fpo completed wheat trace ${completedWheatResponse.code()}")
+                val completedWheatBody = completedWheatResponse.body()
+                val completedWheatCycleCount = completedWheatBody.obj("summary").num("crop_cycle_count") ?: completedWheatBody.arrayItems("crop_cycles").size
+
+                val drilldownTraceResponse = withContext(Dispatchers.IO) {
+                    api.getProjectTraceFiltered(projectId = projectId, farmerId = maizeFarmerId, limit = 100)
+                }
+                if (!drilldownTraceResponse.isSuccessful) error("fpo drilldown trace ${drilldownTraceResponse.code()}")
+                val drilldownTraceBody = drilldownTraceResponse.body()
+                val drilldownCycleCount = drilldownTraceBody.obj("summary").num("crop_cycle_count") ?: drilldownTraceBody.arrayItems("crop_cycles").size
+                val drilldownFarmerVisible = drilldownTraceBody.arrayItems("farmers").any { farmer ->
+                    farmer.str("farmer_id") == maizeFarmerId || farmer.str("id") == maizeFarmerId
+                }
+                val drilldownFarmerCrop = drilldownTraceBody.arrayItems("farmers").firstOrNull { farmer ->
+                    farmer.str("farmer_id") == maizeFarmerId || farmer.str("id") == maizeFarmerId
+                }?.str("primary_crop_code") ?: "UNKNOWN"
+
+                val hydrationResponse = withContext(Dispatchers.IO) {
+                    api.getFarmerProfileByMobileRaw(mobile = "+919900002106", projectId = projectId, includeFormContract = true)
+                }
+                if (!hydrationResponse.isSuccessful) error("fpo drilldown hydration ${hydrationResponse.code()}")
+                val hydrationBody = hydrationResponse.body()
+                val hydrationProjectContext = hydrationBody.obj("farmer").str("project_id") == projectId || hydrationBody.arrayItems("project_enrollments").any { it.str("project_id") == projectId }
+
+                val cyclesResponse = withContext(Dispatchers.IO) { api.getCropCycles(farmerId = maizeFarmerId) }
+                if (!cyclesResponse.isSuccessful) error("fpo drilldown crop cycles ${cyclesResponse.code()}")
+                val cycles = cyclesResponse.body().orEmpty()
+                val activeStageVisible = cycles.any { cycle ->
+                    cycle.cropCode == "MAIZE" && cycle.stages.any { stage -> stage.status == "ACTIVE" }
+                }
+
+                val statusLines = listOf(
+                    "FPO search drilldown check: ready",
+                    "fpo_search_village_rampur_count=${rampurItems.size}",
+                    "fpo_search_crop_rice_count=${riceItems.size}",
+                    "fpo_search_mobile_maize_farmer=$maizeMobileVisible",
+                    "fpo_trace_rice_cycle_count=$riceCycleCount",
+                    "fpo_trace_completed_wheat_cycle_count=$completedWheatCycleCount",
+                    "fpo_drilldown_farmer_id=$maizeFarmerId",
+                    "fpo_drilldown_farmer_crop=$drilldownFarmerCrop",
+                    "fpo_drilldown_trace_cycle_count=$drilldownCycleCount",
+                    "fpo_drilldown_trace_farmer_visible=$drilldownFarmerVisible",
+                    "fpo_drilldown_active_stage_visible=$activeStageVisible",
+                    "fpo_drilldown_hydration_project_context=$hydrationProjectContext",
+                    "fpo_drilldown_crop_cycles_rendered=${cycles.isNotEmpty()}"
+                )
+                fpoSearchDrilldownStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "FPO search drilldown check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                fpoSearchDrilldownStatus = "FPO search drilldown check failed: ${e.message}"
+                Log.e(TAG, "FPO search drilldown check failed", e)
+            }
+        }
+    }
+
     fun checkLandSummaryDigiPinContract() {
         scope.launch {
             lastSyncMessage = null
@@ -2147,6 +2248,18 @@ fun HomeScreen(
                 }
             }
 
+
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkFpoSearchDrilldownContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check FPO Search Drilldown")
+                }
+                fpoSearchDrilldownStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(

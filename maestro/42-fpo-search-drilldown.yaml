@@ -1,0 +1,64 @@
+appId: com.agrios.app
+name: FPO search drilldown smoke
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900002000"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check FPO Search Drilldown"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check FPO Search Drilldown"
+- scrollUntilVisible:
+    element:
+      text: "FPO search drilldown check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "fpo_search_village_rampur_count=3"
+- assertVisible: "fpo_search_crop_rice_count=4"
+- assertVisible: "fpo_search_mobile_maize_farmer=true"
+- assertVisible: "fpo_trace_rice_cycle_count=4"
+- assertVisible: "fpo_trace_completed_wheat_cycle_count=1"
+- scrollUntilVisible:
+    element:
+      text: "fpo_drilldown_farmer_id=0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "fpo_drilldown_farmer_crop=MAIZE"
+- assertVisible: "fpo_drilldown_trace_cycle_count=1"
+- assertVisible: "fpo_drilldown_trace_farmer_visible=true"
+- assertVisible: "fpo_drilldown_active_stage_visible=true"
+- assertVisible: "fpo_drilldown_hydration_project_context=true"
+- assertVisible: "fpo_drilldown_crop_cycles_rendered=true"
+- takeScreenshot: "42-fpo-search-drilldown"

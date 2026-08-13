@@ -156,6 +156,23 @@ interface AgriOsApi {
         @Path("projectId") projectId: String
     ): Response<com.google.gson.JsonElement>
 
+    @GET("reports/project-enrollments")
+    suspend fun searchProjectEnrollments(
+        @Query("project_id") projectId: String,
+        @Query("status") status: String? = null,
+        @Query("q") query: String? = null,
+        @Query("limit") limit: Int = 100
+    ): Response<com.google.gson.JsonElement>
+
+    @GET("reports/projects/{projectId}/trace")
+    suspend fun getProjectTraceFiltered(
+        @Path("projectId") projectId: String,
+        @Query("crop_code") cropCode: String? = null,
+        @Query("cycle_status") cycleStatus: String? = null,
+        @Query("farmer_id") farmerId: String? = null,
+        @Query("limit") limit: Int = 100
+    ): Response<com.google.gson.JsonElement>
+
     @GET("reports/projects/{projectId}/trace/filter-options")
     suspend fun getProjectTraceFilterOptions(
         @Path("projectId") projectId: String
