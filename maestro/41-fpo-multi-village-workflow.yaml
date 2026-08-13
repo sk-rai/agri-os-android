@@ -1,0 +1,63 @@
+appId: com.agrios.app
+name: FPO multi-village workflow smoke
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900002000"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check FPO Multi-Village Workflow"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check FPO Multi-Village Workflow"
+- scrollUntilVisible:
+    element:
+      text: "FPO multi-village workflow check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "fpo_project_id=0f7e0a6b-8472-5d6d-8a14-a9d000002001"
+- assertVisible: "fpo_affiliated_farmer_count=12"
+- assertVisible: "fpo_village_count=4"
+- assertVisible: "fpo_crop_codes=MAIZE,RICE,SUGARCANE,WHEAT"
+- assertVisible: "fpo_stage_statuses=ACTIVE,COMPLETED,PARTIALLY_COMPLETED,PENDING"
+- assertVisible: "fpo_project_enrollment_api_count=12"
+- scrollUntilVisible:
+    element:
+      text: "fpo_project_trace_farmer_count=12"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "fpo_project_trace_crop_cycle_count=12"
+- assertVisible: "fpo_android_farmer_hydration_project_context=true"
+- assertVisible: "fpo_android_crop_cycles_rendered=true"
+- assertVisible: "fpo_android_multi_village_filter_visible=true"
+- takeScreenshot: "41-fpo-multi-village-workflow"

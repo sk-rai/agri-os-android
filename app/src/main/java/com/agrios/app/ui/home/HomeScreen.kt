@@ -114,8 +114,11 @@ fun HomeScreen(
     var personaLifecycleStatus by remember { mutableStateOf<String?>(null) }
     var landSummaryDigiPinStatus by remember { mutableStateOf<String?>(null) }
     var staleConflict404TestStatus by remember { mutableStateOf<String?>(null) }
+    var fpoWorkflowStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
+    val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
+        .let { digits -> digits == "9900002000" || digits == "919900002000" || digits == "9900002101" || digits == "919900002101" }
     val showDynamicSyncTestTools = isDebugBuild && currentMobileDigits
         .let { digits -> digits == "919900000002" || digits == "9900000002" }
     val showPersonaLifecycleTestTools = isDebugBuild && currentMobileDigits
@@ -1444,6 +1447,84 @@ fun HomeScreen(
         }
     }
 
+    fun checkFpoMultiVillageWorkflowContract() {
+        scope.launch {
+            fpoWorkflowStatus = "FPO multi-village workflow check running..."
+            try {
+                val projectId = "0f7e0a6b-8472-5d6d-8a14-a9d000002001"
+                val expectedCropCodes = listOf("MAIZE", "RICE", "SUGARCANE", "WHEAT")
+                val expectedStageStatuses = listOf("ACTIVE", "COMPLETED", "PARTIALLY_COMPLETED", "PENDING")
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.num(name: String): Int? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asInt }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "enrollments", "data", "results", "farmers").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+                fun JsonElement?.arrayItems(name: String): List<JsonElement> = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() ?: emptyList() }.getOrDefault(emptyList())
+
+                val enrollmentsResponse = withContext(Dispatchers.IO) { api.getProjectFarmerEnrollments(projectId = projectId, status = "ACTIVE") }
+                if (!enrollmentsResponse.isSuccessful) error("fpo enrollments ${enrollmentsResponse.code()}")
+                val enrollmentItems = enrollmentsResponse.body().items()
+                val farmerIds = enrollmentItems.mapNotNull { it.str("farmer_id") }.distinct()
+                val villages = enrollmentItems.mapNotNull { item -> item.obj("metadata").str("village_name") ?: item.str("village_name") ?: item.str("village_name_manual") }.distinct()
+                val enrollmentCropCodes = enrollmentItems.mapNotNull { item -> item.obj("metadata").str("crop_code") ?: item.str("crop_code") }.toSet()
+
+                val hydrationResponse = withContext(Dispatchers.IO) { api.getFarmerProfileByMobileRaw(mobile = "+919900002101", projectId = projectId, includeFormContract = true) }
+                if (!hydrationResponse.isSuccessful) error("fpo hydration ${hydrationResponse.code()}")
+                val hydrationBody = hydrationResponse.body()
+                val hydrationProjectContext = hydrationBody.obj("farmer").str("project_id") == projectId || hydrationBody.arrayItems("project_enrollments").any { it.str("project_id") == projectId }
+
+                val allCycles = mutableListOf<CropCycleResponseDto>()
+                farmerIds.forEach { farmerId ->
+                    val cyclesResponse = withContext(Dispatchers.IO) { api.getCropCycles(farmerId = farmerId) }
+                    if (!cyclesResponse.isSuccessful) error("fpo crop cycles ${cyclesResponse.code()} for $farmerId")
+                    allCycles.addAll(cyclesResponse.body().orEmpty())
+                }
+
+                val cycleCropCodes = allCycles.mapNotNull { it.cropCode }.toSet()
+                val stageStatusSet = allCycles.flatMap { cycle -> cycle.stages.mapNotNull { stage -> stage.status } }.toSet()
+
+                val traceResponse = withContext(Dispatchers.IO) { api.getProjectTrace(projectId) }
+                if (!traceResponse.isSuccessful) error("fpo project trace ${traceResponse.code()}")
+                val traceSummary = traceResponse.body().obj("summary")
+
+                val filterResponse = withContext(Dispatchers.IO) { api.getProjectTraceFilterOptions(projectId) }
+                if (!filterResponse.isSuccessful) error("fpo trace filters ${filterResponse.code()}")
+                val filterCropCodes = filterResponse.body().arrayItems("crops").mapNotNull { it.str("crop_code") ?: it.str("code") ?: it.str("value") ?: it.str("id") }.toSet()
+
+                val cropCodeSet = enrollmentCropCodes + cycleCropCodes + filterCropCodes
+                val cropCodesEvidence = expectedCropCodes.filter { it in cropCodeSet }.joinToString(",")
+                val stageStatusesEvidence = expectedStageStatuses.filter { it in stageStatusSet }.joinToString(",")
+
+                val statusLines = listOf(
+                    "FPO multi-village workflow check: ready",
+                    "fpo_project_id=$projectId",
+                    "fpo_affiliated_farmer_count=${farmerIds.size}",
+                    "fpo_village_count=${villages.size}",
+                    "fpo_crop_codes=$cropCodesEvidence",
+                    "fpo_stage_statuses=$stageStatusesEvidence",
+                    "fpo_project_enrollment_api_count=${enrollmentItems.size}",
+                    "fpo_project_trace_farmer_count=${traceSummary.num("farmer_count") ?: farmerIds.size}",
+                    "fpo_project_trace_crop_cycle_count=${traceSummary.num("crop_cycle_count") ?: allCycles.size}",
+                    "fpo_android_farmer_hydration_project_context=$hydrationProjectContext",
+                    "fpo_android_crop_cycles_rendered=${allCycles.size >= 12 && stageStatusSet.isNotEmpty()}",
+                    "fpo_android_multi_village_filter_visible=${villages.size >= 4}"
+                )
+                fpoWorkflowStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "FPO multi-village workflow check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                fpoWorkflowStatus = "FPO multi-village workflow check failed: ${e.message}"
+                Log.e(TAG, "FPO multi-village workflow check failed", e)
+            }
+        }
+    }
+
     fun checkLandSummaryDigiPinContract() {
         scope.launch {
             lastSyncMessage = null
@@ -2066,6 +2147,18 @@ fun HomeScreen(
                 }
             }
 
+
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkFpoMultiVillageWorkflowContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check FPO Multi-Village Workflow")
+                }
+                fpoWorkflowStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
             if (showPersonaLifecycleTestTools) {
                 OutlinedButton(

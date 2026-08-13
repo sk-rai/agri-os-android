@@ -144,6 +144,30 @@ interface AgriOsApi {
     ): Response<com.google.gson.JsonElement>
 
 
+    // --- Project/FPO debug smoke ---
+    @GET("projects/{projectId}/farmer-enrollments")
+    suspend fun getProjectFarmerEnrollments(
+        @Path("projectId") projectId: String,
+        @Query("status") status: String? = null
+    ): Response<com.google.gson.JsonElement>
+
+    @GET("reports/projects/{projectId}/trace")
+    suspend fun getProjectTrace(
+        @Path("projectId") projectId: String
+    ): Response<com.google.gson.JsonElement>
+
+    @GET("reports/projects/{projectId}/trace/filter-options")
+    suspend fun getProjectTraceFilterOptions(
+        @Path("projectId") projectId: String
+    ): Response<com.google.gson.JsonElement>
+
+    @GET("farmers/by-mobile/{mobile}")
+    suspend fun getFarmerProfileByMobileRaw(
+        @Path(value = "mobile", encoded = true) mobile: String,
+        @Query("project_id") projectId: String? = null,
+        @Query("include_form_contract") includeFormContract: Boolean? = null
+    ): Response<com.google.gson.JsonElement>
+
     // --- Parcels ---
     @POST("parcels")
     suspend fun createParcel(@Body request: CreateParcelDto): Response<ParcelResponseDto>
