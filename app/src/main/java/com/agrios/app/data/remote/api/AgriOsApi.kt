@@ -144,6 +144,13 @@ interface AgriOsApi {
     ): Response<com.google.gson.JsonElement>
 
 
+    @GET("broadcasts/farmers/{farmerId}/broadcasts")
+    suspend fun getFarmerBroadcastsRaw(
+        @Path("farmerId") farmerId: String,
+        @Query("language_code") languageCode: String? = null,
+        @Query("include_read") includeRead: Boolean? = null
+    ): Response<com.google.gson.JsonElement>
+
     // --- Project/FPO debug smoke ---
     @GET("projects/{projectId}/farmer-enrollments")
     suspend fun getProjectFarmerEnrollments(

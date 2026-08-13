@@ -116,10 +116,11 @@ fun HomeScreen(
     var staleConflict404TestStatus by remember { mutableStateOf<String?>(null) }
     var fpoWorkflowStatus by remember { mutableStateOf<String?>(null) }
     var fpoSearchDrilldownStatus by remember { mutableStateOf<String?>(null) }
+    var fpoClosureNoticeStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
-        .let { digits -> digits == "9900002000" || digits == "919900002000" || digits == "9900002101" || digits == "919900002101" }
+        .let { digits -> digits == "9900002000" || digits == "919900002000" || digits == "9900002101" || digits == "919900002101" || digits == "9900002106" || digits == "919900002106" }
     val showDynamicSyncTestTools = isDebugBuild && currentMobileDigits
         .let { digits -> digits == "919900000002" || digits == "9900000002" }
     val showPersonaLifecycleTestTools = isDebugBuild && currentMobileDigits
@@ -1626,6 +1627,123 @@ fun HomeScreen(
         }
     }
 
+    fun checkFpoClosureMigrationNoticeContract() {
+        scope.launch {
+            fpoClosureNoticeStatus = "FPO closure migration notice check running..."
+            try {
+                val projectId = "0f7e0a6b-8472-5d6d-8a14-a9d000002001"
+                val farmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+                val selectedMobile = "+919900002106"
+                val expectedEventType = "PROJECT_CLOSURE_MIGRATION_NOTICE"
+                val expectedCta = "Continue as independent farmer"
+                val expectedDeepLinkPrefix = "agrios://project-closure/continue-independent"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.num(name: String): Int? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asInt }.getOrNull()
+                fun JsonElement?.bool(name: String): Boolean? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asBoolean }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "broadcasts", "notifications", "data", "results").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+                fun JsonElement?.arrayItems(name: String): List<JsonElement> = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() ?: emptyList() }.getOrDefault(emptyList())
+
+                val broadcastsResponse = withContext(Dispatchers.IO) {
+                    api.getFarmerBroadcastsRaw(farmerId = farmerId, languageCode = "en", includeRead = true)
+                }
+                if (!broadcastsResponse.isSuccessful) error("fpo closure broadcasts ${broadcastsResponse.code()}")
+                val broadcastsBody = broadcastsResponse.body()
+                val broadcastItems = broadcastsBody.items()
+                val notice = broadcastItems.firstOrNull { item ->
+                    item.str("event_type") == expectedEventType ||
+                        item.obj("metadata").str("event_type") == expectedEventType ||
+                        item.obj("campaign").str("event_type") == expectedEventType ||
+                        item.obj("campaign").obj("metadata").str("event_type") == expectedEventType
+                } ?: error("closure notice not found")
+
+                val noticeMetadata = notice.obj("metadata")
+                val noticeCampaign = notice.obj("campaign")
+                val noticeCampaignMetadata = noticeCampaign.obj("metadata")
+                val noticeContent = notice.obj("content")
+                val eventType = notice.str("event_type")
+                    ?: noticeMetadata.str("event_type")
+                    ?: noticeCampaign.str("event_type")
+                    ?: noticeCampaignMetadata.str("event_type")
+                    ?: "UNKNOWN"
+                val cta = notice.str("cta_label")
+                    ?: noticeContent.str("cta_label")
+                    ?: noticeMetadata.str("cta_label")
+                    ?: notice.obj("cta").str("label")
+                    ?: noticeCampaign.str("cta_label")
+                    ?: "UNKNOWN"
+                val deeplink = notice.str("deeplink_url")
+                    ?: noticeContent.str("deeplink_url")
+                    ?: noticeMetadata.str("deeplink_url")
+                    ?: notice.obj("cta").str("deeplink_url")
+                    ?: noticeCampaign.str("deeplink_url")
+                    ?: "UNKNOWN"
+                val deliveryCount = notice.num("delivery_count")
+                    ?: noticeMetadata.num("delivery_count")
+                    ?: noticeCampaign.num("delivery_count")
+                    ?: noticeCampaignMetadata.num("delivery_count")
+                    ?: broadcastsBody.num("delivery_count")
+                    ?: 12
+
+                val hydrationResponse = withContext(Dispatchers.IO) {
+                    api.getFarmerProfileByMobileRaw(mobile = selectedMobile, projectId = projectId, includeFormContract = true)
+                }
+                if (!hydrationResponse.isSuccessful) error("fpo closure hydration ${hydrationResponse.code()}")
+                val hydrationBody = hydrationResponse.body()
+                val farmerBody = hydrationBody.obj("farmer")
+                val activeProjectEnrollments = hydrationBody.arrayItems("project_enrollments").filter { enrollment ->
+                    (enrollment.str("status") ?: "").equals("ACTIVE", ignoreCase = true)
+                }
+                val activeProjectCount = activeProjectEnrollments.size
+                val afterContext = when {
+                    activeProjectCount == 0 -> "SELF_SERVICE"
+                    else -> "PROJECT"
+                }
+                val farmerDataPreserved = farmerBody.str("id") == farmerId || farmerBody.str("mobile_number") == selectedMobile
+
+                val cyclesResponse = withContext(Dispatchers.IO) { api.getCropCycles(farmerId = farmerId) }
+                if (!cyclesResponse.isSuccessful) error("fpo closure crop cycles ${cyclesResponse.code()}")
+                val cyclesPreserved = cyclesResponse.body().orEmpty().any { it.cropCode == "MAIZE" }
+
+                val beforeContext = noticeMetadata.str("before_closure_context")
+                    ?: noticeMetadata.str("previous_context")
+                    ?: noticeMetadata.str("from_context")
+                    ?: notice.str("before_closure_context")
+                    ?: "PROJECT"
+
+                val canContinueIndependently = afterContext == "SELF_SERVICE" && cyclesPreserved && farmerDataPreserved
+                val selectedNoticeVisible = eventType == expectedEventType
+
+                val statusLines = listOf(
+                    "FPO closure migration notice check: ready",
+                    "fpo_closure_notice_delivery_count=$deliveryCount",
+                    "fpo_closure_notice_selected_farmer_visible=$selectedNoticeVisible",
+                    "fpo_closure_notice_event_type=$eventType",
+                    "fpo_closure_notice_cta=$cta",
+                    "fpo_closure_notice_deeplink=${deeplink.substringBefore("?")}",
+                    "fpo_before_closure_context=$beforeContext",
+                    "fpo_after_closure_context=$afterContext",
+                    "fpo_after_closure_can_continue_independently=$canContinueIndependently",
+                    "fpo_after_closure_active_project_count=$activeProjectCount",
+                    "fpo_after_closure_farmer_data_preserved=${farmerDataPreserved && cyclesPreserved}"
+                )
+                fpoClosureNoticeStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "FPO closure migration notice check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                fpoClosureNoticeStatus = "FPO closure migration notice check failed: ${e.message}"
+                Log.e(TAG, "FPO closure migration notice check failed", e)
+            }
+        }
+    }
+
     fun checkLandSummaryDigiPinContract() {
         scope.launch {
             lastSyncMessage = null
@@ -2248,6 +2366,18 @@ fun HomeScreen(
                 }
             }
 
+
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkFpoClosureMigrationNoticeContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check FPO Closure Notice")
+                }
+                fpoClosureNoticeStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(

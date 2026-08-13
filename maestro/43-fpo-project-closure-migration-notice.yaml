@@ -1,0 +1,66 @@
+appId: com.agrios.app
+name: FPO project closure migration notice smoke
+---
+# Backend state must leave closure notice + completed enrollment visible before this flow.
+# Check backend verifier help for setup/restore flags:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/verify_android_fpo_project_closure_migration_notice.py --help
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900002106"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check FPO Closure Notice"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check FPO Closure Notice"
+- scrollUntilVisible:
+    element:
+      text: "FPO closure migration notice check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "fpo_closure_notice_delivery_count=1"
+- assertVisible: "fpo_closure_notice_selected_farmer_visible=true"
+- assertVisible: "fpo_closure_notice_event_type=PROJECT_CLOSURE_MIGRATION_NOTICE"
+- assertVisible: "fpo_closure_notice_cta=Continue as independent farmer"
+- assertVisible: "fpo_closure_notice_deeplink=agrios://project-closure/continue-independent"
+- scrollUntilVisible:
+    element:
+      text: "fpo_before_closure_context=PROJECT"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "fpo_after_closure_context=SELF_SERVICE"
+- assertVisible: "fpo_after_closure_can_continue_independently=true"
+- assertVisible: "fpo_after_closure_active_project_count=0"
+- assertVisible: "fpo_after_closure_farmer_data_preserved=true"
+- takeScreenshot: "43-fpo-project-closure-migration-notice"
