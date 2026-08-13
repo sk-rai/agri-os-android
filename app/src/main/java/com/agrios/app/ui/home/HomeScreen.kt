@@ -117,6 +117,7 @@ fun HomeScreen(
     var fpoWorkflowStatus by remember { mutableStateOf<String?>(null) }
     var fpoSearchDrilldownStatus by remember { mutableStateOf<String?>(null) }
     var fpoClosureNoticeStatus by remember { mutableStateOf<String?>(null) }
+    var broadcastReadAckStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
@@ -1627,6 +1628,109 @@ fun HomeScreen(
         }
     }
 
+    fun checkBroadcastReadAckLifecycleContract() {
+        scope.launch {
+            broadcastReadAckStatus = "Broadcast read ack lifecycle check running..."
+            try {
+                val farmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+                val expectedEventType = "PROJECT_CLOSURE_MIGRATION_NOTICE"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.num(name: String): Int? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asInt }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "broadcasts", "notifications", "data", "results").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+
+                fun JsonElement?.eventType(): String? =
+                    this.str("event_type")
+                        ?: this.obj("metadata").str("event_type")
+                        ?: this.obj("campaign").str("event_type")
+                        ?: this.obj("campaign").obj("metadata").str("event_type")
+
+                fun JsonElement?.deliveryId(): String? =
+                    this.str("delivery_id")
+                        ?: this.obj("delivery").str("id")
+                        ?: this.str("id")
+
+                fun JsonElement?.deliveryStatus(): String? =
+                    this.str("delivery_status")
+                        ?: this.obj("delivery").str("status")
+                        ?: this.str("status")
+
+                fun JsonElement?.readAt(): String? =
+                    this.str("read_at")
+                        ?: this.obj("delivery").str("read_at")
+                        ?: this.str("delivered_at")
+                        ?: this.obj("delivery").str("delivered_at")
+
+                fun JsonElement?.ackAt(): String? =
+                    this.str("acknowledged_at")
+                        ?: this.obj("delivery").str("acknowledged_at")
+                        ?: this.str("ack_at")
+                        ?: this.obj("delivery").str("ack_at")
+
+                suspend fun fetchFeed(includeRead: Boolean): JsonElement? {
+                    val response = withContext(Dispatchers.IO) {
+                        api.getFarmerBroadcastsRaw(farmerId = farmerId, languageCode = "en", includeRead = includeRead)
+                    }
+                    if (!response.isSuccessful) error("broadcast feed include_read=$includeRead ${response.code()}")
+                    return response.body()
+                }
+
+                fun findNotice(feed: JsonElement?): JsonElement = feed.items().firstOrNull { it.eventType() == expectedEventType }
+                    ?: error("broadcast read ack notice not found")
+
+                val initialFeed = fetchFeed(includeRead = true)
+                val initialNotice = findNotice(initialFeed)
+                val deliveryId = initialNotice.deliveryId() ?: error("delivery id missing")
+                val initialStatus = initialNotice.deliveryStatus() ?: "PENDING"
+
+                val readResponse = withContext(Dispatchers.IO) { api.markBroadcastDeliveryReadRaw(deliveryId) }
+                if (!readResponse.isSuccessful) error("broadcast mark read ${readResponse.code()}")
+
+                val afterReadFeed = fetchFeed(includeRead = true)
+                val afterReadNotice = findNotice(afterReadFeed)
+                val readStatus = readResponse.body().deliveryStatus() ?: afterReadNotice.deliveryStatus() ?: "UNKNOWN"
+                val readAtSet = readResponse.body().readAt() != null || afterReadNotice.readAt() != null
+
+                val unreadAfterReadFeed = fetchFeed(includeRead = false)
+                val unreadCountAfterRead = unreadAfterReadFeed.num("count") ?: unreadAfterReadFeed.items().size
+
+                val ackResponse = withContext(Dispatchers.IO) { api.acknowledgeBroadcastDeliveryRaw(deliveryId) }
+                if (!ackResponse.isSuccessful) error("broadcast acknowledge ${ackResponse.code()}")
+
+                val afterAckFeed = fetchFeed(includeRead = true)
+                val afterAckNotice = findNotice(afterAckFeed)
+                val ackStatus = ackResponse.body().deliveryStatus() ?: afterAckNotice.deliveryStatus() ?: "UNKNOWN"
+                val acknowledgedAtSet = ackResponse.body().ackAt() != null || afterAckNotice.ackAt() != null
+
+                val statusLines = listOf(
+                    "Broadcast read ack lifecycle check: ready",
+                    "broadcast_read_ack_initial_status=$initialStatus",
+                    "broadcast_read_status=$readStatus",
+                    "broadcast_read_at_set=$readAtSet",
+                    "broadcast_ack_status=$ackStatus",
+                    "broadcast_acknowledged_at_set=$acknowledgedAtSet",
+                    "broadcast_unread_feed_count_after_read=$unreadCountAfterRead",
+                    "broadcast_feed_status_after_ack=${afterAckNotice.deliveryStatus() ?: ackStatus}",
+                    "broadcast_audit_mark_read=${readResponse.isSuccessful && readAtSet}",
+                    "broadcast_audit_acknowledge=${ackResponse.isSuccessful && acknowledgedAtSet}"
+                )
+                broadcastReadAckStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Broadcast read ack lifecycle check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                broadcastReadAckStatus = "Broadcast read ack lifecycle check failed: ${e.message}"
+                Log.e(TAG, "Broadcast read ack lifecycle check failed", e)
+            }
+        }
+    }
+
     fun checkFpoClosureMigrationNoticeContract() {
         scope.launch {
             fpoClosureNoticeStatus = "FPO closure migration notice check running..."
@@ -2369,12 +2473,36 @@ fun HomeScreen(
 
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(
+                    onClick = { checkBroadcastReadAckLifecycleContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Broadcast Read Ack")
+                }
+                broadcastReadAckStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
                     onClick = { checkFpoClosureMigrationNoticeContract() },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Check FPO Closure Notice")
                 }
                 fpoClosureNoticeStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkBroadcastReadAckLifecycleContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Broadcast Read Ack")
+                }
+                broadcastReadAckStatus?.lineSequence()?.forEach { line ->
                     Text(line, style = MaterialTheme.typography.bodySmall)
                 }
             }

@@ -144,6 +144,16 @@ interface AgriOsApi {
     ): Response<com.google.gson.JsonElement>
 
 
+    @POST("broadcasts/deliveries/{deliveryId}/read")
+    suspend fun markBroadcastDeliveryReadRaw(
+        @Path("deliveryId") deliveryId: String
+    ): Response<com.google.gson.JsonElement>
+
+    @POST("broadcasts/deliveries/{deliveryId}/acknowledge")
+    suspend fun acknowledgeBroadcastDeliveryRaw(
+        @Path("deliveryId") deliveryId: String
+    ): Response<com.google.gson.JsonElement>
+
     @GET("broadcasts/farmers/{farmerId}/broadcasts")
     suspend fun getFarmerBroadcastsRaw(
         @Path("farmerId") farmerId: String,

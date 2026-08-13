@@ -1,0 +1,66 @@
+appId: com.agrios.app
+name: Broadcast read ack lifecycle smoke
+---
+# Backend prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_fpo_multi_village_workflow.py --reset --apply
+#   ../venv/bin/python scripts/prepare_android_fpo_project_closure_migration_notice.py --reset --apply
+# Do not run verify_android_broadcast_read_ack_lifecycle.py before Maestro.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900002106"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Broadcast Read Ack"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Broadcast Read Ack"
+- scrollUntilVisible:
+    element:
+      text: "Broadcast read ack lifecycle check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "broadcast_read_ack_initial_status=PENDING"
+- assertVisible: "broadcast_read_status=DELIVERED"
+- assertVisible: "broadcast_read_at_set=true"
+- assertVisible: "broadcast_ack_status=ACKNOWLEDGED"
+- assertVisible: "broadcast_acknowledged_at_set=true"
+- scrollUntilVisible:
+    element:
+      text: "broadcast_unread_feed_count_after_read=0"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "broadcast_feed_status_after_ack=ACKNOWLEDGED"
+- assertVisible: "broadcast_audit_mark_read=true"
+- assertVisible: "broadcast_audit_acknowledge=true"
+- takeScreenshot: "44-broadcast-read-ack-lifecycle"
