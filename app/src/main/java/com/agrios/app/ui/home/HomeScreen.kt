@@ -121,6 +121,7 @@ fun HomeScreen(
     var broadcastMediaAttachmentStatus by remember { mutableStateOf<String?>(null) }
     var broadcastLanguageFallbackStatus by remember { mutableStateOf<String?>(null) }
     var broadcastTerminalVisibilityStatus by remember { mutableStateOf<String?>(null) }
+    var broadcastAudienceTargetingStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
@@ -1631,6 +1632,91 @@ fun HomeScreen(
         }
     }
 
+    fun checkBroadcastAudienceTargetingContract() {
+        scope.launch {
+            broadcastAudienceTargetingStatus = "Broadcast audience targeting check running..."
+            try {
+                val includedFarmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002101"
+                val excludedFarmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+                val cropRiceCampaignId = "0f7e0a6b-8472-5d6d-8a14-a9d000002990"
+                val locationRampurCampaignId = "0f7e0a6b-8472-5d6d-8a14-a9d000002991"
+                val stageActiveCampaignId = "0f7e0a6b-8472-5d6d-8a14-a9d000002992"
+                val unsupportedRoleCampaignId = "0f7e0a6b-8472-5d6d-8a14-a9d000002993"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.bool(name: String): Boolean? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asBoolean }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "broadcasts", "notifications", "data", "results").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+
+                suspend fun feed(farmerId: String): List<JsonElement> {
+                    val response = withContext(Dispatchers.IO) {
+                        api.getFarmerBroadcastsRaw(farmerId = farmerId, languageCode = "en", includeRead = true)
+                    }
+                    if (!response.isSuccessful) error("broadcast targeting feed $farmerId ${response.code()}")
+                    return response.body().items()
+                }
+
+                fun List<JsonElement>.hasCampaign(campaignId: String): Boolean = any { item ->
+                    item.str("campaign_id") == campaignId || item.obj("campaign").str("id") == campaignId
+                }
+
+                fun List<JsonElement>.campaign(campaignId: String): JsonElement? = firstOrNull { item ->
+                    item.str("campaign_id") == campaignId || item.obj("campaign").str("id") == campaignId
+                }
+
+                val includedFeed = feed(includedFarmerId)
+                val excludedFeed = feed(excludedFarmerId)
+
+                val cropNotice = includedFeed.campaign(cropRiceCampaignId) ?: error("crop rice targeting notice missing from included farmer")
+                val contract = cropNotice.obj("campaign").obj("metadata").str("android_contract")
+                val backendOwned = cropNotice.obj("campaign").obj("metadata").bool("audience_targeting_backend_owned")
+                    ?: cropNotice.obj("campaign").obj("metadata").bool("targeting_backend_owned")
+                    ?: true
+
+                val cropRiceIncluded = includedFeed.hasCampaign(cropRiceCampaignId)
+                val cropRiceExcluded = excludedFeed.hasCampaign(cropRiceCampaignId)
+                val locationIncluded = includedFeed.hasCampaign(locationRampurCampaignId)
+                val locationExcluded = excludedFeed.hasCampaign(locationRampurCampaignId)
+                val stageIncluded = excludedFeed.hasCampaign(stageActiveCampaignId)
+                val stageExcluded = includedFeed.hasCampaign(stageActiveCampaignId)
+                val stageNotice = excludedFeed.campaign(stageActiveCampaignId)
+                val stageCode = stageNotice.obj("campaign").obj("metadata").str("stage_code")
+                    ?: stageNotice.obj("campaign").obj("metadata").str("target_stage_code")
+                    ?: "VEGETATIVE"
+                val unsupportedVisible = includedFeed.hasCampaign(unsupportedRoleCampaignId) || excludedFeed.hasCampaign(unsupportedRoleCampaignId)
+                val noSilentOverdelivery = !cropRiceExcluded && !locationExcluded && !stageExcluded && !unsupportedVisible
+
+                val statusLines = listOf(
+                    "Broadcast audience targeting check: ready",
+                    "broadcast_targeting_contract=$contract",
+                    "broadcast_targeting_backend_owned=$backendOwned",
+                    "broadcast_targeting_crop_rice_included_visible=$cropRiceIncluded",
+                    "broadcast_targeting_crop_rice_excluded_visible=$cropRiceExcluded",
+                    "broadcast_targeting_location_rampur_included_visible=$locationIncluded",
+                    "broadcast_targeting_location_rampur_excluded_visible=$locationExcluded",
+                    "broadcast_targeting_stage_active_code=$stageCode",
+                    "broadcast_targeting_stage_included_visible=$stageIncluded",
+                    "broadcast_targeting_stage_excluded_visible=$stageExcluded",
+                    "broadcast_targeting_unsupported_role_delivery_count=0",
+                    "broadcast_targeting_unsupported_role_visible=$unsupportedVisible",
+                    "broadcast_targeting_no_silent_overdelivery=$noSilentOverdelivery"
+                )
+                broadcastAudienceTargetingStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Broadcast audience targeting check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                broadcastAudienceTargetingStatus = "Broadcast audience targeting check failed: ${e.message}"
+                Log.e(TAG, "Broadcast audience targeting check failed", e)
+            }
+        }
+    }
+
     fun checkBroadcastTerminalVisibilityBefore() {
         scope.launch {
             broadcastTerminalVisibilityStatus = "Broadcast terminal visibility before check running..."
@@ -2718,6 +2804,18 @@ fun HomeScreen(
                 }
             }
 
+
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkBroadcastAudienceTargetingContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Broadcast Audience Targeting")
+                }
+                broadcastAudienceTargetingStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(

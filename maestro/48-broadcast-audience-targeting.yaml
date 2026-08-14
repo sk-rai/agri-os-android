@@ -1,0 +1,73 @@
+appId: com.agrios.app
+name: Broadcast audience targeting smoke
+---
+# Backend fixture should already be prepared and left in place.
+# After Android passes, backend cleanup/commit is handled in backend repo.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900002106"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Broadcast Audience Targeting"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Broadcast Audience Targeting"
+- scrollUntilVisible:
+    element:
+      text: "Broadcast audience targeting check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "broadcast_targeting_contract=broadcast_audience_targeting.v1"
+- assertVisible: "broadcast_targeting_backend_owned=true"
+- assertVisible: "broadcast_targeting_crop_rice_included_visible=true"
+- assertVisible: "broadcast_targeting_crop_rice_excluded_visible=false"
+- assertVisible: "broadcast_targeting_location_rampur_included_visible=true"
+- assertVisible: "broadcast_targeting_location_rampur_excluded_visible=false"
+- scrollUntilVisible:
+    element:
+      text: "broadcast_targeting_stage_active_code=VEGETATIVE"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "broadcast_targeting_stage_included_visible=true"
+- assertVisible: "broadcast_targeting_stage_excluded_visible=false"
+- assertVisible: "broadcast_targeting_unsupported_role_delivery_count=0"
+- assertVisible: "broadcast_targeting_unsupported_role_visible=false"
+- scrollUntilVisible:
+    element:
+      text: "broadcast_targeting_no_silent_overdelivery=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "48-broadcast-audience-targeting"
