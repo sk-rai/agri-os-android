@@ -1,0 +1,82 @@
+appId: com.agrios.app
+name: Field event advisory loop smoke
+---
+- launchApp:
+    clearState: true
+- assertVisible: ".*Agri-OS"
+- tapOn: "English"
+- tapOn: "Continue"
+- assertVisible: "Mobile Number.*"
+- tapOn: "Mobile Number.*"
+- inputText: "9900002106"
+- hideKeyboard
+- tapOn: "Send OTP.*"
+- assertVisible: ".*OTP.*"
+- tapOn: "Verify.*"
+- assertVisible: ".*Agri-OS"
+- scrollUntilVisible:
+    element:
+      text: "Check Field Event Advisory Loop"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Field Event Advisory Loop"
+- scrollUntilVisible:
+    element:
+      text: "Field event advisory loop check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "field_event_advisory_contract=field_event_advisory_loop.v1"
+- assertVisible: "field_event_advisory_event_type=FIELD_EVENT_ADVISORY_CREATED"
+- assertVisible: "field_event_advisory_source_event_id=0f7e0a6b-8472-5d6d-8a14-a9d000002994"
+- assertVisible: "field_event_advisory_campaign_id=0f7e0a6b-8472-5d6d-8a14-a9d000002996"
+- assertVisible: "field_event_advisory_media_asset_reused=true"
+- assertVisible: "field_event_advisory_media_type=PHOTO"
+- scrollUntilVisible:
+    element:
+      text: "field_event_advisory_attachment_purpose=ADVISORY_ATTACHMENT"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "field_event_advisory_title=Maize pest photo advisory"
+- assertVisible: "field_event_advisory_included_farmer_visible=true"
+- scrollUntilVisible:
+    element:
+      text: "field_event_advisory_excluded_farmer_visible=false"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "field_event_advisory_storage_url_backend_provided=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "field_event_advisory_thumbnail_url_backend_provided=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "android_constructed_media_urls=false"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "49-field-event-advisory-loop"

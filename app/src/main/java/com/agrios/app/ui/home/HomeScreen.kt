@@ -122,6 +122,7 @@ fun HomeScreen(
     var broadcastLanguageFallbackStatus by remember { mutableStateOf<String?>(null) }
     var broadcastTerminalVisibilityStatus by remember { mutableStateOf<String?>(null) }
     var broadcastAudienceTargetingStatus by remember { mutableStateOf<String?>(null) }
+    var fieldEventAdvisoryLoopStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
@@ -1632,6 +1633,92 @@ fun HomeScreen(
         }
     }
 
+    fun checkFieldEventAdvisoryLoopContract() {
+        scope.launch {
+            fieldEventAdvisoryLoopStatus = "Field event advisory loop check running..."
+            try {
+                val includedFarmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+                val excludedFarmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002101"
+                val expectedCampaignId = "0f7e0a6b-8472-5d6d-8a14-a9d000002996"
+                val expectedMediaAssetId = "0f7e0a6b-8472-5d6d-8a14-a9d000002995"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "broadcasts", "notifications", "data", "results").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+
+                suspend fun feed(farmerId: String): List<JsonElement> {
+                    val response = withContext(Dispatchers.IO) {
+                        api.getFarmerBroadcastsRaw(farmerId = farmerId, languageCode = "en", includeRead = true)
+                    }
+                    if (!response.isSuccessful) error("field event advisory feed $farmerId ${response.code()}")
+                    return response.body().items()
+                }
+
+                fun JsonElement?.campaignId(): String? =
+                    this.str("campaign_id") ?: this.obj("campaign").str("id")
+
+                fun List<JsonElement>.hasCampaign(campaignId: String): Boolean =
+                    any { it.campaignId() == campaignId }
+
+                fun List<JsonElement>.campaign(campaignId: String): JsonElement? =
+                    firstOrNull { it.campaignId() == campaignId }
+
+                val includedFeed = feed(includedFarmerId)
+                val excludedFeed = feed(excludedFarmerId)
+                val notice = includedFeed.campaign(expectedCampaignId)
+                    ?: error("field event advisory campaign not visible for included farmer")
+
+                val campaignMetadata = notice.obj("campaign").obj("metadata")
+                    ?: notice.obj("campaign_metadata")
+                val content = notice.obj("content") ?: notice.obj("broadcast_content")
+                val firstAttachment = (content.obj("media_attachments") ?: notice.obj("media_attachments"))
+                    ?.takeIf { it.isJsonArray }
+                    ?.asJsonArray
+                    ?.firstOrNull()
+                val nestedAttachment = firstAttachment.obj("attachment")
+
+                val sourceFieldEventId = campaignMetadata.str("source_event_id")
+                    ?: campaignMetadata.str("field_event_id")
+                    ?: campaignMetadata.str("source_field_event_id")
+                val mediaAssetId = firstAttachment.str("media_asset_id")
+                    ?: firstAttachment.str("id")
+                    ?: nestedAttachment.str("media_asset_id")
+                    ?: nestedAttachment.str("media_id")
+                val storageBackendProvided = !firstAttachment.str("storage_url").isNullOrBlank()
+                val thumbnailBackendProvided = !firstAttachment.str("thumbnail_url").isNullOrBlank()
+
+                val statusLines = listOf(
+                    "Field event advisory loop check: ready",
+                    "field_event_advisory_contract=${campaignMetadata.str("android_contract")}",
+                    "field_event_advisory_event_type=${campaignMetadata.str("event_type")}",
+                    "field_event_advisory_source_event_id=$sourceFieldEventId",
+                    "field_event_advisory_campaign_id=${notice.campaignId()}",
+                    "field_event_advisory_media_asset_reused=${mediaAssetId == expectedMediaAssetId}",
+                    "field_event_advisory_media_type=${firstAttachment.str("media_type")}",
+                    "field_event_advisory_attachment_purpose=${nestedAttachment.str("purpose") ?: firstAttachment.str("purpose")}",
+                    "field_event_advisory_title=${content.str("title")}",
+                    "field_event_advisory_included_farmer_visible=${includedFeed.hasCampaign(expectedCampaignId)}",
+                    "field_event_advisory_excluded_farmer_visible=${excludedFeed.hasCampaign(expectedCampaignId)}",
+                    "field_event_advisory_storage_url_backend_provided=$storageBackendProvided",
+                    "field_event_advisory_thumbnail_url_backend_provided=$thumbnailBackendProvided",
+                    "android_constructed_media_urls=false"
+                )
+                fieldEventAdvisoryLoopStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Field event advisory loop check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                fieldEventAdvisoryLoopStatus = "Field event advisory loop check failed: ${e.message}"
+                Log.e(TAG, "Field event advisory loop check failed", e)
+            }
+        }
+    }
+
     fun checkBroadcastAudienceTargetingContract() {
         scope.launch {
             broadcastAudienceTargetingStatus = "Broadcast audience targeting check running..."
@@ -2805,6 +2892,17 @@ fun HomeScreen(
             }
 
 
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkFieldEventAdvisoryLoopContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Field Event Advisory Loop")
+                }
+                fieldEventAdvisoryLoopStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(
                     onClick = { checkBroadcastAudienceTargetingContract() },
