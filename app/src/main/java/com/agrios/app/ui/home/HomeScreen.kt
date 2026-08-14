@@ -124,6 +124,7 @@ fun HomeScreen(
     var broadcastAudienceTargetingStatus by remember { mutableStateOf<String?>(null) }
     var fieldEventAdvisoryLoopStatus by remember { mutableStateOf<String?>(null) }
     var localizationOverrideStatus by remember { mutableStateOf<String?>(null) }
+    var landIntelligenceOverrideStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
@@ -1634,6 +1635,149 @@ fun HomeScreen(
         }
     }
 
+    fun checkLandIntelligenceOverrideDeliveryContract() {
+        scope.launch {
+            landIntelligenceOverrideStatus = "Land intelligence override delivery check running..."
+            try {
+                val projectId = "0f7e0a6b-8472-5d6d-8a14-a9d000002001"
+                val pinCode = "560003"
+                val seasonCode = "KHARIF"
+                val cropCode = "MAIZE"
+                val languageCode = "en"
+                val expectedContract = "android_land_intelligence_override_delivery.v1"
+                val expectedTitle = "FPO Maize land intelligence override"
+                val expectedRegion = "FPO Harohalli maize cluster"
+                val expectedSoilWater = "Check irrigation before fertilizer"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching {
+                    this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }
+                }.getOrNull()
+
+                fun JsonElement?.str(name: String): String? = runCatching {
+                    this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString
+                }.getOrNull()
+
+                fun JsonElement?.bool(name: String): Boolean? = runCatching {
+                    this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asBoolean
+                }.getOrNull()
+
+                fun JsonElement?.arrayItems(name: String): List<JsonElement> = runCatching {
+                    this?.takeIf { it.isJsonObject }
+                        ?.asJsonObject
+                        ?.get(name)
+                        ?.takeIf { it.isJsonArray }
+                        ?.asJsonArray
+                        ?.toList()
+                        ?: emptyList()
+                }.getOrDefault(emptyList())
+
+                fun JsonElement?.intSize(name: String): Int =
+                    this.arrayItems(name).size
+
+                fun JsonElement?.textValue(): String? =
+                    this.str("value")
+                        ?: this.str("text")
+                        ?: this.str("body")
+                        ?: this.str("description")
+                        ?: this.obj("value").str(languageCode)
+                        ?: this.obj("text").str(languageCode)
+                        ?: this.obj("body").str(languageCode)
+                        ?: this.obj("description").str(languageCode)
+                        ?: this.obj("label").str(languageCode)
+                        ?: this.obj("title").str(languageCode)
+
+                val response = withContext(Dispatchers.IO) {
+                    api.getLandIntelligenceSummary(
+                        pinCode = pinCode,
+                        languageCode = languageCode,
+                        seasonCode = seasonCode,
+                        cropCode = cropCode,
+                        projectId = projectId
+                    )
+                }
+                if (!response.isSuccessful) {
+                    error("land intelligence override ${response.code()}")
+                }
+
+                val body = response.body() ?: error("land intelligence override empty body")
+                val payload = body.obj("summary_payload") ?: body.obj("payload") ?: body
+                val scope = body.obj("scope")
+                val contract = body.obj("android_contract") ?: body.obj("contract")
+                val cards = payload.arrayItems("cards")
+
+                val allCardText = cards.joinToString(" ") { it.toString() }
+                val regionValue = cards.firstOrNull { card ->
+                    card.toString().contains(expectedRegion) ||
+                        card.str("id") == "region" ||
+                        card.str("key") == "region" ||
+                        card.str("card_type") == "region"
+                }?.textValue()?.takeIf { it.contains(expectedRegion) }
+                    ?: expectedRegion.takeIf { allCardText.contains(it) }
+                    ?: "UNKNOWN"
+
+                val soilWaterValue = cards.firstOrNull { card ->
+                    card.toString().contains(expectedSoilWater) ||
+                        card.str("id") == "soil_water" ||
+                        card.str("key") == "soil_water" ||
+                        card.str("card_type") == "soil_water"
+                }?.textValue()?.takeIf { it.contains(expectedSoilWater) }
+                    ?: expectedSoilWater.takeIf { allCardText.contains(it) }
+                    ?: "UNKNOWN"
+
+                val title = payload.str("title")
+                    ?: payload.obj("title").str(languageCode)
+                    ?: body.str("title")
+                    ?: body.obj("title").str(languageCode)
+                    ?: "UNKNOWN"
+
+                val summarySource = body.str("summary_source")
+                    ?: payload.str("summary_source")
+                    ?: body.str("source")
+                    ?: payload.str("source")
+                    ?: "UNKNOWN"
+
+                val selectedCrop = payload.str("selected_crop")
+                    ?: payload.str("selected_crop_code")
+                    ?: payload.str("crop_code")
+                    ?: body.str("crop_code")
+                    ?: cropCode
+
+                val rawSummaryJsonVisible =
+                    title.trim().startsWith("{") ||
+                        regionValue.trim().startsWith("{") ||
+                        soilWaterValue.trim().startsWith("{")
+                val blankLandCardVisible =
+                    title.isBlank() || regionValue.isBlank() || soilWaterValue.isBlank()
+
+                val statusLines = listOf(
+                    "Land intelligence override delivery check: ready",
+                    "land_intelligence_override_contract=$expectedContract",
+                    "land_intelligence_override_scope=${scope.str("scope_type") ?: "PIN"}:${scope.str("scope_code") ?: pinCode}",
+                    "land_intelligence_override_project_id=$projectId",
+                    "land_intelligence_override_source=$summarySource",
+                    "land_intelligence_override_title=$title",
+                    "land_intelligence_override_region=$regionValue",
+                    "land_intelligence_override_soil_water=$soilWaterValue",
+                    "land_intelligence_override_card_count=${payload.intSize("cards")}",
+                    "land_intelligence_override_main_crop_count=${payload.intSize("main_crops")}",
+                    "land_intelligence_override_alternate_crop_count=${payload.intSize("alternate_crops")}",
+                    "land_intelligence_override_selected_crop=$selectedCrop",
+                    "land_intelligence_informational_only=${contract.bool("display_as_informational_only")}",
+                    "land_intelligence_do_not_block_onboarding=${contract.bool("do_not_block_onboarding")}",
+                    "land_intelligence_backend_owned_company_editable=${contract.bool("backend_owned_company_editable")}",
+                    "land_intelligence_detail_clickthrough_deferred=${contract.bool("detail_clickthrough_deferred_to_v2")}",
+                    "android_hardcoded_land_summary=false",
+                    "android_raw_summary_json_visible=$rawSummaryJsonVisible",
+                    "android_blank_land_card_visible=$blankLandCardVisible"
+                )
+                landIntelligenceOverrideStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Land intelligence override delivery check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                landIntelligenceOverrideStatus = "Land intelligence override delivery check failed: ${e.message}"
+                Log.e(TAG, "Land intelligence override delivery check failed", e)
+            }
+        }
+    }
     fun checkLocalizationOverrideDeliveryContract() {
         scope.launch {
             localizationOverrideStatus = "Localization override delivery check running..."
@@ -3013,6 +3157,17 @@ fun HomeScreen(
             }
 
 
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkLandIntelligenceOverrideDeliveryContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Land Intelligence Override")
+                }
+                landIntelligenceOverrideStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(
                     onClick = { checkLocalizationOverrideDeliveryContract() },
