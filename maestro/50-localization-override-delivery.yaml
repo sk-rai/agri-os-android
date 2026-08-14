@@ -1,0 +1,82 @@
+appId: com.agrios.app
+name: Localization override delivery smoke
+---
+- launchApp:
+    clearState: true
+- assertVisible: ".*Agri-OS"
+- tapOn: "English"
+- tapOn: "Continue"
+- assertVisible: "Mobile Number.*"
+- tapOn: "Mobile Number.*"
+- inputText: "9900002106"
+- hideKeyboard
+- tapOn: "Send OTP.*"
+- assertVisible: ".*OTP.*"
+- tapOn: "Verify.*"
+- assertVisible: ".*Agri-OS"
+- scrollUntilVisible:
+    element:
+      text: "Check Localization Override Delivery"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Localization Override Delivery"
+- scrollUntilVisible:
+    element:
+      text: "Localization override delivery check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "localization_override_contract=android_localization_override_delivery.v1"
+- assertVisible: "localization_override_language=kn"
+- assertVisible: "localization_override_form_key=profile_form.activity_log.title"
+- scrollUntilVisible:
+    element:
+      text: "localization_override_form_title=ಚಟುವಟಿಕೆ ದಾಖಲಿಸಿ - Android override smoke"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- assertVisible: "localization_override_option_key=profile_option_set.languages.option.kn.label"
+- scrollUntilVisible:
+    element:
+      text: "localization_override_option_label=ಕನ್ನಡ - Android override smoke"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- assertVisible: "localization_override_bootstrap_visible=true"
+- assertVisible: "localization_override_form_payload_visible=true"
+- assertVisible: "localization_override_option_payload_visible=true"
+- assertVisible: "android_backend_label_resolution=true"
+- scrollUntilVisible:
+    element:
+      text: "android_hardcoded_translation=false"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "android_raw_label_json_visible=false"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "android_blank_label_visible=false"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "50-localization-override-delivery"

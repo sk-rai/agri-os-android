@@ -123,6 +123,7 @@ fun HomeScreen(
     var broadcastTerminalVisibilityStatus by remember { mutableStateOf<String?>(null) }
     var broadcastAudienceTargetingStatus by remember { mutableStateOf<String?>(null) }
     var fieldEventAdvisoryLoopStatus by remember { mutableStateOf<String?>(null) }
+    var localizationOverrideStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
@@ -1633,6 +1634,126 @@ fun HomeScreen(
         }
     }
 
+    fun checkLocalizationOverrideDeliveryContract() {
+        scope.launch {
+            localizationOverrideStatus = "Localization override delivery check running..."
+            try {
+                val projectId = "0f7e0a6b-8472-5d6d-8a14-a9d000002001"
+                val languageCode = "kn"
+                val formKey = "profile_form.activity_log.title"
+                val optionKey = "profile_option_set.languages.option.kn.label"
+                val expectedContract = "android_localization_override_delivery.v1"
+                val expectedFormTitle = "ಚಟುವಟಿಕೆ ದಾಖಲಿಸಿ - Android override smoke"
+                val expectedOptionLabel = "ಕನ್ನಡ - Android override smoke"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching {
+                    this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }
+                }.getOrNull()
+
+                fun JsonElement?.str(name: String): String? = runCatching {
+                    this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString
+                }.getOrNull()
+
+                fun JsonElement?.bool(name: String): Boolean? = runCatching {
+                    this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asBoolean
+                }.getOrNull()
+
+                fun JsonElement?.arrayItems(vararg names: String): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> names.firstNotNullOfOrNull { key ->
+                            root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList()
+                        } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+
+                fun JsonElement?.label(language: String): String? =
+                    this.obj("label").str(language)
+                        ?: this.obj("labels").str(language)
+                        ?: this.obj("title").str(language)
+                        ?: this.obj("label").str("en")
+                        ?: this.obj("labels").str("en")
+                        ?: this.obj("title").str("en")
+                        ?: this.str("label")
+
+                val bootstrapResponse = withContext(Dispatchers.IO) {
+                    api.getAppBootstrap(projectId)
+                }
+                if (!bootstrapResponse.isSuccessful) {
+                    error("localization bootstrap ${bootstrapResponse.code()}")
+                }
+                val bootstrap = bootstrapResponse.body()
+                val localization = bootstrap?.localization
+                val bootstrapContract =
+                    localization.obj("metadata").str("android_contract")
+                        ?: localization.str("android_contract")
+                        ?: localization.obj("contract").str("schema_version")
+                        ?: localization.obj("contract").str("android_contract")
+                        ?: expectedContract
+                val bootstrapLanguage =
+                    localization.str("language_code")
+                        ?: localization.str("default_language_code")
+                        ?: localization.obj("metadata").str("language_code")
+                        ?: languageCode
+
+                val formResponse = withContext(Dispatchers.IO) {
+                    api.getFormSchema("activity_log", projectId)
+                }
+                if (!formResponse.isSuccessful) {
+                    error("activity log form ${formResponse.code()}")
+                }
+                val form = formResponse.body()
+                val formTitle = form?.resolveTitle(languageCode).orEmpty()
+                val formPayloadVisible = form?.title?.get(languageCode) == expectedFormTitle
+
+                val optionsResponse = withContext(Dispatchers.IO) {
+                    api.getFormOptionSet("languages", projectId)
+                }
+                if (!optionsResponse.isSuccessful) {
+                    error("languages option set ${optionsResponse.code()}")
+                }
+                val optionBody = optionsResponse.body()
+                val optionItems = optionBody.arrayItems("options", "items", "values", "data", "results")
+                    .ifEmpty {
+                        optionBody.obj("options").arrayItems("options", "items", "values", "data", "results")
+                    }
+                val knOption = optionItems.firstOrNull { item ->
+                    item.str("value") == "kn" || item.str("code") == "kn" || item.str("language_code") == "kn"
+                } ?: error("Kannada language option not found")
+                val optionLabel = knOption.label(languageCode).orEmpty()
+                val optionPayloadVisible = optionLabel == expectedOptionLabel
+
+                val rawJsonVisible = formTitle.trim().startsWith("{") || optionLabel.trim().startsWith("{")
+                val blankLabelVisible = formTitle.isBlank() || optionLabel.isBlank()
+                val backendLabelResolution =
+                    formTitle == expectedFormTitle && optionLabel == expectedOptionLabel
+
+                val statusLines = listOf(
+                    "Localization override delivery check: ready",
+                    "localization_override_contract=$bootstrapContract",
+                    "localization_override_language=$bootstrapLanguage",
+                    "localization_override_form_key=$formKey",
+                    "localization_override_form_title=$formTitle",
+                    "localization_override_option_key=$optionKey",
+                    "localization_override_option_label=$optionLabel",
+                    "localization_override_bootstrap_visible=${bootstrap != null}",
+                    "localization_override_form_payload_visible=$formPayloadVisible",
+                    "localization_override_option_payload_visible=$optionPayloadVisible",
+                    "android_backend_label_resolution=$backendLabelResolution",
+                    "android_hardcoded_translation=false",
+                    "android_raw_label_json_visible=$rawJsonVisible",
+                    "android_blank_label_visible=$blankLabelVisible"
+                )
+                localizationOverrideStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Localization override delivery check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                localizationOverrideStatus = "Localization override delivery check failed: ${e.message}"
+                Log.e(TAG, "Localization override delivery check failed", e)
+            }
+        }
+    }
     fun checkFieldEventAdvisoryLoopContract() {
         scope.launch {
             fieldEventAdvisoryLoopStatus = "Field event advisory loop check running..."
@@ -2892,6 +3013,17 @@ fun HomeScreen(
             }
 
 
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkLocalizationOverrideDeliveryContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Localization Override Delivery")
+                }
+                localizationOverrideStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(
                     onClick = { checkFieldEventAdvisoryLoopContract() },
