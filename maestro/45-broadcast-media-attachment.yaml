@@ -1,0 +1,83 @@
+appId: com.agrios.app
+name: Broadcast media attachment smoke
+---
+# Backend prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_fpo_multi_village_workflow.py --reset --apply
+#   ../venv/bin/python scripts/verify_broadcast_media_attachment_delivery.py --reset --apply
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900002106"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Broadcast Media Attachment"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Broadcast Media Attachment"
+- scrollUntilVisible:
+    element:
+      text: "Broadcast media attachment check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "broadcast_media_contract=broadcast_media_attachment.v1"
+- assertVisible: "broadcast_media_event_type=MEDIA_ADVISORY_WITH_ATTACHMENT"
+- assertVisible: "broadcast_media_title=Pest scouting photo advisory"
+- assertVisible: "broadcast_media_text_fallback_present=true"
+- assertVisible: "broadcast_media_attachment_count=1"
+- assertVisible: "broadcast_media_type=PHOTO"
+- assertVisible: "broadcast_media_mime_type=image/jpeg"
+- scrollUntilVisible:
+    element:
+      text: "broadcast_media_upload_status=UPLOADED"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "broadcast_media_storage_url_backend_provided=true"
+- assertVisible: "broadcast_media_thumbnail_url_backend_provided=true"
+- assertVisible: "broadcast_media_attachment_purpose=ADVISORY_ATTACHMENT"
+- scrollUntilVisible:
+    element:
+      text: "broadcast_media_caption=Pest scouting reference photo"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "android_constructed_media_urls=false"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "45-broadcast-media-attachment"

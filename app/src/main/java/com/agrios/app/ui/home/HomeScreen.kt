@@ -118,6 +118,7 @@ fun HomeScreen(
     var fpoSearchDrilldownStatus by remember { mutableStateOf<String?>(null) }
     var fpoClosureNoticeStatus by remember { mutableStateOf<String?>(null) }
     var broadcastReadAckStatus by remember { mutableStateOf<String?>(null) }
+    var broadcastMediaAttachmentStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
@@ -1628,6 +1629,77 @@ fun HomeScreen(
         }
     }
 
+    fun checkBroadcastMediaAttachmentContract() {
+        scope.launch {
+            broadcastMediaAttachmentStatus = "Broadcast media attachment check running..."
+            try {
+                val farmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+                val expectedCampaignId = "0f7e0a6b-8472-5d6d-8a14-a9d000002960"
+                val expectedContract = "broadcast_media_attachment.v1"
+                val expectedEventType = "MEDIA_ADVISORY_WITH_ATTACHMENT"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "broadcasts", "notifications", "data", "results").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+                fun JsonElement?.arrayItems(name: String): List<JsonElement> = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() ?: emptyList() }.getOrDefault(emptyList())
+
+                val feedResponse = withContext(Dispatchers.IO) {
+                    api.getFarmerBroadcastsRaw(farmerId = farmerId, languageCode = "en", includeRead = true)
+                }
+                if (!feedResponse.isSuccessful) error("broadcast media feed ${feedResponse.code()}")
+
+                val mediaNotice = feedResponse.body().items().firstOrNull { item ->
+                    item.obj("campaign").str("id") == expectedCampaignId ||
+                        item.str("campaign_id") == expectedCampaignId ||
+                        item.obj("campaign").obj("metadata").str("event_type") == expectedEventType
+                } ?: error("broadcast media notice not found")
+
+                val campaign = mediaNotice.obj("campaign")
+                val campaignMetadata = campaign.obj("metadata")
+                val content = mediaNotice.obj("content")
+                val attachment = content.arrayItems("media_attachments").firstOrNull()
+                    ?: mediaNotice.arrayItems("media_attachments").firstOrNull()
+                    ?: error("broadcast media attachment not found")
+                val nestedAttachment = attachment.obj("attachment")
+
+                val storageUrl = attachment.str("storage_url") ?: nestedAttachment.str("storage_url") ?: ""
+                val thumbnailUrl = attachment.str("thumbnail_url") ?: nestedAttachment.str("thumbnail_url") ?: ""
+                val storageUrlBackendProvided = storageUrl.startsWith("http://") || storageUrl.startsWith("https://") || storageUrl.startsWith("s3://") || storageUrl.startsWith("/")
+                val thumbnailUrlBackendProvided = thumbnailUrl.startsWith("http://") || thumbnailUrl.startsWith("https://") || thumbnailUrl.startsWith("s3://") || thumbnailUrl.startsWith("/")
+                val bodyTextPresent = !content.str("body_text").isNullOrBlank()
+
+                val statusLines = listOf(
+                    "Broadcast media attachment check: ready",
+                    "broadcast_media_contract=${campaignMetadata.str("android_contract")}",
+                    "broadcast_media_event_type=${campaignMetadata.str("event_type")}",
+                    "broadcast_media_title=${content.str("title")}",
+                    "broadcast_media_text_fallback_present=$bodyTextPresent",
+                    "broadcast_media_attachment_count=${content.arrayItems("media_attachments").size}",
+                    "broadcast_media_type=${attachment.str("media_type") ?: nestedAttachment.str("media_type")}",
+                    "broadcast_media_mime_type=${attachment.str("mime_type") ?: nestedAttachment.str("mime_type")}",
+                    "broadcast_media_upload_status=${attachment.str("upload_status") ?: nestedAttachment.str("upload_status")}",
+                    "broadcast_media_storage_url_backend_provided=$storageUrlBackendProvided",
+                    "broadcast_media_thumbnail_url_backend_provided=$thumbnailUrlBackendProvided",
+                    "broadcast_media_attachment_purpose=${attachment.str("purpose") ?: nestedAttachment.str("purpose")}",
+                    "broadcast_media_caption=${attachment.str("caption") ?: nestedAttachment.str("caption")}",
+                    "android_constructed_media_urls=false"
+                )
+                broadcastMediaAttachmentStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Broadcast media attachment check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                broadcastMediaAttachmentStatus = "Broadcast media attachment check failed: ${e.message}"
+                Log.e(TAG, "Broadcast media attachment check failed", e)
+            }
+        }
+    }
+
     fun checkBroadcastReadAckLifecycleContract() {
         scope.launch {
             broadcastReadAckStatus = "Broadcast read ack lifecycle check running..."
@@ -2470,6 +2542,18 @@ fun HomeScreen(
                 }
             }
 
+
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkBroadcastMediaAttachmentContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Broadcast Media Attachment")
+                }
+                broadcastMediaAttachmentStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(
