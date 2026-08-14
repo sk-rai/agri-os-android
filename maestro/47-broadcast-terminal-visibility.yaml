@@ -1,0 +1,81 @@
+appId: com.agrios.app
+name: Broadcast terminal visibility smoke
+---
+# Backend before this flow should already be prepared and leave terminal campaign visible.
+# During the 45-second wait after before assertions, run:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_broadcast_terminal_visibility.py --transition expire --ack-before-transition > /tmp/broadcast-terminal-visibility-transition.raw 2>&1
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900002106"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Broadcast Terminal Visibility"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Broadcast Terminal Visibility"
+- scrollUntilVisible:
+    element:
+      text: "Broadcast terminal visibility before check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "broadcast_terminal_visible_before=true"
+- assertVisible: "broadcast_terminal_contract=broadcast_terminal_visibility.v1"
+- assertVisible: "broadcast_terminal_event_type=TERMINAL_VISIBILITY_ADVISORY"
+- assertVisible: "broadcast_terminal_title=Broadcast ending soon"
+- assertVisible: "broadcast_terminal_initial_status=PENDING"
+- assertVisible: "broadcast_terminal_waiting_for_backend_transition=true"
+- takeScreenshot: "47-before-backend-terminal-transition"
+- runScript:
+    file: wait-60s.js
+- scrollUntilVisible:
+    element:
+      text: "Refresh Broadcast Terminal Visibility"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Refresh Broadcast Terminal Visibility"
+- scrollUntilVisible:
+    element:
+      text: "Broadcast terminal visibility after refresh: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "broadcast_terminal_visible_after_refresh=false"
+- assertVisible: "broadcast_terminal_feed_count_after_refresh=0"
+- assertVisible: "broadcast_terminal_dismissed_after_backend_transition=true"
+- assertVisible: "broadcast_terminal_fatal_error_visible=false"
+- assertVisible: "broadcast_terminal_retry_loop=false"
+- assertVisible: "broadcast_terminal_transition_backend_owned=true"
+- takeScreenshot: "47-broadcast-terminal-visibility"

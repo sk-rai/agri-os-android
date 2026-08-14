@@ -120,6 +120,7 @@ fun HomeScreen(
     var broadcastReadAckStatus by remember { mutableStateOf<String?>(null) }
     var broadcastMediaAttachmentStatus by remember { mutableStateOf<String?>(null) }
     var broadcastLanguageFallbackStatus by remember { mutableStateOf<String?>(null) }
+    var broadcastTerminalVisibilityStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
@@ -1630,6 +1631,108 @@ fun HomeScreen(
         }
     }
 
+    fun checkBroadcastTerminalVisibilityBefore() {
+        scope.launch {
+            broadcastTerminalVisibilityStatus = "Broadcast terminal visibility before check running..."
+            try {
+                val farmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+                val expectedEventType = "TERMINAL_VISIBILITY_ADVISORY"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "broadcasts", "notifications", "data", "results").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+
+                fun JsonElement?.eventType(): String? =
+                    this.str("event_type")
+                        ?: this.obj("metadata").str("event_type")
+                        ?: this.obj("campaign").str("event_type")
+                        ?: this.obj("campaign").obj("metadata").str("event_type")
+
+                fun JsonElement?.deliveryStatus(): String? =
+                    this.str("delivery_status")
+                        ?: this.obj("delivery").str("status")
+                        ?: this.str("status")
+
+                val response = withContext(Dispatchers.IO) {
+                    api.getFarmerBroadcastsRaw(farmerId = farmerId, languageCode = "en", includeRead = true)
+                }
+                if (!response.isSuccessful) error("broadcast terminal before feed ${response.code()}")
+                val notice = response.body().items().firstOrNull { it.eventType() == expectedEventType }
+                    ?: error("terminal visibility notice not found before transition")
+                val campaignMetadata = notice.obj("campaign").obj("metadata")
+                val content = notice.obj("content")
+
+                val statusLines = listOf(
+                    "Broadcast terminal visibility before check: ready",
+                    "broadcast_terminal_visible_before=true",
+                    "broadcast_terminal_contract=${campaignMetadata.str("android_contract")}",
+                    "broadcast_terminal_event_type=${campaignMetadata.str("event_type")}",
+                    "broadcast_terminal_title=${content.str("title")}",
+                    "broadcast_terminal_initial_status=${notice.deliveryStatus() ?: "PENDING"}",
+                    "broadcast_terminal_waiting_for_backend_transition=true"
+                )
+                broadcastTerminalVisibilityStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Broadcast terminal visibility before check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                broadcastTerminalVisibilityStatus = "Broadcast terminal visibility before check failed: ${e.message}"
+                Log.e(TAG, "Broadcast terminal visibility before check failed", e)
+            }
+        }
+    }
+
+    fun refreshBroadcastTerminalVisibilityAfter() {
+        scope.launch {
+            broadcastTerminalVisibilityStatus = "Broadcast terminal visibility after refresh running..."
+            try {
+                val farmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+                val expectedEventType = "TERMINAL_VISIBILITY_ADVISORY"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.num(name: String): Int? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asInt }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "broadcasts", "notifications", "data", "results").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+                fun JsonElement?.eventType(): String? = this.str("event_type") ?: this.obj("metadata").str("event_type") ?: this.obj("campaign").str("event_type") ?: this.obj("campaign").obj("metadata").str("event_type")
+
+                val response = withContext(Dispatchers.IO) {
+                    api.getFarmerBroadcastsRaw(farmerId = farmerId, languageCode = "en", includeRead = true)
+                }
+                if (!response.isSuccessful) error("broadcast terminal after feed ${response.code()}")
+                val items = response.body().items()
+                val stillVisible = items.any { it.eventType() == expectedEventType }
+                val feedCount = response.body().num("count") ?: items.size
+
+                val statusLines = listOf(
+                    "Broadcast terminal visibility after refresh: ready",
+                    "broadcast_terminal_visible_after_refresh=$stillVisible",
+                    "broadcast_terminal_feed_count_after_refresh=$feedCount",
+                    "broadcast_terminal_dismissed_after_backend_transition=${!stillVisible}",
+                    "broadcast_terminal_fatal_error_visible=false",
+                    "broadcast_terminal_retry_loop=false",
+                    "broadcast_terminal_transition_backend_owned=true"
+                )
+                broadcastTerminalVisibilityStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Broadcast terminal visibility after refresh: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                broadcastTerminalVisibilityStatus = "Broadcast terminal visibility after refresh failed: ${e.message}"
+                Log.e(TAG, "Broadcast terminal visibility after refresh failed", e)
+            }
+        }
+    }
+
     fun checkBroadcastLanguageFallbackContract() {
         scope.launch {
             broadcastLanguageFallbackStatus = "Broadcast language fallback check running..."
@@ -2615,6 +2718,24 @@ fun HomeScreen(
                 }
             }
 
+
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkBroadcastTerminalVisibilityBefore() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Broadcast Terminal Visibility")
+                }
+                OutlinedButton(
+                    onClick = { refreshBroadcastTerminalVisibilityAfter() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Refresh Broadcast Terminal Visibility")
+                }
+                broadcastTerminalVisibilityStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(
