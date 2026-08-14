@@ -119,6 +119,7 @@ fun HomeScreen(
     var fpoClosureNoticeStatus by remember { mutableStateOf<String?>(null) }
     var broadcastReadAckStatus by remember { mutableStateOf<String?>(null) }
     var broadcastMediaAttachmentStatus by remember { mutableStateOf<String?>(null) }
+    var broadcastLanguageFallbackStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
     val showFpoWorkflowTestTools = isDebugBuild && currentMobileDigits
@@ -1629,6 +1630,78 @@ fun HomeScreen(
         }
     }
 
+    fun checkBroadcastLanguageFallbackContract() {
+        scope.launch {
+            broadcastLanguageFallbackStatus = "Broadcast language fallback check running..."
+            try {
+                val farmerId = "0f7e0a6b-8472-5d6d-8a14-a9d000002106"
+                val expectedCampaignId = "0f7e0a6b-8472-5d6d-8a14-a9d000002970"
+                val expectedContract = "broadcast_language_fallback.v1"
+                val expectedEventType = "LANGUAGE_FALLBACK_ADVISORY"
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull } }.getOrNull()
+                fun JsonElement?.str(name: String): String? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString }.getOrNull()
+                fun JsonElement?.bool(name: String): Boolean? = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asBoolean }.getOrNull()
+                fun JsonElement?.items(): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> listOf("items", "broadcasts", "notifications", "data", "results").firstNotNullOfOrNull { key -> root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+                fun JsonElement?.arrayItems(name: String): List<JsonElement> = runCatching { this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { it.isJsonArray }?.asJsonArray?.toList() ?: emptyList() }.getOrDefault(emptyList())
+
+                suspend fun fetchFeed(languageCode: String?): JsonElement? {
+                    val response = withContext(Dispatchers.IO) {
+                        api.getFarmerBroadcastsRaw(farmerId = farmerId, languageCode = languageCode, includeRead = true)
+                    }
+                    if (!response.isSuccessful) error("broadcast language feed ${languageCode ?: "default"} ${response.code()}")
+                    return response.body()
+                }
+
+                fun findNotice(feed: JsonElement?): JsonElement = feed.items().firstOrNull { item ->
+                    item.obj("campaign").str("id") == expectedCampaignId ||
+                        item.str("campaign_id") == expectedCampaignId ||
+                        item.obj("campaign").obj("metadata").str("event_type") == expectedEventType
+                } ?: error("broadcast language fallback notice not found")
+
+                val hiNotice = findNotice(fetchFeed("hi"))
+                val knNotice = findNotice(fetchFeed("kn"))
+                val defaultNotice = findNotice(fetchFeed(null))
+
+                val campaign = hiNotice.obj("campaign")
+                val campaignMetadata = campaign.obj("metadata")
+                val hiContent = hiNotice.obj("content")
+                val knContent = knNotice.obj("content")
+                val defaultContent = defaultNotice.obj("content")
+                val fallbackAttachment = knContent.arrayItems("media_attachments").firstOrNull()
+                    ?: defaultContent.arrayItems("media_attachments").firstOrNull()
+                    ?: error("fallback media attachment not found")
+                val nestedAttachment = fallbackAttachment.obj("attachment")
+
+                val statusLines = listOf(
+                    "Broadcast language fallback check: ready",
+                    "broadcast_language_contract=${campaignMetadata.str("android_contract")}",
+                    "broadcast_language_event_type=${campaignMetadata.str("event_type")}",
+                    "broadcast_language_backend_owned=${campaignMetadata.bool("language_selection_backend_owned")}",
+                    "broadcast_language_hi_content_language=${hiContent.str("language_code")}",
+                    "broadcast_language_hi_title=${hiContent.str("title")}",
+                    "broadcast_language_kn_content_language=${knContent.str("language_code")}",
+                    "broadcast_language_default_content_language=${defaultContent.str("language_code")}",
+                    "broadcast_language_fallback_media_count=${knContent.arrayItems("media_attachments").size}",
+                    "broadcast_language_fallback_media_type=${fallbackAttachment.str("media_type") ?: nestedAttachment.str("media_type")}",
+                    "android_local_language_fallback=false"
+                )
+                broadcastLanguageFallbackStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Broadcast language fallback check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                broadcastLanguageFallbackStatus = "Broadcast language fallback check failed: ${e.message}"
+                Log.e(TAG, "Broadcast language fallback check failed", e)
+            }
+        }
+    }
+
     fun checkBroadcastMediaAttachmentContract() {
         scope.launch {
             broadcastMediaAttachmentStatus = "Broadcast media attachment check running..."
@@ -2542,6 +2615,18 @@ fun HomeScreen(
                 }
             }
 
+
+            if (showFpoWorkflowTestTools) {
+                OutlinedButton(
+                    onClick = { checkBroadcastLanguageFallbackContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Broadcast Language Fallback")
+                }
+                broadcastLanguageFallbackStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
             if (showFpoWorkflowTestTools) {
                 OutlinedButton(

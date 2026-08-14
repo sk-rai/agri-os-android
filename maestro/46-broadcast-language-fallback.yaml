@@ -1,0 +1,66 @@
+appId: com.agrios.app
+name: Broadcast language fallback smoke
+---
+# Backend prep before this flow:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_fpo_multi_village_workflow.py --reset --apply
+#   ../venv/bin/python scripts/verify_broadcast_language_fallback_delivery.py --reset --apply
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900002106"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Broadcast Language Fallback"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Check Broadcast Language Fallback"
+- scrollUntilVisible:
+    element:
+      text: "Broadcast language fallback check: ready"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "broadcast_language_contract=broadcast_language_fallback.v1"
+- assertVisible: "broadcast_language_event_type=LANGUAGE_FALLBACK_ADVISORY"
+- assertVisible: "broadcast_language_backend_owned=true"
+- assertVisible: "broadcast_language_hi_content_language=hi"
+- scrollUntilVisible:
+    element:
+      text: "broadcast_language_hi_title=कीट फोटो सलाह"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- assertVisible: "broadcast_language_kn_content_language=en"
+- assertVisible: "broadcast_language_default_content_language=en"
+- assertVisible: "broadcast_language_fallback_media_count=1"
+- assertVisible: "broadcast_language_fallback_media_type=PHOTO"
+- assertVisible: "android_local_language_fallback=false"
+- takeScreenshot: "46-broadcast-language-fallback"
