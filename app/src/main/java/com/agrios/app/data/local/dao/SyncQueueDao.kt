@@ -55,6 +55,21 @@ interface SyncQueueDao {
     @Query("SELECT COUNT(*) FROM sync_queue WHERE event_id = :eventId")
     suspend fun countByEventId(eventId: String): Int
 
+    @Query("""
+        SELECT COUNT(*) FROM sync_queue
+        WHERE payload LIKE '%' || :payloadNeedle || '%'
+          AND sync_status = :status
+    """)
+    suspend fun countByPayloadNeedleAndStatus(payloadNeedle: String, status: String): Int
+
+    @Query("""
+        SELECT * FROM sync_queue
+        WHERE payload LIKE '%' || :payloadNeedle || '%'
+        ORDER BY created_at DESC
+        LIMIT 1
+    """)
+    suspend fun getLatestByPayloadNeedle(payloadNeedle: String): SyncQueueEntity?
+
     @Query("SELECT COUNT(*) FROM sync_queue WHERE sync_status = 'PENDING'")
     fun observePendingCount(): Flow<Int>
 

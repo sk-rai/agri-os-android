@@ -1,0 +1,287 @@
+appId: com.agrios.app
+name: Cold-start offline sync persistence smoke
+---
+# Backend prerequisite already run:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_cold_start_activity_persistence.py --apply
+#
+# This flow force-stops/relaunches the app without clearing app data.
+# After the flow passes, run:
+#   cd ~/projects/farmint/backend
+#   ANDROID_COLD_START_ACTIVITY_EVENT_ID=<ANDROID_EVENT_ID> \
+#   ANDROID_COLD_START_ACTIVITY_ID=<ANDROID_ACTIVITY_ID> \
+#   ../venv/bin/python scripts/verify_android_cold_start_activity_persistence.py > /tmp/android-cold-start-activity-verify.raw 2>&1
+#   echo "cold_start_verify_exit=$?"
+#   tail -220 /tmp/android-cold-start-activity-verify.raw
+#
+# If needed, the backend verifier also supports random-ID fallback without env vars.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*|.*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Cold Start Test"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Queue Cold Start Test"
+- extendedWaitUntil:
+    visible: "Cold start test event queued: .*"
+    timeout: 30000
+- assertVisible: "Cold start test activity id: .*"
+- scrollUntilVisible:
+    element:
+      text: "Check Cold Start Persistence"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Cold Start Persistence"
+- extendedWaitUntil:
+    visible: "Cold start persistence check: ready"
+    timeout: 30000
+- assertVisible: "cold_start_event_id=.*"
+- scrollUntilVisible:
+    element:
+      text: "cold_start_activity_id=.*"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_offline_row_queued=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_pending_visible_before_force_stop=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_no_duplicate_pending_row=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_no_conflict_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_no_failed_sync_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_activity_cost=325.50"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_activity_stage=NURSERY"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "55-cold-start-queued-before-force-stop"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*|.*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Cold Start Persistence"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Cold Start Persistence"
+- extendedWaitUntil:
+    visible: "Cold start persistence check: ready"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "cold_start_app_force_stopped_or_relaunched=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_pending_visible_after_relaunch=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_no_duplicate_pending_row=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_no_conflict_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_no_failed_sync_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_activity_cost=325.50"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_activity_stage=NURSERY"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "55-cold-start-pending-after-relaunch"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Sync Now"
+- extendedWaitUntil:
+    visible: ".*synced.*|All synced"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Check Cold Start Persistence"
+    direction: UP
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Cold Start Persistence"
+- extendedWaitUntil:
+    visible: "Cold start persistence check: ready"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "cold_start_sync_accepted=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_local_row_marked_synced=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_no_duplicate_pending_row=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_no_conflict_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_no_failed_sync_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_activity_cost=325.50"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "cold_start_activity_stage=NURSERY"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "55-cold-start-sync-accepted"

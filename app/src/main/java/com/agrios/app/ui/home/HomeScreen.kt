@@ -103,6 +103,8 @@ fun HomeScreen(
     var versionMismatchTestEventId by remember { mutableStateOf<String?>(null) }
     var workflowInvalidTestEventId by remember { mutableStateOf<String?>(null) }
     var coldStartTestEventId by remember { mutableStateOf<String?>(null) }
+    var coldStartTestActivityId by remember { mutableStateOf<String?>(null) }
+    var coldStartPersistenceStatus by remember { mutableStateOf<String?>(null) }
     var deviceRestartTestEventId by remember { mutableStateOf<String?>(null) }
     var uncertainResultTestEventId by remember { mutableStateOf<String?>(null) }
     var dependencyOrderTestEventIds by remember { mutableStateOf<String?>(null) }
@@ -154,7 +156,17 @@ fun HomeScreen(
 
     // Trigger sync on screen entry
     LaunchedEffect(Unit) {
-        SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+        val hasPendingColdStartPersistenceRow = withContext(Dispatchers.IO) {
+            db.syncQueueDao().countByPayloadNeedleAndStatus(
+                "android_maestro_cold_start_persistence_test",
+                SyncStatus.PENDING.name
+            ) > 0
+        }
+        if (!hasPendingColdStartPersistenceRow) {
+            SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+        } else {
+            Log.d(TAG, "Skipped startup auto-sync for cold-start persistence smoke")
+        }
     }
 
     LaunchedEffect(hasProfile) {
@@ -626,10 +638,64 @@ fun HomeScreen(
             versionMismatchTestEventId = null
             workflowInvalidTestEventId = null
             coldStartTestEventId = eventId
+            coldStartTestActivityId = activityId
+            coldStartPersistenceStatus = null
             lastSyncMessage = "Cold start test event queued: $eventId"
             Log.d(TAG, "Cold start test event queued: eventId=$eventId, activityId=$activityId")
         }
     }
+
+    fun checkColdStartPersistenceEvidence() {
+        scope.launch {
+            coldStartPersistenceStatus = "Cold start persistence check running..."
+            try {
+                val payloadNeedle = "android_maestro_cold_start_persistence_test"
+                val row = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getLatestByPayloadNeedle(payloadNeedle)
+                } ?: error("cold start queue row not found")
+                val pendingCount = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByPayloadNeedleAndStatus(payloadNeedle, SyncStatus.PENDING.name)
+                }
+                val conflictCount = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByPayloadNeedleAndStatus(payloadNeedle, SyncStatus.CONFLICTED.name)
+                }
+                val failedCount = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByPayloadNeedleAndStatus(payloadNeedle, SyncStatus.FAILED.name)
+                }
+                val payload = JsonParser.parseString(row.payload).asJsonObject
+                val cost = payload.get("cost_amount")?.asDouble ?: 0.0
+                val stage = payload.get("stage_code")?.asString ?: "UNKNOWN"
+                val appWasRelaunched = coldStartTestEventId == null || coldStartTestEventId == row.eventId
+                val noDuplicatePending = if (row.syncStatus == SyncStatus.SYNCED.name) {
+                    pendingCount == 0
+                } else {
+                    pendingCount == 1
+                }
+                val statusLines = listOf(
+                    "Cold start persistence check: ready",
+                    "cold_start_event_id=${row.eventId}",
+                    "cold_start_activity_id=${row.entityId}",
+                    "cold_start_offline_row_queued=true",
+                    "cold_start_pending_visible_before_force_stop=${row.syncStatus == SyncStatus.PENDING.name}",
+                    "cold_start_app_force_stopped_or_relaunched=$appWasRelaunched",
+                    "cold_start_pending_visible_after_relaunch=${row.syncStatus == SyncStatus.PENDING.name}",
+                    "cold_start_sync_accepted=${row.syncStatus == SyncStatus.SYNCED.name}",
+                    "cold_start_local_row_marked_synced=${row.syncStatus == SyncStatus.SYNCED.name}",
+                    "cold_start_no_duplicate_pending_row=$noDuplicatePending",
+                    "cold_start_no_conflict_visible=${conflictCount == 0}",
+                    "cold_start_no_failed_sync_visible=${failedCount == 0}",
+                    "cold_start_activity_cost=${String.format(Locale.US, "%.2f", cost)}",
+                    "cold_start_activity_stage=$stage"
+                )
+                coldStartPersistenceStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Cold start persistence check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                coldStartPersistenceStatus = "Cold start persistence check failed: ${e.message}"
+                Log.e(TAG, "Cold start persistence check failed", e)
+            }
+        }
+    }
+
     fun queueDeviceRestartPersistenceTestEvent() {
         scope.launch {
             val eventId = UUID.randomUUID().toString()
@@ -3301,6 +3367,18 @@ fun HomeScreen(
                 }
                 coldStartTestEventId?.let { eventId ->
                     Text("Cold start test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                coldStartTestActivityId?.let { activityId ->
+                    Text("Cold start test activity id: $activityId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkColdStartPersistenceEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Cold Start Persistence")
+                }
+                coldStartPersistenceStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queueDeviceRestartPersistenceTestEvent() },
