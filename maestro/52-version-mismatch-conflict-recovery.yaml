@@ -1,0 +1,145 @@
+appId: com.agrios.app
+name: Version mismatch conflict recovery smoke
+---
+# Backend prerequisite already run:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_version_mismatch_conflict.py --reset --apply
+#
+# During the 60-second wait after pre-recovery evidence, run:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/verify_android_version_mismatch_conflict.py > /tmp/android-version-mismatch-conflict-verify.raw 2>&1
+#   echo "version_mismatch_verify_exit=$?"
+#   tail -180 /tmp/android-version-mismatch-conflict-verify.raw
+#
+# After this flow passes, run:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/verify_android_conflict_recovery_state.py --conflict-type VERSION_MISMATCH > /tmp/android-version-mismatch-recovery-verify.raw 2>&1
+#   echo "version_mismatch_recovery_verify_exit=$?"
+#   tail -180 /tmp/android-version-mismatch-recovery-verify.raw
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*|.*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Version Mismatch Test"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Queue Version Mismatch Test"
+- extendedWaitUntil:
+    visible: "Version mismatch test event queued: 0f7e0a6b-8472-5d6d-8a14-a9d000000111"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Sync Now"
+- scrollUntilVisible:
+    element:
+      text: "Manual review needed: server has a newer version"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "Activity changed on both device and backend. Refresh before editing again."
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "This item changed on the server while you were offline.*"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "Use server version"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertNotVisible: "Refresh required: local context is stale"
+- assertNotVisible: "Workflow changed on backend"
+- scrollUntilVisible:
+    element:
+      text: "Check Version Mismatch Conflict"
+    direction: UP
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Version Mismatch Conflict"
+- extendedWaitUntil:
+    visible: "Version mismatch conflict check: ready"
+    timeout: 30000
+- assertVisible: "version_mismatch_conflict_visible=true"
+- assertVisible: "version_mismatch_conflict_type=VERSION_MISMATCH"
+- assertVisible: "version_mismatch_resolution_strategy=MANUAL_REVIEW"
+- assertVisible: "version_mismatch_copy_manual_review=true"
+- assertVisible: "version_mismatch_copy_server_newer=true"
+- assertVisible: "version_mismatch_no_stale_context_copy=true"
+- assertVisible: "version_mismatch_no_workflow_changed_copy=true"
+- assertVisible: "version_mismatch_no_failed_sync_row=true"
+- takeScreenshot: "52-version-mismatch-conflict-before-recovery"
+- runScript: wait-60s.js
+- scrollUntilVisible:
+    element:
+      text: "Use server version"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Use server version"
+- scrollUntilVisible:
+    element:
+      text: "Version mismatch recovery check: ready"
+    direction: UP
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- assertVisible: "version_mismatch_local_row_discarded=true"
+- assertVisible: "version_mismatch_backend_ack_accept_server=true"
+- assertVisible: "version_mismatch_pending_conflict_removed=true"
+- assertVisible: "version_mismatch_no_failed_sync_row=true"
+- assertNotVisible: "Manual review needed: server has a newer version"
+- assertNotVisible: "Refresh required: local context is stale"
+- assertNotVisible: "Workflow changed on backend"
+- assertNotVisible: "Conflict recovery failed"
+- takeScreenshot: "52-version-mismatch-conflict-recovery"

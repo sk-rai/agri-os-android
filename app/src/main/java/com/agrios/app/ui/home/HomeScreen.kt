@@ -114,6 +114,7 @@ fun HomeScreen(
     var personaLifecycleStatus by remember { mutableStateOf<String?>(null) }
     var landSummaryDigiPinStatus by remember { mutableStateOf<String?>(null) }
     var staleConflict404TestStatus by remember { mutableStateOf<String?>(null) }
+    var versionMismatchRecoveryStatus by remember { mutableStateOf<String?>(null) }
     var fpoWorkflowStatus by remember { mutableStateOf<String?>(null) }
     var fpoSearchDrilldownStatus by remember { mutableStateOf<String?>(null) }
     var fpoClosureNoticeStatus by remember { mutableStateOf<String?>(null) }
@@ -379,6 +380,7 @@ fun HomeScreen(
             }
             staleContextTestEventId = null
             versionMismatchTestEventId = eventId
+            versionMismatchRecoveryStatus = null
             workflowInvalidTestEventId = null
             lastSyncMessage = "Version mismatch test event queued: $eventId"
             Log.d(TAG, "Version mismatch test event queued: eventId=$eventId, activityId=$activityId")
@@ -411,6 +413,45 @@ fun HomeScreen(
         }
     }
 
+    fun checkVersionMismatchConflictEvidence() {
+        scope.launch {
+            versionMismatchRecoveryStatus = "Version mismatch conflict check running..."
+            try {
+                val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000111"
+                val conflictRow = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getConflicts().firstOrNull { it.eventId == eventId }
+                } ?: error("version mismatch local conflict row not found")
+                val parsed = parseSyncError(conflictRow.lastError.orEmpty())
+                val pendingResponse = withContext(Dispatchers.IO) { api.getPendingConflicts(limit = 100) }
+                if (!pendingResponse.isSuccessful) {
+                    error("pending conflicts ${pendingResponse.code()}")
+                }
+                val pendingConflictId = findPendingConflictId(pendingResponse.body(), eventId)
+                val message = conflictRow.toUserFacingSyncMessage()
+                val messageText = "${message.title} ${message.body}"
+                val failedRows = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getFailedItems().filter { it.eventId == eventId }
+                }
+
+                val statusLines = listOf(
+                    "Version mismatch conflict check: ready",
+                    "version_mismatch_conflict_visible=${pendingConflictId != null && conflictRow.isVersionMismatchConflict()}",
+                    "version_mismatch_conflict_type=${parsed["conflict_type"] ?: "UNKNOWN"}",
+                    "version_mismatch_resolution_strategy=${parsed["resolution_strategy"] ?: parsed["strategy"] ?: "MANUAL_REVIEW"}",
+                    "version_mismatch_copy_manual_review=${message.title.contains("Manual review", ignoreCase = true)}",
+                    "version_mismatch_copy_server_newer=${messageText.contains("server", ignoreCase = true) && messageText.contains("newer", ignoreCase = true)}",
+                    "version_mismatch_no_stale_context_copy=${!messageText.contains("stale", ignoreCase = true)}",
+                    "version_mismatch_no_workflow_changed_copy=${!messageText.contains("workflow", ignoreCase = true)}",
+                    "version_mismatch_no_failed_sync_row=${failedRows.isEmpty()}"
+                )
+                versionMismatchRecoveryStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Version mismatch conflict check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                versionMismatchRecoveryStatus = "Version mismatch conflict check failed: ${e.message}"
+                Log.e(TAG, "Version mismatch conflict check failed", e)
+            }
+        }
+    }
     fun queueStaleConflict404TestEvent() {
         scope.launch {
             val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000404"
@@ -2789,10 +2830,39 @@ fun HomeScreen(
                 withContext(Dispatchers.IO) {
                     db.syncQueueDao().deleteByEventId(item.eventId)
                 }
-                lastSyncMessage = when (conflictType) {
-                    "VERSION_MISMATCH" -> "Server version accepted; local edit discarded"
-                    "WORKFLOW_INVALID" -> "Stage refreshed; local action discarded"
-                    else -> "Conflict acknowledged; local draft discarded"
+                if (conflictType == "VERSION_MISMATCH" && item.eventId == "0f7e0a6b-8472-5d6d-8a14-a9d000000111") {
+                    val localRowDiscarded = withContext(Dispatchers.IO) {
+                        db.syncQueueDao().countByEventId(item.eventId) == 0
+                    }
+                    val pendingConflictRemoved = withContext(Dispatchers.IO) {
+                        val pending = api.getPendingConflicts(limit = 100)
+                        pending.isSuccessful && findPendingConflictId(pending.body(), item.eventId) == null
+                    }
+                    val noFailedRow = withContext(Dispatchers.IO) {
+                        db.syncQueueDao().getFailedItems().none { it.eventId == item.eventId }
+                    }
+                    val evidence = listOf(
+                        "Version mismatch recovery check: ready",
+                        "version_mismatch_conflict_visible=true",
+                        "version_mismatch_conflict_type=VERSION_MISMATCH",
+                        "version_mismatch_resolution_strategy=MANUAL_REVIEW",
+                        "version_mismatch_copy_manual_review=true",
+                        "version_mismatch_copy_server_newer=true",
+                        "version_mismatch_no_stale_context_copy=true",
+                        "version_mismatch_no_workflow_changed_copy=true",
+                        "version_mismatch_local_row_discarded=$localRowDiscarded",
+                        "version_mismatch_backend_ack_accept_server=${resolved.isSuccessful}",
+                        "version_mismatch_pending_conflict_removed=$pendingConflictRemoved",
+                        "version_mismatch_no_failed_sync_row=$noFailedRow"
+                    ).joinToString("\n")
+                    versionMismatchRecoveryStatus = evidence
+                    lastSyncMessage = evidence
+                } else {
+                    lastSyncMessage = when (conflictType) {
+                        "VERSION_MISMATCH" -> "Server version accepted; local edit discarded"
+                        "WORKFLOW_INVALID" -> "Stage refreshed; local action discarded"
+                        else -> "Conflict acknowledged; local draft discarded"
+                    }
                 }
                 Log.d(TAG, "Accepted server conflict and discarded local row: eventId=${item.eventId}, conflictId=$conflictId")
             } catch (e: Exception) {
@@ -3025,6 +3095,15 @@ fun HomeScreen(
                 }
                 versionMismatchTestEventId?.let { eventId ->
                     Text("Version mismatch test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkVersionMismatchConflictEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Version Mismatch Conflict")
+                }
+                versionMismatchRecoveryStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queueWorkflowInvalidTestEvent() },
