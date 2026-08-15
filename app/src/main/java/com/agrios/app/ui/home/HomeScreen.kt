@@ -109,6 +109,8 @@ fun HomeScreen(
     var deviceRestartTestActivityId by remember { mutableStateOf<String?>(null) }
     var deviceRestartPersistenceStatus by remember { mutableStateOf<String?>(null) }
     var uncertainResultTestEventId by remember { mutableStateOf<String?>(null) }
+    var uncertainResultTestActivityId by remember { mutableStateOf<String?>(null) }
+    var uncertainResultStatus by remember { mutableStateOf<String?>(null) }
     var dependencyOrderTestEventIds by remember { mutableStateOf<String?>(null) }
     var partialBatchTestIds by remember { mutableStateOf<String?>(null) }
     var partialBatchConflictTestIds by remember { mutableStateOf<String?>(null) }
@@ -831,6 +833,8 @@ fun HomeScreen(
             coldStartTestEventId = null
             deviceRestartTestEventId = null
             uncertainResultTestEventId = eventId
+            uncertainResultTestActivityId = activityId
+            uncertainResultStatus = null
             lastSyncMessage = "Uncertain result test event queued: $eventId"
             Log.d(TAG, "Uncertain result test event queued: eventId=$eventId, activityId=$activityId")
         }
@@ -845,8 +849,65 @@ fun HomeScreen(
                     reason = "UNCERTAIN_RESULT_SIMULATED: response lost before local ack"
                 )
             }
+            uncertainResultStatus = null
             lastSyncMessage = "Uncertain result retry queued with same event: $eventId"
             Log.d(TAG, "Uncertain result retry queued with same eventId=$eventId")
+        }
+    }
+
+    fun checkUncertainResultIdempotencyEvidence() {
+        scope.launch {
+            uncertainResultStatus = "Uncertain result idempotency check running..."
+            try {
+                val payloadNeedle = "android_maestro_uncertain_result_idempotency_test"
+                val row = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getLatestByPayloadNeedle(payloadNeedle)
+                } ?: error("uncertain result queue row not found")
+                val pendingCount = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByPayloadNeedleAndStatus(payloadNeedle, SyncStatus.PENDING.name)
+                }
+                val conflictCount = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByPayloadNeedleAndStatus(payloadNeedle, SyncStatus.CONFLICTED.name)
+                }
+                val failedCount = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByPayloadNeedleAndStatus(payloadNeedle, SyncStatus.FAILED.name)
+                }
+                val payload = JsonParser.parseString(row.payload).asJsonObject
+                val cost = payload.get("cost_amount")?.asDouble ?: 0.0
+                val stage = payload.get("stage_code")?.asString ?: "UNKNOWN"
+                val expectedEventId = uncertainResultTestEventId ?: row.eventId
+                val expectedActivityId = uncertainResultTestActivityId ?: row.entityId
+                val responseLossSimulated = row.lastError?.contains("UNCERTAIN_RESULT_SIMULATED") == true
+                val isPendingRetry = row.syncStatus == SyncStatus.PENDING.name && responseLossSimulated
+                val isSynced = row.syncStatus == SyncStatus.SYNCED.name
+                val noDuplicatePending = if (isSynced) {
+                    pendingCount == 0
+                } else {
+                    pendingCount == 1
+                }
+                val statusLines = listOf(
+                    "Uncertain result idempotency check: ready",
+                    "uncertain_result_event_id=${row.eventId}",
+                    "uncertain_result_activity_id=${row.entityId}",
+                    "uncertain_result_first_send_attempted=${isSynced || responseLossSimulated}",
+                    "uncertain_result_response_loss_simulated=$responseLossSimulated",
+                    "uncertain_result_pending_row_retained_after_uncertain_result=$isPendingRetry",
+                    "uncertain_result_retry_same_event_id=${row.eventId == expectedEventId}",
+                    "uncertain_result_retry_same_activity_id=${row.entityId == expectedActivityId}",
+                    "uncertain_result_retry_accepted=$isSynced",
+                    "uncertain_result_local_row_marked_synced=$isSynced",
+                    "uncertain_result_no_duplicate_pending_row=$noDuplicatePending",
+                    "uncertain_result_no_conflict_visible=${conflictCount == 0}",
+                    "uncertain_result_no_failed_sync_visible=${failedCount == 0}",
+                    "uncertain_result_activity_cost=${String.format(Locale.US, "%.2f", cost)}",
+                    "uncertain_result_activity_stage=$stage"
+                )
+                uncertainResultStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Uncertain result idempotency check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                uncertainResultStatus = "Uncertain result idempotency check failed: ${e.message}"
+                Log.e(TAG, "Uncertain result idempotency check failed", e)
+            }
         }
     }
 
@@ -3472,6 +3533,18 @@ fun HomeScreen(
                 }
                 uncertainResultTestEventId?.let { eventId ->
                     Text("Uncertain result test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                    uncertainResultTestActivityId?.let { activityId ->
+                        Text("Uncertain result test activity id: $activityId", style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedButton(
+                        onClick = { checkUncertainResultIdempotencyEvidence() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Check Uncertain Result Idempotency")
+                    }
+                    uncertainResultStatus?.lineSequence()?.forEach { line ->
+                        Text(line, style = MaterialTheme.typography.bodySmall)
+                    }
                     OutlinedButton(
                         onClick = { simulateUncertainResultRetry() },
                         modifier = Modifier.fillMaxWidth()

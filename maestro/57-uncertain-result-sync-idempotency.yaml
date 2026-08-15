@@ -1,0 +1,335 @@
+appId: com.agrios.app
+name: Uncertain-result sync idempotency smoke
+---
+# Backend prerequisite already run:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_uncertain_result_idempotency.py --apply
+#
+# After first send, optional backend check:
+#   ANDROID_UNCERTAIN_ACTIVITY_EVENT_ID=<ANDROID_EVENT_ID> \
+#   ANDROID_UNCERTAIN_ACTIVITY_ID=<ANDROID_ACTIVITY_ID> \
+#   ../venv/bin/python scripts/verify_android_uncertain_result_idempotency.py > /tmp/android-uncertain-result-first-verify.raw 2>&1
+#
+# After retry, required backend checks:
+#   ANDROID_UNCERTAIN_ACTIVITY_EVENT_ID=<ANDROID_EVENT_ID> \
+#   ANDROID_UNCERTAIN_ACTIVITY_ID=<ANDROID_ACTIVITY_ID> \
+#   ../venv/bin/python scripts/verify_android_uncertain_result_idempotency.py > /tmp/android-uncertain-result-retry-verify.raw 2>&1
+#
+# Strong duplicate resend check:
+#   ANDROID_UNCERTAIN_ACTIVITY_EVENT_ID=<ANDROID_EVENT_ID> \
+#   ANDROID_UNCERTAIN_ACTIVITY_ID=<ANDROID_ACTIVITY_ID> \
+#   ../venv/bin/python scripts/verify_android_uncertain_result_idempotency.py --resend > /tmp/android-uncertain-result-resend-verify.raw 2>&1
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*|.*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Uncertain Result Test"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Queue Uncertain Result Test"
+- scrollUntilVisible:
+    element:
+      text: "Uncertain result test event queued: .*"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "Uncertain result test activity id: .*"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "57-uncertain-result-event-queued"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Sync Now"
+- waitForAnimationToEnd:
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: "Check Uncertain Result Idempotency"
+    direction: UP
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Uncertain Result Idempotency"
+- scrollUntilVisible:
+    element:
+      text: "Uncertain result idempotency check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- assertVisible: "uncertain_result_event_id=.*"
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_activity_id=.*"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_first_send_attempted=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_local_row_marked_synced=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_no_duplicate_pending_row=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "57-uncertain-result-first-send-synced"
+- scrollUntilVisible:
+    element:
+      text: "Simulate Uncertain Retry"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Simulate Uncertain Retry"
+- waitForAnimationToEnd:
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: "Check Uncertain Result Idempotency"
+    direction: UP
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Uncertain Result Idempotency"
+- scrollUntilVisible:
+    element:
+      text: "Uncertain result idempotency check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_response_loss_simulated=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_pending_row_retained_after_uncertain_result=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_retry_same_event_id=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_retry_same_activity_id=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_no_duplicate_pending_row=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_no_conflict_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_no_failed_sync_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_activity_cost=325.50"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_activity_stage=NURSERY"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "57-uncertain-result-same-row-pending-retry"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Sync Now"
+- waitForAnimationToEnd:
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: "Check Uncertain Result Idempotency"
+    direction: UP
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Uncertain Result Idempotency"
+- scrollUntilVisible:
+    element:
+      text: "Uncertain result idempotency check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_retry_same_event_id=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_retry_same_activity_id=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_retry_accepted=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_local_row_marked_synced=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_no_duplicate_pending_row=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_no_conflict_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_no_failed_sync_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_activity_cost=325.50"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "uncertain_result_activity_stage=NURSERY"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "57-uncertain-result-idempotent-retry-synced"
