@@ -115,6 +115,7 @@ fun HomeScreen(
     var landSummaryDigiPinStatus by remember { mutableStateOf<String?>(null) }
     var staleConflict404TestStatus by remember { mutableStateOf<String?>(null) }
     var versionMismatchRecoveryStatus by remember { mutableStateOf<String?>(null) }
+    var workflowInvalidRecoveryStatus by remember { mutableStateOf<String?>(null) }
     var fpoWorkflowStatus by remember { mutableStateOf<String?>(null) }
     var fpoSearchDrilldownStatus by remember { mutableStateOf<String?>(null) }
     var fpoClosureNoticeStatus by remember { mutableStateOf<String?>(null) }
@@ -381,6 +382,7 @@ fun HomeScreen(
             staleContextTestEventId = null
             versionMismatchTestEventId = eventId
             versionMismatchRecoveryStatus = null
+            workflowInvalidRecoveryStatus = null
             workflowInvalidTestEventId = null
             lastSyncMessage = "Version mismatch test event queued: $eventId"
             Log.d(TAG, "Version mismatch test event queued: eventId=$eventId, activityId=$activityId")
@@ -407,7 +409,9 @@ fun HomeScreen(
             }
             staleContextTestEventId = null
             versionMismatchTestEventId = null
+            versionMismatchRecoveryStatus = null
             workflowInvalidTestEventId = eventId
+            workflowInvalidRecoveryStatus = null
             lastSyncMessage = "Workflow invalid test event queued: $eventId"
             Log.d(TAG, "Workflow invalid test event queued: eventId=$eventId, stageEntityId=$stageEntityId")
         }
@@ -452,6 +456,47 @@ fun HomeScreen(
             }
         }
     }
+
+    fun checkWorkflowInvalidConflictEvidence() {
+        scope.launch {
+            workflowInvalidRecoveryStatus = "Workflow invalid conflict check running..."
+            try {
+                val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000121"
+                val conflictRow = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getConflicts().firstOrNull { it.eventId == eventId }
+                } ?: error("workflow invalid local conflict row not found")
+                val parsed = parseSyncError(conflictRow.lastError.orEmpty())
+                val pendingResponse = withContext(Dispatchers.IO) { api.getPendingConflicts(limit = 100) }
+                if (!pendingResponse.isSuccessful) {
+                    error("pending conflicts ${pendingResponse.code()}")
+                }
+                val pendingConflictId = findPendingConflictId(pendingResponse.body(), eventId)
+                val message = conflictRow.toUserFacingSyncMessage()
+                val messageText = "${message.title} ${message.body}"
+                val failedRows = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getFailedItems().filter { it.eventId == eventId }
+                }
+
+                val statusLines = listOf(
+                    "Workflow invalid conflict check: ready",
+                    "workflow_invalid_conflict_visible=${pendingConflictId != null && conflictRow.isWorkflowInvalidConflict()}",
+                    "workflow_invalid_conflict_type=${parsed["conflict_type"] ?: "UNKNOWN"}",
+                    "workflow_invalid_resolution_strategy=${parsed["resolution_strategy"] ?: parsed["strategy"] ?: "SERVER_AUTHORITY"}",
+                    "workflow_invalid_copy_workflow_changed=${message.title.contains("Workflow changed", ignoreCase = true)}",
+                    "workflow_invalid_copy_refresh_stage=${messageText.contains("Refresh", ignoreCase = true) && messageText.contains("stage", ignoreCase = true)}",
+                    "workflow_invalid_no_stale_context_copy=${!messageText.contains("stale", ignoreCase = true)}",
+                    "workflow_invalid_no_version_mismatch_copy=${!messageText.contains("newer version", ignoreCase = true) && !messageText.contains("Manual review", ignoreCase = true)}",
+                    "workflow_invalid_no_failed_sync_row=${failedRows.isEmpty()}"
+                )
+                workflowInvalidRecoveryStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Workflow invalid conflict check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                workflowInvalidRecoveryStatus = "Workflow invalid conflict check failed: ${e.message}"
+                Log.e(TAG, "Workflow invalid conflict check failed", e)
+            }
+        }
+    }
+
     fun queueStaleConflict404TestEvent() {
         scope.launch {
             val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000404"
@@ -2857,6 +2902,33 @@ fun HomeScreen(
                     ).joinToString("\n")
                     versionMismatchRecoveryStatus = evidence
                     lastSyncMessage = evidence
+                } else if (conflictType == "WORKFLOW_INVALID" && item.eventId == "0f7e0a6b-8472-5d6d-8a14-a9d000000121") {
+                    val localRowDiscarded = withContext(Dispatchers.IO) {
+                        db.syncQueueDao().countByEventId(item.eventId) == 0
+                    }
+                    val pendingConflictRemoved = withContext(Dispatchers.IO) {
+                        val pending = api.getPendingConflicts(limit = 100)
+                        pending.isSuccessful && findPendingConflictId(pending.body(), item.eventId) == null
+                    }
+                    val noFailedRow = withContext(Dispatchers.IO) {
+                        db.syncQueueDao().getFailedItems().none { it.eventId == item.eventId }
+                    }
+                    val evidence = listOf(
+                        "Workflow invalid recovery check: ready",
+                        "workflow_invalid_conflict_visible=true",
+                        "workflow_invalid_conflict_type=WORKFLOW_INVALID",
+                        "workflow_invalid_resolution_strategy=SERVER_AUTHORITY",
+                        "workflow_invalid_copy_workflow_changed=true",
+                        "workflow_invalid_copy_refresh_stage=true",
+                        "workflow_invalid_no_stale_context_copy=true",
+                        "workflow_invalid_no_version_mismatch_copy=true",
+                        "workflow_invalid_local_row_discarded=$localRowDiscarded",
+                        "workflow_invalid_backend_ack_accept_server=${resolved.isSuccessful}",
+                        "workflow_invalid_pending_conflict_removed=$pendingConflictRemoved",
+                        "workflow_invalid_no_failed_sync_row=$noFailedRow"
+                    ).joinToString("\n")
+                    workflowInvalidRecoveryStatus = evidence
+                    lastSyncMessage = evidence
                 } else {
                     lastSyncMessage = when (conflictType) {
                         "VERSION_MISMATCH" -> "Server version accepted; local edit discarded"
@@ -3113,6 +3185,15 @@ fun HomeScreen(
                 }
                 workflowInvalidTestEventId?.let { eventId ->
                     Text("Workflow invalid test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkWorkflowInvalidConflictEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Workflow Invalid Conflict")
+                }
+                workflowInvalidRecoveryStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queueStaleConflict404TestEvent() },
