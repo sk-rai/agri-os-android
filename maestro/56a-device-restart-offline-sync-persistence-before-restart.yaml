@@ -1,0 +1,137 @@
+appId: com.agrios.app
+name: Device restart offline sync persistence smoke before restart
+---
+# Backend prerequisite already run:
+#   cd ~/projects/farmint/backend
+#   ../venv/bin/python scripts/prepare_android_cold_start_activity_persistence.py --apply
+#
+# Phase A:
+# 1. Login.
+# 2. Queue the deterministic device-restart offline activity.
+# 3. Prove the local row is pending before device restart.
+#
+# After this phase passes, restart the emulator/device preserving app data:
+#   adb -s emulator-5554 reboot
+#
+# Wait until Android is booted/unlocked, then run:
+#   maestro/56b-device-restart-offline-sync-persistence-resume.yaml
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*|.*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Device Restart Test"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Queue Device Restart Test"
+- extendedWaitUntil:
+    visible: "Device restart test event queued: .*"
+    timeout: 30000
+- assertVisible: "Device restart test activity id: .*"
+- scrollUntilVisible:
+    element:
+      text: "Check Device Restart Persistence"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Device Restart Persistence"
+- scrollUntilVisible:
+    element:
+      text: "Device restart persistence check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- assertVisible: "device_restart_event_id=.*"
+- scrollUntilVisible:
+    element:
+      text: "device_restart_activity_id=.*"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "device_restart_offline_row_queued=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "device_restart_pending_visible_before_restart=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "device_restart_no_duplicate_pending_row=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "device_restart_no_conflict_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "device_restart_no_failed_sync_visible=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "device_restart_activity_cost=325.50"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "device_restart_activity_stage=NURSERY"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "56-device-restart-queued-before-restart"

@@ -1,0 +1,14 @@
+appId: com.agrios.app
+name: Device restart offline sync persistence smoke
+---
+# Flow 56 intentionally runs as two Maestro phases because a real emulator/device
+# reboot invalidates the active Maestro device session.
+#
+# Run:
+#   1. maestro/56a-device-restart-offline-sync-persistence-before-restart.yaml
+#   2. adb -s emulator-5554 reboot
+#   3. Wait for Android to boot/unlock.
+#   4. maestro/56b-device-restart-offline-sync-persistence-resume.yaml
+#
+# Do not use this wrapper as an executable flow.
+- assertVisible: "Run Flow 56 as 56a, reboot device preserving app data, then 56b."

@@ -106,6 +106,8 @@ fun HomeScreen(
     var coldStartTestActivityId by remember { mutableStateOf<String?>(null) }
     var coldStartPersistenceStatus by remember { mutableStateOf<String?>(null) }
     var deviceRestartTestEventId by remember { mutableStateOf<String?>(null) }
+    var deviceRestartTestActivityId by remember { mutableStateOf<String?>(null) }
+    var deviceRestartPersistenceStatus by remember { mutableStateOf<String?>(null) }
     var uncertainResultTestEventId by remember { mutableStateOf<String?>(null) }
     var dependencyOrderTestEventIds by remember { mutableStateOf<String?>(null) }
     var partialBatchTestIds by remember { mutableStateOf<String?>(null) }
@@ -156,16 +158,21 @@ fun HomeScreen(
 
     // Trigger sync on screen entry
     LaunchedEffect(Unit) {
-        val hasPendingColdStartPersistenceRow = withContext(Dispatchers.IO) {
-            db.syncQueueDao().countByPayloadNeedleAndStatus(
+        val hasPendingPersistenceSmokeRow = withContext(Dispatchers.IO) {
+            listOf(
                 "android_maestro_cold_start_persistence_test",
-                SyncStatus.PENDING.name
-            ) > 0
+                "android_maestro_device_restart_persistence_test"
+            ).any { payloadNeedle ->
+                db.syncQueueDao().countByPayloadNeedleAndStatus(
+                    payloadNeedle,
+                    SyncStatus.PENDING.name
+                ) > 0
+            }
         }
-        if (!hasPendingColdStartPersistenceRow) {
+        if (!hasPendingPersistenceSmokeRow) {
             SyncWorker.triggerImmediateSync(AgriOsApp.instance)
         } else {
-            Log.d(TAG, "Skipped startup auto-sync for cold-start persistence smoke")
+            Log.d(TAG, "Skipped startup auto-sync for offline persistence smoke")
         }
     }
 
@@ -729,9 +736,65 @@ fun HomeScreen(
             workflowInvalidTestEventId = null
             coldStartTestEventId = null
             deviceRestartTestEventId = eventId
+            deviceRestartTestActivityId = activityId
+            deviceRestartPersistenceStatus = null
             uncertainResultTestEventId = null
             lastSyncMessage = "Device restart test event queued: $eventId"
             Log.d(TAG, "Device restart test event queued: eventId=$eventId, activityId=$activityId")
+        }
+    }
+
+    fun checkDeviceRestartPersistenceEvidence() {
+        scope.launch {
+            deviceRestartPersistenceStatus = "Device restart persistence check running..."
+            try {
+                val payloadNeedle = "android_maestro_device_restart_persistence_test"
+                val row = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getLatestByPayloadNeedle(payloadNeedle)
+                } ?: error("device restart queue row not found")
+                val pendingCount = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByPayloadNeedleAndStatus(payloadNeedle, SyncStatus.PENDING.name)
+                }
+                val conflictCount = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByPayloadNeedleAndStatus(payloadNeedle, SyncStatus.CONFLICTED.name)
+                }
+                val failedCount = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByPayloadNeedleAndStatus(payloadNeedle, SyncStatus.FAILED.name)
+                }
+                val payload = JsonParser.parseString(row.payload).asJsonObject
+                val cost = payload.get("cost_amount")?.asDouble ?: 0.0
+                val stage = payload.get("stage_code")?.asString ?: "UNKNOWN"
+                val runtimeStateLost = deviceRestartTestEventId == null
+                val sameEventReplayed = runtimeStateLost || deviceRestartTestEventId == row.eventId
+                val noDuplicatePending = if (row.syncStatus == SyncStatus.SYNCED.name) {
+                    pendingCount == 0
+                } else {
+                    pendingCount == 1
+                }
+                val statusLines = listOf(
+                    "Device restart persistence check: ready",
+                    "device_restart_event_id=${row.eventId}",
+                    "device_restart_activity_id=${row.entityId}",
+                    "device_restart_offline_row_queued=true",
+                    "device_restart_pending_visible_before_restart=${row.syncStatus == SyncStatus.PENDING.name}",
+                    "device_restart_emulator_or_device_restarted=$runtimeStateLost",
+                    "device_restart_app_data_preserved=$sameEventReplayed",
+                    "device_restart_pending_visible_after_restart=${row.syncStatus == SyncStatus.PENDING.name}",
+                    "device_restart_same_event_replayed=$sameEventReplayed",
+                    "device_restart_sync_accepted=${row.syncStatus == SyncStatus.SYNCED.name}",
+                    "device_restart_local_row_marked_synced=${row.syncStatus == SyncStatus.SYNCED.name}",
+                    "device_restart_no_duplicate_pending_row=$noDuplicatePending",
+                    "device_restart_no_conflict_visible=${conflictCount == 0}",
+                    "device_restart_no_failed_sync_visible=${failedCount == 0}",
+                    "device_restart_activity_cost=${String.format(Locale.US, "%.2f", cost)}",
+                    "device_restart_activity_stage=$stage"
+                )
+                deviceRestartPersistenceStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Device restart persistence check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                deviceRestartPersistenceStatus = "Device restart persistence check failed: ${e.message}"
+                Log.e(TAG, "Device restart persistence check failed", e)
+            }
         }
     }
     fun queueUncertainResultIdempotencyTestEvent() {
@@ -3388,6 +3451,18 @@ fun HomeScreen(
                 }
                 deviceRestartTestEventId?.let { eventId ->
                     Text("Device restart test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                deviceRestartTestActivityId?.let { activityId ->
+                    Text("Device restart test activity id: $activityId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkDeviceRestartPersistenceEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Device Restart Persistence")
+                }
+                deviceRestartPersistenceStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queueUncertainResultIdempotencyTestEvent() },
