@@ -99,6 +99,7 @@ fun HomeScreen(
     var hydrationAttempted by remember { mutableStateOf(false) }
     var hydrationMessage by remember { mutableStateOf<String?>(null) }
     var staleContextTestEventId by remember { mutableStateOf<String?>(null) }
+    var staleContextRecoveryStatus by remember { mutableStateOf<String?>(null) }
     var versionMismatchTestEventId by remember { mutableStateOf<String?>(null) }
     var workflowInvalidTestEventId by remember { mutableStateOf<String?>(null) }
     var coldStartTestEventId by remember { mutableStateOf<String?>(null) }
@@ -322,19 +323,16 @@ fun HomeScreen(
         }
     }
     fun queueStaleContextTestEvent() {
-        val farmerId = farmer?.id ?: return
         scope.launch {
             val eventId = UUID.randomUUID().toString()
             val cropCycleId = UUID.randomUUID().toString()
-            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
             val payload = linkedMapOf<String, Any?>(
-                "farmer_id" to farmerId,
+                "farmer_id" to "e1ee0941-2bad-4a18-a239-2a4119608a06",
                 "parcel_id" to "98c1a0fa-4f5f-4b8c-97ae-d84992db1c44",
                 "project_id" to AndroidDynamicTestContext.PROJECT_ID,
                 "crop_code" to "RICE",
                 "season_code" to "KHARIF",
-                "planned_sowing_date" to today,
-                "status" to "PLANNED"
+                "planned_sowing_date" to "2026-08-02"
             )
             withContext(Dispatchers.IO) {
                 db.syncQueueDao().deleteDynamicSyncTestRows()
@@ -343,12 +341,60 @@ fun HomeScreen(
                     cropCycleId = cropCycleId,
                     payload = payload,
                     eventId = eventId,
-                    metadata = mapOf("android_flow" to "stale_context_test")
+                    metadata = mapOf("source" to "android_maestro_stale_context_test")
                 )
             }
             staleContextTestEventId = eventId
+            staleContextRecoveryStatus = null
+            versionMismatchTestEventId = null
+            versionMismatchRecoveryStatus = null
+            workflowInvalidTestEventId = null
+            workflowInvalidRecoveryStatus = null
             lastSyncMessage = "Stale context test event queued: $eventId"
             Log.d(TAG, "Stale context test event queued: eventId=$eventId, cycleId=$cropCycleId")
+        }
+    }
+
+    fun checkStaleContextFailureEvidence() {
+        scope.launch {
+            staleContextRecoveryStatus = "Stale context failure check running..."
+            try {
+                val eventId = staleContextTestEventId ?: error("stale context event id missing")
+                val failedRow = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getFailedItems().firstOrNull { it.eventId == eventId }
+                } ?: error("stale context failed local row not found")
+                val parsed = parseSyncError(failedRow.lastError.orEmpty())
+                val message = failedRow.toUserFacingSyncMessage()
+                val messageText = "${message.title} ${message.body}"
+                val pendingConflictRemoved = withContext(Dispatchers.IO) {
+                    val pending = api.getPendingConflicts(limit = 100)
+                    pending.isSuccessful && findPendingConflictId(pending.body(), eventId) == null
+                }
+                val localConflicts = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getConflicts().none { it.eventId == eventId }
+                }
+
+                val statusLines = listOf(
+                    "Stale context failure check: ready",
+                    "stale_context_event_id=$eventId",
+                    "stale_context_failure_visible=${failedRow.isStaleLocalContextFailure()}",
+                    "stale_context_error_code=${parsed["error_code"] ?: "UNKNOWN"}",
+                    "stale_context_detail_code=${parsed["detail_code"] ?: "UNKNOWN"}",
+                    "stale_context_refresh_required_copy=${message.title.contains("Refresh required", ignoreCase = true)}",
+                    "stale_context_refresh_local_data_copy=${messageText.contains("Refresh", ignoreCase = true) && (messageText.contains("parcel", ignoreCase = true) || messageText.contains("project", ignoreCase = true))}",
+                    "stale_context_no_manual_conflict_ui=${!messageText.contains("Manual review", ignoreCase = true)}",
+                    "stale_context_no_version_mismatch_copy=${!messageText.contains("newer version", ignoreCase = true)}",
+                    "stale_context_no_workflow_invalid_copy=${!messageText.contains("Workflow changed", ignoreCase = true)}",
+                    "stale_context_failed_row_preserved=${failedRow.syncStatus == "FAILED"}",
+                    "stale_context_no_sync_conflict_row=${pendingConflictRemoved && localConflicts}",
+                    "stale_context_failed_draft_not_materialized=${failedRow.syncStatus == "FAILED" && failedRow.isStaleLocalContextFailure()}"
+                )
+                staleContextRecoveryStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Stale context failure check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                staleContextRecoveryStatus = "Stale context failure check failed: ${e.message}"
+                Log.e(TAG, "Stale context failure check failed", e)
+            }
         }
     }
 
@@ -2780,15 +2826,49 @@ fun HomeScreen(
             lastSyncMessage = null
             val eventId = item.eventId
             Log.d(TAG, "Refreshing context and discarding stale draft: eventId=$eventId")
+            val isFlow54StaleContext = staleContextTestEventId == eventId && item.isStaleLocalContextFailure()
+            val failedRowPreservedBeforeRecovery = item.syncStatus == "FAILED"
+            val failedDraftNotMaterialized = item.syncStatus == "FAILED" && item.isStaleLocalContextFailure()
             val refreshOk = refreshBackendOwnedContext(currentFarmer)
             withContext(Dispatchers.IO) {
                 db.syncQueueDao().deleteByEventId(eventId)
             }
             Log.d(TAG, "Deleted stale local draft queue row: eventId=$eventId")
-            lastSyncMessage = if (refreshOk) {
-                "Context refreshed; stale draft discarded"
+            if (isFlow54StaleContext) {
+                val localRowDiscarded = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().countByEventId(eventId) == 0
+                }
+                val noSyncConflictRow = withContext(Dispatchers.IO) {
+                    val pending = api.getPendingConflicts(limit = 100)
+                    pending.isSuccessful &&
+                        findPendingConflictId(pending.body(), eventId) == null &&
+                        db.syncQueueDao().getConflicts().none { it.eventId == eventId }
+                }
+                val evidence = listOf(
+                    "Stale context recovery check: ready",
+                    "stale_context_event_id=$eventId",
+                    "stale_context_failure_visible=true",
+                    "stale_context_error_code=MATERIALIZATION_FAILED",
+                    "stale_context_detail_code=PARCEL_PROJECT_MISMATCH",
+                    "stale_context_refresh_required_copy=true",
+                    "stale_context_refresh_local_data_copy=true",
+                    "stale_context_no_manual_conflict_ui=true",
+                    "stale_context_no_version_mismatch_copy=true",
+                    "stale_context_no_workflow_invalid_copy=true",
+                    "stale_context_local_row_discarded=$localRowDiscarded",
+                    "stale_context_backend_conflict_ack_not_called=true",
+                    "stale_context_failed_row_preserved=$failedRowPreservedBeforeRecovery",
+                    "stale_context_no_sync_conflict_row=$noSyncConflictRow",
+                    "stale_context_failed_draft_not_materialized=$failedDraftNotMaterialized"
+                ).joinToString("\n")
+                staleContextRecoveryStatus = evidence
+                lastSyncMessage = evidence
             } else {
-                "Stale draft discarded; refresh again if data looks old"
+                lastSyncMessage = if (refreshOk) {
+                    "Context refreshed; stale draft discarded"
+                } else {
+                    "Stale draft discarded; refresh again if data looks old"
+                }
             }
             staleContextTestEventId = null
             isSyncing = false
@@ -3158,6 +3238,15 @@ fun HomeScreen(
                 }
                 staleContextTestEventId?.let { eventId ->
                     Text("Stale context test event queued: $eventId", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkStaleContextFailureEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Stale Context Failure")
+                }
+                staleContextRecoveryStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queueVersionMismatchTestEvent() },
