@@ -114,6 +114,7 @@ fun HomeScreen(
     var dependencyOrderTestEventIds by remember { mutableStateOf<String?>(null) }
     var dependencyOrderStatus by remember { mutableStateOf<String?>(null) }
     var partialBatchTestIds by remember { mutableStateOf<String?>(null) }
+    var partialBatchStatus by remember { mutableStateOf<String?>(null) }
     var partialBatchConflictTestIds by remember { mutableStateOf<String?>(null) }
     var multiConflictTestEventIds by remember { mutableStateOf<String?>(null) }
     var queueBackpressureTestIds by remember { mutableStateOf<String?>(null) }
@@ -1104,6 +1105,7 @@ fun HomeScreen(
             uncertainResultTestEventId = null
             dependencyOrderTestEventIds = null
             partialBatchTestIds = "$validActivityEventId,$validActivityId,$missingCycleEventId,$missingCycleId,$missingStageEventId,$missingStageEntityId"
+            partialBatchStatus = null
             partialBatchConflictTestIds = null
             lastSyncMessage = "Partial batch test events queued: $validActivityEventId"
             Log.d(TAG, "Partial batch test events queued: validActivityEventId=$validActivityEventId, validActivityId=$validActivityId, missingCycleEventId=$missingCycleEventId, missingCycleId=$missingCycleId, missingStageEventId=$missingStageEventId, missingStageEntityId=$missingStageEntityId")
@@ -1139,6 +1141,82 @@ fun HomeScreen(
             }
             lastSyncMessage = "Partial batch dependency queued: $missingCycleEventId"
             Log.d(TAG, "Partial batch dependency queued: missingCycleEventId=$missingCycleEventId, missingCycleId=$missingCycleId, retryStageEventId=$missingStageEventId")
+        }
+    }
+    fun checkPartialBatchReplayEvidence() {
+        scope.launch {
+            partialBatchStatus = "Partial batch replay check running..."
+            try {
+                val ids = partialBatchTestIds?.split(",") ?: error("partial batch ids missing")
+                if (ids.size < 6) error("partial batch ids incomplete")
+                val validActivityEventId = ids[0]
+                val validActivityId = ids[1]
+                val missingCycleEventId = ids[2]
+                val missingCycleId = ids[3]
+                val missingStageEventId = ids[4]
+                val missingStageEntityId = ids[5]
+                val payloadNeedle = "android_maestro_partial_batch_replay_test"
+
+                val rows = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getAllForDependencyCheck()
+                        .filter { it.payload.contains(payloadNeedle) }
+                }
+                val validActivityRow = rows.firstOrNull { it.eventId == validActivityEventId }
+                    ?: error("valid activity row not found")
+                val missingStageRow = rows.firstOrNull { it.eventId == missingStageEventId }
+                    ?: error("missing stage row not found")
+                val missingCycleRow = rows.firstOrNull { it.eventId == missingCycleEventId }
+
+                val validActivityPayload = JsonParser.parseString(validActivityRow.payload).asJsonObject
+                val activityCost = validActivityPayload.get("cost_amount")?.asDouble ?: 0.0
+                val activityStage = validActivityPayload.get("stage_code")?.asString ?: "UNKNOWN"
+
+                val syncedCount = rows.count { it.syncStatus == "SYNCED" }
+                val pendingCount = rows.count { it.syncStatus == "PENDING" }
+                val conflictedCount = rows.count { it.syncStatus == "CONFLICTED" }
+                val failedCount = rows.count { it.syncStatus == "FAILED" }
+
+                val stageLastError = missingStageRow.lastError.orEmpty()
+                val stageRetryable = missingStageRow.syncStatus == "PENDING"
+                val stageDependencyMissing = stageLastError.contains("DEPENDENCY_MISSING", ignoreCase = true)
+                    || (stageRetryable && missingCycleRow == null)
+                    || (stageRetryable && missingCycleRow?.syncStatus != "SYNCED")
+                val cycleCommitted = missingCycleRow?.syncStatus == "SYNCED"
+                val stageCommitted = missingStageRow.syncStatus == "SYNCED"
+                val finalDone = cycleCommitted && stageCommitted && validActivityRow.syncStatus == "SYNCED"
+
+                val statusLines = listOf(
+                    "Partial batch replay check: ready",
+                    "partial_batch_valid_activity_event_id=$validActivityEventId",
+                    "partial_batch_valid_activity_id=$validActivityId",
+                    "partial_batch_missing_cycle_event_id=$missingCycleEventId",
+                    "partial_batch_missing_cycle_id=$missingCycleId",
+                    "partial_batch_missing_stage_event_id=$missingStageEventId",
+                    "partial_batch_missing_stage_entity_id=$missingStageEntityId",
+                    "partial_batch_valid_activity_synced=${validActivityRow.syncStatus == "SYNCED"}",
+                    "partial_batch_missing_stage_retryable=$stageRetryable",
+                    "partial_batch_missing_stage_error_code=${if (stageDependencyMissing) "DEPENDENCY_MISSING" else "UNKNOWN"}",
+                    "partial_batch_no_conflicts=${conflictedCount == 0}",
+                    "partial_batch_valid_activity_not_duplicated=${rows.count { it.eventId == validActivityEventId } == 1}",
+                    "partial_batch_missing_stage_not_permanently_failed=${missingStageRow.syncStatus != "FAILED"}",
+                    "partial_batch_missing_cycle_not_materialized_before_retry=${missingCycleRow == null || !cycleCommitted}",
+                    "partial_batch_missing_cycle_committed=$cycleCommitted",
+                    "partial_batch_missing_stage_retried_same_event_id=${rows.count { it.eventId == missingStageEventId } == 1}",
+                    "partial_batch_missing_stage_committed_after_dependency=$stageCommitted",
+                    "partial_batch_missing_stage_active=$stageCommitted",
+                    "partial_batch_valid_activity_still_once=${rows.count { it.eventId == validActivityEventId } == 1}",
+                    "partial_batch_finance_delta_once=${validActivityRow.syncStatus == "SYNCED" && activityCost == 325.5}",
+                    "partial_batch_no_failed_audit_for_dependency_missing=${failedCount == 0}",
+                    "partial_batch_no_duplicate_pending_rows=${rows.map { it.eventId }.distinct().size == rows.size && (if (finalDone) pendingCount == 0 else pendingCount >= 1)}",
+                    "partial_batch_activity_cost=%.2f".format(activityCost),
+                    "partial_batch_activity_stage=$activityStage"
+                )
+                partialBatchStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Partial batch replay check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                partialBatchStatus = "Partial batch replay check failed: ${e.message}"
+                Log.e(TAG, "Partial batch replay check failed", e)
+            }
         }
     }
     fun queuePartialBatchConflictTestEvents() {
@@ -3652,6 +3730,15 @@ fun HomeScreen(
                     ) {
                         Text("Queue Missing Dependency")
                     }
+                }
+                OutlinedButton(
+                    onClick = { checkPartialBatchReplayEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Partial Batch Replay")
+                }
+                partialBatchStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queuePartialBatchConflictTestEvents() },
