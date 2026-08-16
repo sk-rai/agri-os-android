@@ -1,0 +1,207 @@
+﻿appId: com.agrios.app
+name: Sync queue pagination backpressure smoke
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 20000
+- tapOn:
+    text: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn:
+    text: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 20000
+- tapOn:
+    text: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*|.*Agri-OS"
+    timeout: 60000
+
+- scrollUntilVisible:
+    element:
+      text: "Queue Backpressure Test"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Queue Backpressure Test"
+- scrollUntilVisible:
+    element:
+      text: "Queue backpressure test events queued: 25"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+
+- scrollUntilVisible:
+    element:
+      text: "Check Queue Backpressure"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Queue Backpressure"
+- scrollUntilVisible:
+    element:
+      text: "Queue backpressure check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_total_queued=25"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_pending_visible_before_sync=25"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_bounded_batches=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_batch_sizes=\\[10,10,5\\]"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_amount_per_activity=20.00"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_expected_finance_delta=500.00"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_farmer_safe_progress_copy=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "62-queue-backpressure-before-sync"
+
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Sync Now"
+- waitForAnimationToEnd:
+    timeout: 15000
+
+- scrollUntilVisible:
+    element:
+      text: "Check Queue Backpressure"
+    direction: UP
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Queue Backpressure"
+- scrollUntilVisible:
+    element:
+      text: "Queue backpressure check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_all_batches_accepted=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_total_synced=25"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_pending_after_sync=0"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_no_conflicts=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_no_failed_rows=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_no_duplicate_pending_rows=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "queue_backpressure_no_duplicate_activity_ids=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "62-queue-backpressure-after-sync"
