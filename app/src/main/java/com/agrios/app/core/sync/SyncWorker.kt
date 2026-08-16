@@ -70,7 +70,8 @@ class SyncWorker(
             "android_maestro_cold_start_persistence_test",
             "android_maestro_device_restart_persistence_test",
             "android_maestro_dependency_order_replay_test",
-            "android_maestro_partial_batch_replay_test"
+            "android_maestro_partial_batch_replay_test",
+            "android_maestro_partial_batch_conflict_test"
         ).any { payloadNeedle ->
             db.syncQueueDao().countByPayloadNeedleAndStatus(
                 payloadNeedle,

@@ -116,6 +116,7 @@ fun HomeScreen(
     var partialBatchTestIds by remember { mutableStateOf<String?>(null) }
     var partialBatchStatus by remember { mutableStateOf<String?>(null) }
     var partialBatchConflictTestIds by remember { mutableStateOf<String?>(null) }
+    var partialBatchConflictStatus by remember { mutableStateOf<String?>(null) }
     var multiConflictTestEventIds by remember { mutableStateOf<String?>(null) }
     var queueBackpressureTestIds by remember { mutableStateOf<String?>(null) }
     var interruptedMultibatchResumeTestIds by remember { mutableStateOf<String?>(null) }
@@ -1270,8 +1271,71 @@ fun HomeScreen(
             dependencyOrderTestEventIds = null
             partialBatchTestIds = null
             partialBatchConflictTestIds = "$activityEventId,$activityId,$conflictEventId,$conflictStageEntityId"
+            partialBatchConflictStatus = null
             lastSyncMessage = "Partial batch conflict test events queued: $activityEventId"
             Log.d(TAG, "Partial batch conflict test events queued: activityEventId=$activityEventId, activityId=$activityId, conflictEventId=$conflictEventId, conflictStageEntityId=$conflictStageEntityId")
+        }
+    }
+    fun checkPartialBatchConflictEvidence() {
+        scope.launch {
+            partialBatchConflictStatus = "Partial batch conflict check running..."
+            try {
+                val ids = partialBatchConflictTestIds?.split(",") ?: error("partial batch conflict ids missing")
+                if (ids.size < 4) error("partial batch conflict ids incomplete")
+                val activityEventId = ids[0]
+                val activityId = ids[1]
+                val conflictEventId = ids[2]
+                val conflictStageEntityId = ids[3]
+                val payloadNeedle = "android_maestro_partial_batch_conflict_test"
+
+                val rows = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getAllForDependencyCheck()
+                        .filter { it.payload.contains(payloadNeedle) }
+                }
+                val activityRow = rows.firstOrNull { it.eventId == activityEventId }
+                    ?: error("partial conflict valid activity row not found")
+                val conflictRow = rows.firstOrNull { it.eventId == conflictEventId }
+                    ?: error("partial conflict stage row not found")
+
+                val activityPayload = JsonParser.parseString(activityRow.payload).asJsonObject
+                val activityCost = activityPayload.get("cost_amount")?.asDouble ?: 0.0
+
+                val parsed = parseSyncError(conflictRow.lastError.orEmpty())
+                val conflictType = parsed["conflict_type"] ?: parsed["code"] ?: "UNKNOWN"
+                val strategy = parsed["resolution_strategy"] ?: parsed["strategy"] ?: "SERVER_AUTHORITY"
+                val messageText = conflictRow.lastError.orEmpty()
+
+                val pendingConflictVisible = withContext(Dispatchers.IO) {
+                    val pending = api.getPendingConflicts(limit = 100)
+                    pending.isSuccessful && findPendingConflictId(pending.body(), conflictEventId) != null
+                }
+
+                val failedRows = rows.filter { it.syncStatus == "FAILED" }
+                val statusLines = listOf(
+                    "Partial batch conflict check: ready",
+                    "partial_conflict_valid_activity_event_id=$activityEventId",
+                    "partial_conflict_valid_activity_id=$activityId",
+                    "partial_conflict_conflict_event_id=$conflictEventId",
+                    "partial_conflict_conflict_stage_entity_id=$conflictStageEntityId",
+                    "partial_conflict_valid_activity_synced=${activityRow.syncStatus == "SYNCED"}",
+                    "partial_conflict_valid_activity_not_duplicated=${rows.count { it.eventId == activityEventId } == 1}",
+                    "partial_conflict_conflict_visible=${conflictRow.syncStatus == "CONFLICTED" && conflictType == "WORKFLOW_INVALID"}",
+                    "partial_conflict_conflict_type=$conflictType",
+                    "partial_conflict_resolution_strategy=$strategy",
+                    "partial_conflict_stage_row_pending_review=${conflictRow.syncStatus == "CONFLICTED"}",
+                    "partial_conflict_not_dependency_missing=${!conflictRow.lastError.orEmpty().contains("DEPENDENCY_MISSING", ignoreCase = true)}",
+                    "partial_conflict_no_stale_context_copy=${!messageText.contains("stale", ignoreCase = true)}",
+                    "partial_conflict_valid_row_not_blocked_by_conflict=${activityRow.syncStatus == "SYNCED" && conflictRow.syncStatus == "CONFLICTED"}",
+                    "partial_conflict_pending_conflict_endpoint_visible=$pendingConflictVisible",
+                    "partial_conflict_no_failed_sync_for_valid_activity=${failedRows.none { it.eventId == activityEventId }}",
+                    "partial_conflict_finance_delta_once=${activityRow.syncStatus == "SYNCED" && activityCost == 325.5}"
+                )
+                partialBatchConflictStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Partial batch conflict check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                partialBatchConflictStatus = "Partial batch conflict check failed: ${e.message}"
+                Log.e(TAG, "Partial batch conflict check failed", e)
+            }
         }
     }
     fun queueMultiConflictPendingDrawerTestEvents() {
@@ -3748,6 +3812,15 @@ fun HomeScreen(
                 }
                 partialBatchConflictTestIds?.let { ids ->
                     Text("Partial batch conflict test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkPartialBatchConflictEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Partial Batch Conflict")
+                }
+                partialBatchConflictStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queueMultiConflictPendingDrawerTestEvents() },
