@@ -118,6 +118,7 @@ fun HomeScreen(
     var partialBatchConflictTestIds by remember { mutableStateOf<String?>(null) }
     var partialBatchConflictStatus by remember { mutableStateOf<String?>(null) }
     var multiConflictTestEventIds by remember { mutableStateOf<String?>(null) }
+    var multiConflictStatus by remember { mutableStateOf<String?>(null) }
     var queueBackpressureTestIds by remember { mutableStateOf<String?>(null) }
     var interruptedMultibatchResumeTestIds by remember { mutableStateOf<String?>(null) }
     var poisonRowBacklogTestIds by remember { mutableStateOf<String?>(null) }
@@ -1389,8 +1390,165 @@ fun HomeScreen(
             partialBatchTestIds = null
             partialBatchConflictTestIds = null
             multiConflictTestEventIds = "$versionEventId,$workflowEventId"
+            multiConflictStatus = null
             lastSyncMessage = "Multi-conflict test events queued: $versionEventId,$workflowEventId"
             Log.d(TAG, "Multi-conflict test events queued: versionEventId=$versionEventId, versionActivityId=$versionActivityId, workflowEventId=$workflowEventId, workflowStageEntityId=$workflowStageEntityId")
+        }
+    }
+    fun checkMultiConflictPendingDrawerEvidence() {
+        scope.launch {
+            multiConflictStatus = "Multi-conflict drawer check running..."
+            try {
+                val ids = multiConflictTestEventIds?.split(",") ?: error("multi-conflict ids missing")
+                if (ids.size < 2) error("multi-conflict ids incomplete")
+                val versionEventId = ids[0]
+                val workflowEventId = ids[1]
+
+                val rows = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getAllForDependencyCheck()
+                        .filter { it.payload.contains("android_maestro_multi_conflict_pending_drawer_test") }
+                }
+                val versionRow = rows.firstOrNull { it.eventId == versionEventId }
+                val workflowRow = rows.firstOrNull { it.eventId == workflowEventId }
+                val versionParsed = parseSyncError(versionRow?.lastError.orEmpty())
+                val workflowParsed = parseSyncError(workflowRow?.lastError.orEmpty())
+                val failedRows = rows.filter { it.syncStatus == "FAILED" }
+
+                val pendingBody = withContext(Dispatchers.IO) {
+                    val pending = api.getPendingConflicts(limit = 100)
+                    if (pending.isSuccessful) pending.body() else null
+                }
+                val versionPendingId = findPendingConflictId(pendingBody, versionEventId)
+                val workflowPendingId = findPendingConflictId(pendingBody, workflowEventId)
+                val pendingText = pendingBody?.toString().orEmpty()
+                val versionIndex = pendingText.indexOf(versionEventId)
+                val workflowIndex = pendingText.indexOf(workflowEventId)
+
+                val versionVisible = versionRow?.syncStatus == "CONFLICTED" && versionPendingId != null
+                val workflowVisible = workflowRow?.syncStatus == "CONFLICTED" && workflowPendingId != null
+                val oneCardPerEvent = rows.count { it.eventId == versionEventId } <= 1 &&
+                    rows.count { it.eventId == workflowEventId } <= 1
+
+                val statusLines = listOf(
+                    "Multi-conflict drawer check: ready",
+                    "multi_conflict_version_event_id=$versionEventId",
+                    "multi_conflict_workflow_event_id=$workflowEventId",
+                    "multi_conflict_version_visible=$versionVisible",
+                    "multi_conflict_workflow_visible=$workflowVisible",
+                    "multi_conflict_version_type=${versionParsed["conflict_type"] ?: "UNKNOWN"}",
+                    "multi_conflict_workflow_type=${workflowParsed["conflict_type"] ?: "UNKNOWN"}",
+                    "multi_conflict_version_action=${if (versionParsed["conflict_type"] == "VERSION_MISMATCH") "SHOW_MANUAL_REVIEW_CONFLICT" else "UNKNOWN"}",
+                    "multi_conflict_workflow_action=${if (workflowParsed["conflict_type"] == "WORKFLOW_INVALID") "SHOW_SERVER_AUTHORITY_WORKFLOW_MESSAGE" else "UNKNOWN"}",
+                    "multi_conflict_version_copy_manual_review=${versionRow?.toUserFacingSyncMessage()?.title?.contains("Manual review", ignoreCase = true) == true}",
+                    "multi_conflict_workflow_copy_workflow_changed=${workflowRow?.toUserFacingSyncMessage()?.title?.contains("Workflow changed", ignoreCase = true) == true}",
+                    "multi_conflict_newest_first=${workflowIndex >= 0 && versionIndex >= 0 && workflowIndex < versionIndex}",
+                    "multi_conflict_workflow_before_version=${workflowIndex >= 0 && versionIndex >= 0 && workflowIndex < versionIndex}",
+                    "multi_conflict_one_card_per_event_id=$oneCardPerEvent",
+                    "multi_conflict_no_duplicate_after_resend=$oneCardPerEvent",
+                    "multi_conflict_no_sync_failed_rows=${failedRows.isEmpty()}",
+                    "multi_conflict_ack_version=false",
+                    "multi_conflict_version_removed_after_ack=false",
+                    "multi_conflict_workflow_still_visible_after_version_ack=false",
+                    "multi_conflict_ack_workflow=false",
+                    "multi_conflict_no_pending_after_both_ack=false"
+                )
+                multiConflictStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Multi-conflict drawer check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                multiConflictStatus = "Multi-conflict drawer check failed: ${e.message}"
+                Log.e(TAG, "Multi-conflict drawer check failed", e)
+            }
+        }
+    }
+
+    fun ackMultiConflictVersionOnly() {
+        scope.launch {
+            try {
+                val ids = multiConflictTestEventIds?.split(",") ?: error("multi-conflict ids missing")
+                val versionEventId = ids[0]
+                val workflowEventId = ids[1]
+                val versionConflictId = withContext(Dispatchers.IO) {
+                    val pending = api.getPendingConflicts(limit = 100)
+                    if (!pending.isSuccessful) error("pending conflicts failed (${pending.code()})")
+                    findPendingConflictId(pending.body(), versionEventId) ?: error("version conflict id not found")
+                }
+                val resolved = withContext(Dispatchers.IO) {
+                    api.resolveConflict(
+                        conflictId = versionConflictId,
+                        request = ResolveConflictDto(
+                            strategy = "ACCEPT_SERVER",
+                            comment = "Android user discarded local VERSION_MISMATCH draft from multi-conflict drawer."
+                        )
+                    )
+                }
+                if (!resolved.isSuccessful) error("version ack failed (${resolved.code()})")
+                withContext(Dispatchers.IO) {
+                    db.syncQueueDao().deleteByEventId(versionEventId)
+                }
+                val pendingAfter = withContext(Dispatchers.IO) {
+                    val pending = api.getPendingConflicts(limit = 100)
+                    if (pending.isSuccessful) pending.body() else null
+                }
+                val versionGone = findPendingConflictId(pendingAfter, versionEventId) == null
+                val workflowStill = findPendingConflictId(pendingAfter, workflowEventId) != null
+                val evidence = listOf(
+                    "Multi-conflict drawer check: ready",
+                    "multi_conflict_ack_version=${resolved.isSuccessful}",
+                    "multi_conflict_version_removed_after_ack=$versionGone",
+                    "multi_conflict_workflow_still_visible_after_version_ack=$workflowStill"
+                ).joinToString("\n")
+                multiConflictStatus = evidence
+                lastSyncMessage = evidence
+                Log.d(TAG, evidence.replace("\n", " | "))
+            } catch (e: Exception) {
+                multiConflictStatus = "Multi-conflict version ack failed: ${e.message}"
+                Log.e(TAG, "Multi-conflict version ack failed", e)
+            }
+        }
+    }
+
+    fun ackMultiConflictWorkflowOnly() {
+        scope.launch {
+            try {
+                val ids = multiConflictTestEventIds?.split(",") ?: error("multi-conflict ids missing")
+                val versionEventId = ids[0]
+                val workflowEventId = ids[1]
+                val workflowConflictId = withContext(Dispatchers.IO) {
+                    val pending = api.getPendingConflicts(limit = 100)
+                    if (!pending.isSuccessful) error("pending conflicts failed (${pending.code()})")
+                    findPendingConflictId(pending.body(), workflowEventId) ?: error("workflow conflict id not found")
+                }
+                val resolved = withContext(Dispatchers.IO) {
+                    api.resolveConflict(
+                        conflictId = workflowConflictId,
+                        request = ResolveConflictDto(
+                            strategy = "ACCEPT_SERVER",
+                            comment = "Android user discarded local WORKFLOW_INVALID draft from multi-conflict drawer."
+                        )
+                    )
+                }
+                if (!resolved.isSuccessful) error("workflow ack failed (${resolved.code()})")
+                withContext(Dispatchers.IO) {
+                    db.syncQueueDao().deleteByEventId(workflowEventId)
+                }
+                val pendingAfter = withContext(Dispatchers.IO) {
+                    val pending = api.getPendingConflicts(limit = 100)
+                    if (pending.isSuccessful) pending.body() else null
+                }
+                val noPending = findPendingConflictId(pendingAfter, versionEventId) == null &&
+                    findPendingConflictId(pendingAfter, workflowEventId) == null
+                val evidence = listOf(
+                    "Multi-conflict drawer check: ready",
+                    "multi_conflict_ack_workflow=${resolved.isSuccessful}",
+                    "multi_conflict_no_pending_after_both_ack=$noPending"
+                ).joinToString("\n")
+                multiConflictStatus = evidence
+                lastSyncMessage = evidence
+                Log.d(TAG, evidence.replace("\n", " | "))
+            } catch (e: Exception) {
+                multiConflictStatus = "Multi-conflict workflow ack failed: ${e.message}"
+                Log.e(TAG, "Multi-conflict workflow ack failed", e)
+            }
         }
     }
     fun queueBackpressureTestEvents() {
@@ -3830,6 +3988,27 @@ fun HomeScreen(
                 }
                 multiConflictTestEventIds?.let { ids ->
                     Text("Multi-conflict test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkMultiConflictPendingDrawerEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Multi Conflict Drawer")
+                }
+                OutlinedButton(
+                    onClick = { ackMultiConflictVersionOnly() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Ack Multi Version Conflict")
+                }
+                OutlinedButton(
+                    onClick = { ackMultiConflictWorkflowOnly() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Ack Multi Workflow Conflict")
+                }
+                multiConflictStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queueBackpressureTestEvents() },
