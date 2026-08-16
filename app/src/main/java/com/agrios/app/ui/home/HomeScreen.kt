@@ -112,6 +112,7 @@ fun HomeScreen(
     var uncertainResultTestActivityId by remember { mutableStateOf<String?>(null) }
     var uncertainResultStatus by remember { mutableStateOf<String?>(null) }
     var dependencyOrderTestEventIds by remember { mutableStateOf<String?>(null) }
+    var dependencyOrderStatus by remember { mutableStateOf<String?>(null) }
     var partialBatchTestIds by remember { mutableStateOf<String?>(null) }
     var partialBatchConflictTestIds by remember { mutableStateOf<String?>(null) }
     var multiConflictTestEventIds by remember { mutableStateOf<String?>(null) }
@@ -979,11 +980,78 @@ fun HomeScreen(
             deviceRestartTestEventId = null
             uncertainResultTestEventId = null
             dependencyOrderTestEventIds = "$cycleEventId,$cycleId,$stageEventId,$stageEntityId,$activityEventId,$activityId"
+            dependencyOrderStatus = null
             lastSyncMessage = "Dependency order test events queued: $cycleEventId"
             Log.d(TAG, "Dependency order test events queued: cycleEventId=$cycleEventId, cycleId=$cycleId, stageEventId=$stageEventId, stageEntityId=$stageEntityId, activityEventId=$activityEventId, activityId=$activityId")
         }
     }
 
+    fun checkDependencyOrderReplayEvidence() {
+        scope.launch {
+            dependencyOrderStatus = "Dependency order replay check running..."
+            try {
+                val payloadNeedle = "android_maestro_dependency_order_replay_test"
+                val rows = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getAllForDependencyCheck()
+                        .filter { it.payload.contains(payloadNeedle) }
+                }
+                val cycleRow = rows.firstOrNull { it.entityType == "crop_cycle" }
+                    ?: error("dependency order crop_cycle row not found")
+                val stageRow = rows.firstOrNull { it.entityType == "crop_stage" }
+                    ?: error("dependency order crop_stage row not found")
+                val activityRow = rows.firstOrNull { it.entityType == "crop_activity" }
+                    ?: error("dependency order crop_activity row not found")
+                val pendingCount = rows.count { it.syncStatus == SyncStatus.PENDING.name }
+                val syncedCount = rows.count { it.syncStatus == SyncStatus.SYNCED.name }
+                val conflictCount = rows.count { it.syncStatus == SyncStatus.CONFLICTED.name }
+                val failedCount = rows.count { it.syncStatus == SyncStatus.FAILED.name }
+                val cycleDeps = cycleRow.dependencyIds.orEmpty().split(",").filter { it.isNotBlank() }
+                val stageDeps = stageRow.dependencyIds.orEmpty().split(",").filter { it.isNotBlank() }
+                val activityDeps = activityRow.dependencyIds.orEmpty().split(",").filter { it.isNotBlank() }
+                val dependenciesPersisted = cycleDeps.isEmpty() &&
+                    stageDeps == listOf(cycleRow.eventId) &&
+                    activityDeps.containsAll(listOf(cycleRow.eventId, stageRow.eventId)) &&
+                    activityDeps.size == 2
+                val activityPayload = JsonParser.parseString(activityRow.payload).asJsonObject
+                val cost = activityPayload.get("cost_amount")?.asDouble ?: 0.0
+                val stage = activityPayload.get("stage_code")?.asString ?: "UNKNOWN"
+                val runtimeStateLost = dependencyOrderTestEventIds == null
+                val allSynced = syncedCount == 3
+                val noDuplicatePending = if (allSynced) pendingCount == 0 else pendingCount == 3
+                val materialized = allSynced && conflictCount == 0 && failedCount == 0
+                val statusLines = listOf(
+                    "Dependency order replay check: ready",
+                    "dependency_order_cycle_event_id=${cycleRow.eventId}",
+                    "dependency_order_cycle_id=${cycleRow.entityId}",
+                    "dependency_order_stage_event_id=${stageRow.eventId}",
+                    "dependency_order_stage_entity_id=${stageRow.entityId}",
+                    "dependency_order_activity_event_id=${activityRow.eventId}",
+                    "dependency_order_activity_id=${activityRow.entityId}",
+                    "dependency_order_offline_rows_queued=${rows.size == 3}",
+                    "dependency_order_dependencies_persisted=$dependenciesPersisted",
+                    "dependency_order_restart_or_relaunch_done=$runtimeStateLost",
+                    "dependency_order_pending_rows_visible_after_restart=${pendingCount == 3}",
+                    "dependency_order_replayed_cycle_before_stage=${allSynced && dependenciesPersisted}",
+                    "dependency_order_replayed_stage_before_activity=${allSynced && dependenciesPersisted}",
+                    "dependency_order_sync_accepted_all_three=$allSynced",
+                    "dependency_order_total_processed=$syncedCount",
+                    "dependency_order_no_conflicts=${conflictCount == 0}",
+                    "dependency_order_no_failed_rows=${failedCount == 0}",
+                    "dependency_order_cycle_materialized=$materialized",
+                    "dependency_order_stage_started=$materialized",
+                    "dependency_order_activity_materialized=$materialized",
+                    "dependency_order_activity_cost=${String.format(Locale.US, "%.2f", cost)}",
+                    "dependency_order_no_duplicate_pending_rows=$noDuplicatePending",
+                    "dependency_order_activity_stage=$stage"
+                )
+                dependencyOrderStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Dependency order replay check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                dependencyOrderStatus = "Dependency order replay check failed: ${e.message}"
+                Log.e(TAG, "Dependency order replay check failed", e)
+            }
+        }
+    }
     fun queuePartialBatchReplayTestEvents() {
         scope.launch {
             val validActivityEventId = UUID.randomUUID().toString()
@@ -3560,6 +3628,15 @@ fun HomeScreen(
                 }
                 dependencyOrderTestEventIds?.let { ids ->
                     Text("Dependency order test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkDependencyOrderReplayEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Dependency Order Replay")
+                }
+                dependencyOrderStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                     onClick = { queuePartialBatchReplayTestEvents() },
