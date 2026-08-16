@@ -1,0 +1,142 @@
+﻿appId: com.agrios.app
+name: Interrupted multi-batch replay resume - complete
+---
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*|.*Agri-OS"
+    timeout: 120000
+- scrollUntilVisible:
+    element:
+      text: "Check Interrupted Resume"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Interrupted Resume"
+- scrollUntilVisible:
+    element:
+      text: "Interrupted multibatch resume check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_app_or_backend_restarted=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_pending_visible_after_restart=15"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "63-interrupted-resume-pending-after-restart"
+- scrollUntilVisible:
+    element:
+      text: "Sync Now"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Sync Now"
+- waitForAnimationToEnd:
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      text: "Check Interrupted Resume"
+    direction: UP
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Interrupted Resume"
+- scrollUntilVisible:
+    element:
+      text: "Interrupted multibatch resume check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_resumed_remaining=15"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_total_synced=25"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_pending_after_resume=0"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_first_batch_not_duplicated=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_no_duplicate_activity_ids=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_no_conflicts=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_no_failed_rows=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_expected_finance_delta=500.00"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_farmer_safe_progress_copy=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "63-interrupted-resume-complete"

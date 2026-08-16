@@ -1,0 +1,147 @@
+﻿appId: com.agrios.app
+name: Interrupted multi-batch replay resume - first batch
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Agri-OS"
+    timeout: 60000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 60000
+- tapOn: "Mobile Number.*"
+- inputText: "9900000002"
+- hideKeyboard
+- tapOn: "Send OTP.*"
+- extendedWaitUntil:
+    visible: ".*OTP.*"
+    timeout: 60000
+- tapOn: "Verify.*"
+- extendedWaitUntil:
+    visible: ".*Android Dynamic Test Farmer.*|.*Dynamic Test Farmer.*|.*Agri-OS"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Queue Interrupted Resume Test"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: false
+- tapOn: "Queue Interrupted Resume Test"
+- scrollUntilVisible:
+    element:
+      text: "Interrupted multibatch test events queued: 25"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "Check Interrupted Resume"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Interrupted Resume"
+- scrollUntilVisible:
+    element:
+      text: "Interrupted multibatch resume check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_total_queued=25"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_batch_size=10"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "63-interrupted-resume-queued"
+- scrollUntilVisible:
+    element:
+      text: "Sync First Batch Only"
+    direction: UP
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Sync First Batch Only"
+- waitForAnimationToEnd:
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      text: "Check Interrupted Resume"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 80
+    centerElement: false
+- tapOn: "Check Interrupted Resume"
+- scrollUntilVisible:
+    element:
+      text: "Interrupted multibatch resume check: ready"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_first_batch_synced=10"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_pending_after_interruption=15"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_interruption_simulated=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_no_conflicts=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- scrollUntilVisible:
+    element:
+      text: "interrupted_resume_no_failed_rows=true"
+    direction: DOWN
+    timeout: 30000
+    speed: 40
+    visibilityPercentage: 50
+    centerElement: false
+- takeScreenshot: "63-interrupted-resume-first-batch"
+- stopApp
+
+

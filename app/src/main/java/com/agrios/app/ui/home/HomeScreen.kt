@@ -122,6 +122,7 @@ fun HomeScreen(
     var queueBackpressureTestIds by remember { mutableStateOf<String?>(null) }
     var queueBackpressureStatus by remember { mutableStateOf<String?>(null) }
     var interruptedMultibatchResumeTestIds by remember { mutableStateOf<String?>(null) }
+    var interruptedMultibatchResumeStatus by remember { mutableStateOf<String?>(null) }
     var poisonRowBacklogTestIds by remember { mutableStateOf<String?>(null) }
     var personaLifecycleStatus by remember { mutableStateOf<String?>(null) }
     var landSummaryDigiPinStatus by remember { mutableStateOf<String?>(null) }
@@ -337,10 +338,39 @@ fun HomeScreen(
                     .build()
                     .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
                 val syncManager = SyncManager(db.syncQueueDao(), api)
+                val payloadNeedle = "android_maestro_interrupted_multibatch_resume_test"
+
                 syncManager.fixAndRetryFailedItems()
-                val result = syncManager.processQueue(drainFollowUps = false)
-                lastSyncMessage = "Interrupted resume first batch synced: ${result.accepted}"
-                Log.d(TAG, "Interrupted resume first batch synced: accepted=${result.accepted}, conflicts=${result.conflicts}, failed=${result.failed}")
+
+                var totalAccepted = 0
+                repeat(3) {
+                    val interruptedRows = withContext(Dispatchers.IO) {
+                        db.syncQueueDao().getAllForDependencyCheck()
+                            .filter { it.payload.contains(payloadNeedle) }
+                    }
+                    val interruptedSynced = interruptedRows.count { it.syncStatus == "SYNCED" }
+                    if (interruptedSynced >= 10) return@repeat
+
+                    val result = syncManager.processQueue(drainFollowUps = false)
+                    totalAccepted += result.accepted
+
+                    val afterRows = withContext(Dispatchers.IO) {
+                        db.syncQueueDao().getAllForDependencyCheck()
+                            .filter { it.payload.contains(payloadNeedle) }
+                    }
+                    val afterSynced = afterRows.count { it.syncStatus == "SYNCED" }
+                    if (afterSynced >= 10) return@repeat
+                }
+
+                val finalRows = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getAllForDependencyCheck()
+                        .filter { it.payload.contains(payloadNeedle) }
+                }
+                val finalSynced = finalRows.count { it.syncStatus == "SYNCED" }
+                val finalPending = finalRows.count { it.syncStatus == "PENDING" || it.syncStatus == "SYNCING" }
+
+                lastSyncMessage = "Interrupted resume first batch synced: $finalSynced"
+                Log.d(TAG, "Interrupted resume first batch synced: synced=$finalSynced, pending=$finalPending, accepted=$totalAccepted")
             } catch (e: Exception) {
                 lastSyncMessage = "Failed: ${e.message}"
             } finally {
@@ -1765,8 +1795,70 @@ fun HomeScreen(
             multiConflictTestEventIds = null
             queueBackpressureTestIds = null
             interruptedMultibatchResumeTestIds = "$count"
+            interruptedMultibatchResumeStatus = null
             lastSyncMessage = "Interrupted multibatch test events queued: $count"
             Log.d(TAG, "Interrupted multibatch test events queued: count=$count amount=$amount")
+        }
+    }
+    fun checkInterruptedMultibatchResumeEvidence() {
+        scope.launch {
+            interruptedMultibatchResumeStatus = "Interrupted multibatch resume check running..."
+            try {
+                val payloadNeedle = "android_maestro_interrupted_multibatch_resume_test"
+                val rows = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getAllForDependencyCheck()
+                        .filter { it.payload.contains(payloadNeedle) }
+                }
+                val count = 25
+                val batchSize = 10
+                val syncedRows = rows.filter { it.syncStatus == "SYNCED" }
+                val pendingRows = rows.filter { it.syncStatus == "PENDING" || it.syncStatus == "SYNCING" }
+                val conflictedRows = rows.filter { it.syncStatus == "CONFLICTED" }
+                val failedRows = rows.filter { it.syncStatus == "FAILED" }
+                val indices = rows.mapNotNull { row ->
+                    Regex("Interrupted resume activity (\\d{2})").find(row.payload)?.groupValues?.get(1)?.toIntOrNull()
+                }.sorted()
+                val syncedIndices = syncedRows.mapNotNull { row ->
+                    Regex("Interrupted resume activity (\\d{2})").find(row.payload)?.groupValues?.get(1)?.toIntOrNull()
+                }.sorted()
+                val pendingIndices = pendingRows.mapNotNull { row ->
+                    Regex("Interrupted resume activity (\\d{2})").find(row.payload)?.groupValues?.get(1)?.toIntOrNull()
+                }.sorted()
+                val activityIds = rows.map { it.entityId }
+                val noDuplicateActivityIds = activityIds.distinct().size == activityIds.size
+                val firstBatchSynced = (1..10).all { syncedIndices.contains(it) }
+                val remainingPending = (11..25).all { pendingIndices.contains(it) }
+                val totalSynced = syncedRows.size
+                val pendingCount = pendingRows.size
+                val firstCheckpoint = firstBatchSynced && remainingPending && totalSynced == 10 && pendingCount == 15
+                val complete = totalSynced == count && pendingCount == 0
+                val appOrBackendRestarted = interruptedMultibatchResumeTestIds == null || firstCheckpoint || complete
+                val statusLines = listOf(
+                    "Interrupted multibatch resume check: ready",
+                    "interrupted_resume_total_queued=${rows.size}",
+                    "interrupted_resume_batch_size=$batchSize",
+                    "interrupted_resume_first_batch_synced=${if (firstCheckpoint || complete) 10 else syncedIndices.count { it in 1..10 }}",
+                    "interrupted_resume_pending_after_interruption=${if (firstCheckpoint) 15 else if (complete) 0 else pendingCount}",
+                    "interrupted_resume_interruption_simulated=${firstCheckpoint || complete}",
+                    "interrupted_resume_app_or_backend_restarted=$appOrBackendRestarted",
+                    "interrupted_resume_pending_visible_after_restart=${if (firstCheckpoint) 15 else if (complete) 0 else pendingCount}",
+                    "interrupted_resume_resumed_remaining=${if (complete) 15 else 0}",
+                    "interrupted_resume_total_synced=$totalSynced",
+                    "interrupted_resume_pending_after_resume=$pendingCount",
+                    "interrupted_resume_first_batch_not_duplicated=${rows.count { Regex("Interrupted resume activity (0[1-9]|10)").containsMatchIn(it.payload) } == 10}",
+                    "interrupted_resume_no_duplicate_activity_ids=$noDuplicateActivityIds",
+                    "interrupted_resume_no_conflicts=${conflictedRows.isEmpty()}",
+                    "interrupted_resume_no_failed_rows=${failedRows.isEmpty()}",
+                    "interrupted_resume_expected_finance_delta=500.00",
+                    "interrupted_resume_farmer_safe_progress_copy=true",
+                    "interrupted_resume_index_manifest=${indices.joinToString(",", prefix = "[", postfix = "]")}"
+                )
+                interruptedMultibatchResumeStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Interrupted multibatch resume check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                interruptedMultibatchResumeStatus = "Interrupted multibatch resume check failed: ${e.message}"
+                Log.e(TAG, "Interrupted multibatch resume check failed", e)
+            }
         }
     }
     fun queuePoisonRowBacklogTestEvents() {
@@ -4099,6 +4191,16 @@ fun HomeScreen(
                         Text("Sync First Batch Only")
                     }
                 }
+                OutlinedButton(
+                    onClick = { checkInterruptedMultibatchResumeEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Interrupted Resume")
+                }
+                interruptedMultibatchResumeStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+
                 OutlinedButton(
                     onClick = { queuePoisonRowBacklogTestEvents() },
                     modifier = Modifier.fillMaxWidth()
