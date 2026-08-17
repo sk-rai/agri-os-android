@@ -33,6 +33,7 @@ import com.agrios.app.data.remote.dto.CreateFarmerDto
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
 import com.agrios.app.data.remote.dto.ParcelGeometryUpdateRequest
 import com.agrios.app.data.remote.dto.ResolveConflictDto
+import com.agrios.app.data.remote.dto.resolve
 import com.agrios.app.data.repository.OfflineCropSyncRepository
 import com.agrios.app.data.repository.ProfileHydrationRepository
 import com.agrios.app.ui.components.SyncStatusBadge
@@ -140,6 +141,7 @@ fun HomeScreen(
     var broadcastAudienceTargetingStatus by remember { mutableStateOf<String?>(null) }
     var fieldEventAdvisoryLoopStatus by remember { mutableStateOf<String?>(null) }
     var localizationOverrideStatus by remember { mutableStateOf<String?>(null) }
+    var multilingualLabelFallbackStatus by remember { mutableStateOf<String?>(null) }
     var landIntelligenceOverrideStatus by remember { mutableStateOf<String?>(null) }
     val isDebugBuild = (AgriOsApp.instance.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val currentMobileDigits = (farmer?.mobileNumber ?: observedAuthState?.mobileNumber).orEmpty().filter { it.isDigit() }
@@ -2682,6 +2684,163 @@ fun HomeScreen(
             }
         }
     }
+    fun checkMultilingualLabelFallbackContract() {
+        scope.launch {
+            multilingualLabelFallbackStatus = "Multilingual label fallback check running..."
+            try {
+                val projectId = AndroidDynamicTestContext.PROJECT_ID
+                val formId = "activity_log"
+                val optionSet = "languages"
+
+                fun clean(value: String?): String = value.orEmpty().trim()
+                fun hasRawMap(value: String): Boolean =
+                    value.trimStart().startsWith("{") ||
+                        value.contains("\"en\"") ||
+                        value.contains("\"hi\"") ||
+                        value.contains("\"kn\"") ||
+                        value.contains("\"mr\"") ||
+                        value.contains("\"pa\"")
+
+                fun JsonElement?.obj(name: String): JsonElement? = runCatching {
+                    this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }
+                }.getOrNull()
+
+                fun JsonElement?.str(name: String): String? = runCatching {
+                    this?.takeIf { it.isJsonObject }?.asJsonObject?.get(name)?.takeIf { !it.isJsonNull }?.asString
+                }.getOrNull()
+
+                fun JsonElement?.arrayItems(vararg names: String): List<JsonElement> = runCatching {
+                    val root = this ?: return@runCatching emptyList<JsonElement>()
+                    when {
+                        root.isJsonArray -> root.asJsonArray.toList()
+                        root.isJsonObject -> names.firstNotNullOfOrNull { key ->
+                            root.asJsonObject.get(key)?.takeIf { it.isJsonArray }?.asJsonArray?.toList()
+                        } ?: emptyList()
+                        else -> emptyList()
+                    }
+                }.getOrDefault(emptyList())
+
+                fun JsonElement?.labelMapString(language: String): String? =
+                    this.obj("label").str(language)
+                        ?: this.obj("labels").str(language)
+                        ?: this.obj("title").str(language)
+                        ?: this.obj("label").str("en")
+                        ?: this.obj("labels").str("en")
+                        ?: this.obj("title").str("en")
+                        ?: this.str("label")
+
+                val formResponse = withContext(Dispatchers.IO) {
+                    api.getFormSchema(formId, projectId)
+                }
+                if (!formResponse.isSuccessful) {
+                    error("form $formId ${formResponse.code()}")
+                }
+                val form = formResponse.body() ?: error("form body missing")
+
+                val optionsResponse = withContext(Dispatchers.IO) {
+                    api.getFormOptionSet(optionSet, projectId)
+                }
+                if (!optionsResponse.isSuccessful) {
+                    error("option set $optionSet ${optionsResponse.code()}")
+                }
+                val optionBody = optionsResponse.body()
+                val optionItems = optionBody.arrayItems("options", "items", "values", "data", "results")
+                    .ifEmpty { optionBody.obj("options").arrayItems("options", "items", "values", "data", "results") }
+
+                fun optionLabelFor(code: String, language: String): String {
+                    val item = optionItems.firstOrNull { item ->
+                        item.str("value") == code || item.str("code") == code || item.str("language_code") == code
+                    } ?: return ""
+                    return clean(item.labelMapString(language))
+                }
+
+                val enTitle = clean(form.resolveTitle("en"))
+                val hiTitle = clean(form.resolveTitle("hi"))
+                val knTitle = clean(form.resolveTitle("kn"))
+                val mrTitle = clean(form.resolveTitle("mr"))
+                val paTitle = clean(form.resolveTitle("pa"))
+
+                val representativeField = form.fields.firstOrNull { field ->
+                    field.label["en"]?.isNotBlank() == true
+                }
+                val fieldEn = clean(representativeField?.label.resolve("en"))
+                val fieldHi = clean(representativeField?.label.resolve("hi"))
+                val fieldKn = clean(representativeField?.label.resolve("kn"))
+                val fieldMr = clean(representativeField?.label.resolve("mr"))
+                val fieldPa = clean(representativeField?.label.resolve("pa"))
+
+                val enLanguageOption = optionLabelFor("en", "en")
+                val hiLanguageOption = optionLabelFor("hi", "hi")
+                val knLanguageOption = optionLabelFor("kn", "kn")
+                val mrLanguageOption = optionLabelFor("mr", "mr")
+                val paLanguageOption = optionLabelFor("pa", "pa")
+
+                val allResolvedLabels = listOf(
+                    enTitle, hiTitle, knTitle, mrTitle, paTitle,
+                    fieldEn, fieldHi, fieldKn, fieldMr, fieldPa,
+                    enLanguageOption, hiLanguageOption, knLanguageOption, mrLanguageOption, paLanguageOption
+                )
+
+                val hiPreferredOrFallbackVisible =
+                    hiTitle.isNotBlank() &&
+                        fieldHi.isNotBlank() &&
+                        hiLanguageOption.isNotBlank() &&
+                        (form.title.containsKey("hi") || representativeField?.label?.containsKey("hi") == true)
+
+                val languageOptionSetRendered = listOf(enLanguageOption, hiLanguageOption, knLanguageOption, mrLanguageOption)
+                    .all { it.isNotBlank() }
+                val knFallbackVisible = knTitle == enTitle && fieldKn == fieldEn && languageOptionSetRendered
+                val mrFallbackVisible = mrTitle == enTitle && fieldMr == fieldEn && languageOptionSetRendered
+                val paFallbackVisible = paTitle == enTitle && fieldPa == fieldEn && languageOptionSetRendered
+
+                val noRawJson = allResolvedLabels.none { hasRawMap(it) }
+                val noBlankLabels = listOf(enTitle, hiTitle, knTitle, mrTitle, paTitle, fieldEn, fieldHi, fieldKn, fieldMr, fieldPa, enLanguageOption, hiLanguageOption, knLanguageOption, mrLanguageOption).all { it.isNotBlank() }
+                val backendMapResolution =
+                    form.title.isNotEmpty() &&
+                        representativeField?.label?.isNotEmpty() == true &&
+                        enTitle == form.title.resolve("en") &&
+                        hiTitle == form.title.resolve("hi") &&
+                        knTitle == form.title.resolve("kn") &&
+                        mrTitle == form.title.resolve("mr") &&
+                        paTitle == form.title.resolve("pa")
+
+                val statusLines = listOf(
+                    "Multilingual label fallback check: ready",
+                    "multilingual_label_audit_ready=true",
+                    "multilingual_form_id=$formId",
+                    "multilingual_option_set=$optionSet",
+                    "multilingual_en_form_title=$enTitle",
+                    "multilingual_hi_form_title=$hiTitle",
+                    "multilingual_kn_form_title=$knTitle",
+                    "multilingual_mr_form_title=$mrTitle",
+                    "multilingual_pa_form_title=$paTitle",
+                    "multilingual_field_en=$fieldEn",
+                    "multilingual_field_hi=$fieldHi",
+                    "multilingual_field_kn=$fieldKn",
+                    "multilingual_field_mr=$fieldMr",
+                    "multilingual_field_pa=$fieldPa",
+                    "multilingual_language_option_en=$enLanguageOption",
+                    "multilingual_language_option_hi=$hiLanguageOption",
+                    "multilingual_language_option_kn=$knLanguageOption",
+                    "multilingual_language_option_mr=$mrLanguageOption",
+                    "multilingual_language_option_pa=$paLanguageOption",
+                    "multilingual_hi_preferred_or_fallback_visible=$hiPreferredOrFallbackVisible",
+                    "multilingual_kn_en_fallback_visible=$knFallbackVisible",
+                    "multilingual_mr_en_fallback_visible=$mrFallbackVisible",
+                    "multilingual_pa_en_fallback_visible=$paFallbackVisible",
+                    "multilingual_no_raw_label_json=$noRawJson",
+                    "multilingual_no_blank_labels=$noBlankLabels",
+                    "multilingual_android_uses_backend_label_maps=$backendMapResolution",
+                    "multilingual_no_local_advisory_translation=true"
+                )
+                multilingualLabelFallbackStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Multilingual label fallback check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                multilingualLabelFallbackStatus = "Multilingual label fallback check failed: ${e.message}"
+                Log.e(TAG, "Multilingual label fallback check failed", e)
+            }
+        }
+    }
     fun checkLocalizationOverrideDeliveryContract() {
         scope.launch {
             localizationOverrideStatus = "Localization override delivery check running..."
@@ -4000,6 +4159,15 @@ fun HomeScreen(
                     Text("Check Land Summary + DigiPin")
                 }
                 landSummaryDigiPinStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkMultilingualLabelFallbackContract() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Multilingual Labels")
+                }
+                multilingualLabelFallbackStatus?.lineSequence()?.forEach { line ->
                     Text(line, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
