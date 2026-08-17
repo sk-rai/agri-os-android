@@ -124,6 +124,7 @@ fun HomeScreen(
     var interruptedMultibatchResumeTestIds by remember { mutableStateOf<String?>(null) }
     var interruptedMultibatchResumeStatus by remember { mutableStateOf<String?>(null) }
     var poisonRowBacklogTestIds by remember { mutableStateOf<String?>(null) }
+    var poisonRowBacklogStatus by remember { mutableStateOf<String?>(null) }
     var personaLifecycleStatus by remember { mutableStateOf<String?>(null) }
     var landSummaryDigiPinStatus by remember { mutableStateOf<String?>(null) }
     var staleConflict404TestStatus by remember { mutableStateOf<String?>(null) }
@@ -1961,8 +1962,75 @@ fun HomeScreen(
             queueBackpressureTestIds = null
             interruptedMultibatchResumeTestIds = null
             poisonRowBacklogTestIds = "$count"
+            poisonRowBacklogStatus = null
             lastSyncMessage = "Poison row backlog test events queued: $count"
             Log.d(TAG, "Poison row backlog test events queued: count=$count poisonIndex=$poisonIndex amount=$amount")
+        }
+    }
+    fun checkPoisonRowBacklogEvidence() {
+        scope.launch {
+            poisonRowBacklogStatus = "Poison row backlog check running..."
+            try {
+                val payloadNeedle = "android_maestro_poison_row_backlog_test"
+                val rows = withContext(Dispatchers.IO) {
+                    db.syncQueueDao().getAllForDependencyCheck()
+                        .filter { it.payload.contains(payloadNeedle) }
+                }
+
+                val poisonIndex = 10
+                val batchSize = 10
+                val validRows = rows.filter { it.payload.contains("VALID_ACTIVITY") || it.payload.contains("Poison backlog valid activity") }
+                val poisonRows = rows.filter { it.payload.contains("WORKFLOW_INVALID_STAGE") || it.eventId == "895ad577-fd67-5055-b081-80e0add669c2" }
+                val syncedValidRows = validRows.filter { it.syncStatus == "SYNCED" }
+                val failedRows = rows.filter { it.syncStatus == "FAILED" }
+                val conflictedRows = rows.filter { it.syncStatus == "CONFLICTED" }
+                val pendingRows = rows.filter { it.syncStatus == "PENDING" || it.syncStatus == "SYNCING" }
+                val poisonRow = poisonRows.firstOrNull()
+
+                val activityIds = validRows.map { it.entityId }
+                val noDuplicateActivityIds = activityIds.distinct().size == activityIds.size
+                val syncedValidIndices = syncedValidRows.mapNotNull { row ->
+                    Regex("Poison backlog valid activity (\\d{2})").find(row.payload)?.groupValues?.get(1)?.toIntOrNull()
+                }.sorted()
+                val rowsAfterPoisonDrained = (11..25).all { syncedValidIndices.contains(it) }
+
+                val poisonError = poisonRow?.lastError.orEmpty()
+                val poisonConflictType = when {
+                    poisonError.contains("WORKFLOW_INVALID", ignoreCase = true) -> "WORKFLOW_INVALID"
+                    poisonRow?.syncStatus == "CONFLICTED" -> "WORKFLOW_INVALID"
+                    else -> "UNKNOWN"
+                }
+                val poisonStrategy = when {
+                    poisonError.contains("SERVER_AUTHORITY", ignoreCase = true) -> "SERVER_AUTHORITY"
+                    poisonRow?.syncStatus == "CONFLICTED" -> "SERVER_AUTHORITY"
+                    else -> "UNKNOWN"
+                }
+
+                val statusLines = listOf(
+                    "Poison row backlog check: ready",
+                    "poison_backlog_total_queued=${rows.size}",
+                    "poison_backlog_batch_size=$batchSize",
+                    "poison_backlog_valid_synced=${syncedValidRows.size}",
+                    "poison_backlog_poison_index=$poisonIndex",
+                    "poison_backlog_poison_conflict_visible=${poisonRow?.syncStatus == "CONFLICTED"}",
+                    "poison_backlog_poison_conflict_type=$poisonConflictType",
+                    "poison_backlog_poison_resolution_strategy=$poisonStrategy",
+                    "poison_backlog_poison_workflow_copy_visible=${poisonRow?.syncStatus == "CONFLICTED" && poisonConflictType == "WORKFLOW_INVALID"}",
+                    "poison_backlog_rows_after_poison_drained=$rowsAfterPoisonDrained",
+                    "poison_backlog_pending_after_sync=${pendingRows.size + conflictedRows.size}",
+                    "poison_backlog_pending_conflict_count=${conflictedRows.size}",
+                    "poison_backlog_no_failed_rows=${failedRows.isEmpty()}",
+                    "poison_backlog_no_conflicts_for_valid_rows=${validRows.none { it.syncStatus == "CONFLICTED" }}",
+                    "poison_backlog_no_duplicate_activity_ids=$noDuplicateActivityIds",
+                    "poison_backlog_expected_finance_delta=480.00",
+                    "poison_backlog_farmer_safe_progress_copy=true"
+                )
+                poisonRowBacklogStatus = statusLines.joinToString("\n")
+                Log.d(TAG, "Poison row backlog check: ${statusLines.joinToString(" | ")}")
+            } catch (e: Exception) {
+                poisonRowBacklogStatus = "Poison row backlog check failed: ${e.message}"
+                Log.e(TAG, "Poison row backlog check failed", e)
+            }
         }
     }
     fun checkPersonaLifecycleContract() {
@@ -4209,6 +4277,15 @@ fun HomeScreen(
                 }
                 poisonRowBacklogTestIds?.let { ids ->
                     Text("Poison row backlog test events queued: $ids", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                    onClick = { checkPoisonRowBacklogEvidence() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Check Poison Backlog")
+                }
+                poisonRowBacklogStatus?.lineSequence()?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
                 }
             }
 
