@@ -7,6 +7,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.password
 import androidx.compose.ui.unit.dp
 
 enum class AuthStep { MOBILE_INPUT, OTP_INPUT, LOADING, ERROR }
@@ -119,7 +123,7 @@ private fun MobileInputSection(
 }
 
 @Composable
-private fun OtpInputSection(
+internal fun OtpInputSection(
     otp: String,
     mobile: String,
     onOtpChange: (String) -> Unit,
@@ -134,14 +138,21 @@ private fun OtpInputSection(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    OutlinedTextField(
-        value = otp,
-        onValueChange = { if (it.length <= 6) onOtpChange(it) },
-        label = { Text("Enter OTP / OTP दर्ज करें") },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth()
-    )
+    // PasswordVisualTransformation masks both rendered and editable semantic text.
+    // Preserve the text field's native focus/edit actions for accessibility.
+    // Runtime tests independently verify Compose and platform redaction.
+        OutlinedTextField(
+            value = otp,
+            onValueChange = { if (it.length <= 6) onOtpChange(it) },
+            label = { Text("Enter OTP / OTP दर्ज करें") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            visualTransformation = PasswordVisualTransformation(),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().semantics {
+                contentDescription = "One-time code input"
+                password()
+            }
+        )
 
     Spacer(modifier = Modifier.height(24.dp))
 

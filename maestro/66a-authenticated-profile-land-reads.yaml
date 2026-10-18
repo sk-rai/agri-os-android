@@ -1,0 +1,135 @@
+appId: com.agrios.app
+name: Preserved authenticated profile land and soil reads
+tags:
+  - authenticated-reads
+  - preserved-data
+---
+# IDs must identify the existing +919900000002 profile, never a reset/new profile.
+- runFlow:
+    file: helpers/login-existing-fixture.yaml
+    env:
+      TEST_MOBILE: "9900000002"
+- extendedWaitUntil:
+    visible:
+      id: ${"hydration_" + DYNAMIC_FARMER_ID}
+    timeout: 60000
+- extendedWaitUntil:
+    visible:
+      id: ${"profile_" + DYNAMIC_FARMER_ID}
+    timeout: 60000
+- tapOn:
+    id: ${"profile_" + DYNAMIC_FARMER_ID}
+- assertVisible: "Farmer Profile"
+- scrollUntilVisible:
+    element:
+      id: ${"parcel_" + DYNAMIC_PARCEL_ID}
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: ${"land_read_" + DYNAMIC_PARCEL_ID}
+    direction: DOWN
+- tapOn:
+    id: ${"land_read_" + DYNAMIC_PARCEL_ID}
+- extendedWaitUntil:
+    visible:
+      id: ${"land_farmer_" + DYNAMIC_FARMER_ID}
+    timeout: 60000
+- assertVisible:
+    id: ${"land_parcel_" + DYNAMIC_PARCEL_ID}
+- extendedWaitUntil:
+    visible: "soil_profiles: HTTP 200"
+    timeout: 30000
+- assertVisible: '${"Soil profiles: " + EXPECTED_SOIL_PROFILE_COUNT}'
+- runFlow:
+    when:
+      true: ${Number(EXPECTED_SOIL_PROFILE_COUNT) === 0}
+    commands:
+      - assertVisible:
+          id: "soil_empty"
+- tapOn:
+    id: "land_pin"
+- eraseText
+- inputText: ${LAND_PIN_CODE}
+- hideKeyboard
+- tapOn:
+    id: "load_land_guidance"
+- scrollUntilVisible:
+    element:
+      text: "land_context: HTTP 200"
+    direction: DOWN
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: "land_backend_guidance"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "land_summary: HTTP 200"
+    direction: DOWN
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: "land_informational"
+    direction: DOWN
+- assertVisible:
+    id: "land_nonblocking"
+- scrollUntilVisible:
+    element:
+      id: "land_summary_card_0"
+    direction: DOWN
+- takeScreenshot: "66a-backend-land-guidance"
+- tapOn:
+    id: "read_back"
+- scrollUntilVisible:
+    element:
+      id: ${"soil_form_" + DYNAMIC_PARCEL_ID}
+    direction: DOWN
+- tapOn:
+    id: ${"soil_form_" + DYNAMIC_PARCEL_ID}
+- extendedWaitUntil:
+    visible: "Soil Profile"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "pH"
+    direction: DOWN
+- tapOn:
+    id: "form_back"
+- scrollUntilVisible:
+    element:
+      id: "profile_add_parcel"
+    direction: UP
+- tapOn:
+    id: "profile_add_parcel"
+- extendedWaitUntil:
+    visible:
+      id: "form_parcel_registration"
+    timeout: 60000
+- assertVisible: "Land Parcel.*|Parcel Registration.*|Register.*Parcel.*"
+- tapOn:
+    id: "form_back"
+- tapOn:
+    id: "profile_back"
+- stopApp
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible:
+      id: ${"hydration_" + DYNAMIC_FARMER_ID}
+    timeout: 60000
+- extendedWaitUntil:
+    visible:
+      id: ${"profile_" + DYNAMIC_FARMER_ID}
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: "authenticated_contract_checks"
+    direction: UP
+- tapOn:
+    id: "authenticated_contract_checks"
+- extendedWaitUntil:
+    visible: "Contract checks passed \\(not UI coverage\\)"
+    timeout: 120000
+- assertVisible: "contract_expected_empty_enrichment=true"
+- assertNotVisible:
+    id: "assigned_work_navigation"

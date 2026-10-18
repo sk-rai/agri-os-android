@@ -6,6 +6,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -32,6 +35,7 @@ import com.agrios.app.ui.home.MasterDataLoadingScreen
 import com.agrios.app.ui.parcel.ParcelRegisterScreen
 import com.agrios.app.ui.settings.SettingsScreen
 import com.agrios.app.ui.soil.SoilProfileScreen
+import com.agrios.app.ui.reads.*
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -52,8 +56,13 @@ object Routes {
     const val ACTIVITY_LOG = "activity_log"
     const val STAGE_ACTIVITIES = "stage_activities"
     const val SETTINGS = "settings"
+    const val LAND_READ = "land_read"
+    const val AVAILABILITY_READ = "availability_read"
+    const val ASSIGNED_READ = "assigned_read"
+    const val ASSISTED_READ = "assisted_read"
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
@@ -78,6 +87,7 @@ fun AppNavigation() {
     if (startDestination == null) return // Loading
 
     NavHost(
+        modifier = Modifier.semantics { testTagsAsResourceId = true },
         navController = navController,
         startDestination = startDestination!!
     ) {
@@ -119,6 +129,8 @@ fun AppNavigation() {
                 onNavigateToFarmerEnroll = { navController.navigate(Routes.FARMER_ENROLL) },
                 onNavigateToParcelRegister = { navController.navigate(Routes.PARCEL_REGISTER) },
                 onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
+                onNavigateToAssignedWork = { project -> navController.navigate("${Routes.ASSIGNED_READ}?projectId=${Uri.encode(project.orEmpty())}") },
+                onNavigateToAvailability = { farmerId -> navController.navigate("${Routes.AVAILABILITY_READ}/$farmerId") },
                 onNavigateToCropCycle = { navController.navigate(Routes.CROP_CYCLE_CREATE) },
                 onNavigateToFarmerProfile = { farmerId ->
                     navController.navigate(Routes.FARMER_PROFILE + "?farmerId=$farmerId")
@@ -263,6 +275,7 @@ fun AppNavigation() {
             FarmerProfileScreen(
                 farmerId = farmerId,
                 onBack = { navController.popBackStack() },
+                onNavigateToLandRead = { parcelId -> navController.navigate("${Routes.LAND_READ}/$farmerId/$parcelId") },
                 onNavigateToAddParcel = { fId ->
                     navController.navigate(Routes.PARCEL_REGISTER + "?farmerId=$fId")
                 },
@@ -360,6 +373,21 @@ fun AppNavigation() {
                     }
                 }
             )
+        }
+
+        composable("${Routes.LAND_READ}/{farmerId}/{parcelId}") { entry ->
+            LandAndSoilReadScreen(entry.arguments?.getString("farmerId").orEmpty(), entry.arguments?.getString("parcelId").orEmpty()) { navController.popBackStack() }
+        }
+        composable("${Routes.AVAILABILITY_READ}/{farmerId}") { entry ->
+            ParcelAvailabilityReadScreen(entry.arguments?.getString("farmerId").orEmpty()) { navController.popBackStack() }
+        }
+        composable("${Routes.ASSIGNED_READ}?projectId={projectId}", arguments = listOf(androidx.navigation.navArgument("projectId") { defaultValue = "" })) { entry ->
+            AssignedWorkReadScreen(entry.arguments?.getString("projectId")?.ifBlank { null }, { navController.popBackStack() }) { farmerId ->
+                navController.navigate("${Routes.ASSISTED_READ}/$farmerId")
+            }
+        }
+        composable("${Routes.ASSISTED_READ}/{farmerId}") { entry ->
+            AssignedFarmerReadScreen(entry.arguments?.getString("farmerId").orEmpty()) { navController.popBackStack() }
         }
 
         composable(Routes.CROP_CYCLE_CREATE) {

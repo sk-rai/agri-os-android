@@ -1,7 +1,5 @@
 package com.agrios.app.core.auth
 
-import android.provider.Settings
-import android.util.Log
 import com.agrios.app.data.local.dao.AuthDao
 import com.agrios.app.data.local.entity.AuthStateEntity
 import com.agrios.app.data.remote.api.AgriOsApi
@@ -25,10 +23,6 @@ class AuthRepository(
     private val deviceId: String,
     private val deviceName: String
 ) {
-    companion object {
-        private const val TAG = "AuthRepository"
-    }
-
     fun observeAuthState(): Flow<AuthStateEntity?> = authDao.observeAuthState()
 
     suspend fun getAuthState(): AuthStateEntity? = authDao.getAuthState()
@@ -71,13 +65,9 @@ class AuthRepository(
             )
             if (response.isSuccessful) {
                 val body = response.body()!!
-                Log.d(TAG, "Auth response: userId=${body.userId}, tenantId=${body.tenantId}, role=${body.role}")
 
                 // If backend didn't return tenant_id, try to extract from JWT claims
                 val tenantId = body.tenantId ?: extractTenantFromJwt(body.accessToken)
-                if (body.tenantId == null) {
-                    Log.w(TAG, "tenant_id not in auth response body, extracted from JWT: $tenantId")
-                }
 
                 val authState = AuthStateEntity(
                     jwt = body.accessToken,
@@ -112,7 +102,6 @@ class AuthRepository(
             )
             if (response.isSuccessful) {
                 val body = response.body()!!
-                Log.d(TAG, "Device auth response: userId=${body.userId}, tenantId=${body.tenantId}, role=${body.role}")
 
                 // If backend didn't return tenant_id, try JWT or keep existing
                 val tenantId = body.tenantId
@@ -165,10 +154,8 @@ class AuthRepository(
             val tenantId = claims["tenant_id"] as? String
                 ?: claims["tid"] as? String
                 ?: claims["tenant"] as? String
-            Log.d(TAG, "JWT claims keys: ${claims.keys}, extracted tenant_id=$tenantId")
             tenantId
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to extract tenant from JWT: ${e.message}")
             null
         }
     }

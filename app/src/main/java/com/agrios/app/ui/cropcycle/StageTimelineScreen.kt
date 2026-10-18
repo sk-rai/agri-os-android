@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -58,6 +59,8 @@ fun StageTimelineScreen(
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
+    var templateReadStatus by remember { mutableStateOf<Int?>(null) }
+    var cycleReadStatus by remember { mutableStateOf<Int?>(null) }
 
     // Build API client
     fun buildApi(): AgriOsApi {
@@ -81,6 +84,7 @@ fun StageTimelineScreen(
             try {
                 val api = buildApi()
                 val response = api.getCropCycle(cycleId)
+                cycleReadStatus = response.code()
                 if (response.isSuccessful) {
                     cycle = response.body()
                     cycle?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
@@ -90,6 +94,7 @@ fun StageTimelineScreen(
                     if (cropCode != null) {
                         try {
                             val templateResp = api.getCropTemplate(cropCode, season)
+                            templateReadStatus = templateResp.code()
                             if (templateResp.isSuccessful) {
                                 template = templateResp.body()
                                 Log.d(TAG, "Template loaded: ${template?.cropCode}, ${template?.stages?.size} stages")
@@ -117,7 +122,7 @@ fun StageTimelineScreen(
                     Text(cycle?.cropName ?: cycle?.cropCode ?: LanguageManager.localize("Crop Cycle", "फसल चक्र"))
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) }
+                    IconButton(onClick = onBack, modifier = Modifier.testTag("timeline_back")) { Icon(Icons.Default.ArrowBack, "Back") }
                 }
             )
         }
@@ -140,6 +145,10 @@ fun StageTimelineScreen(
                 }
                 cycle != null -> {
                     val c = cycle!!
+                    if (AgriOsApp.instance.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                        Text("cycle_detail: HTTP $cycleReadStatus", Modifier.testTag("cycle_detail_status"))
+                        templateReadStatus?.let { Text("cycle_template: HTTP $it", Modifier.testTag("cycle_template_status")) }
+                    }
                     val isCycleCompleted = c.status.equals("COMPLETED", ignoreCase = true)
 
                     // Header info
@@ -192,7 +201,7 @@ fun StageTimelineScreen(
 
                     // Stage timeline
                     Text(
-                        LanguageManager.localize("Stages", "चरण"),
+                        "${LanguageManager.localize("Stages", "चरण")} (${c.stages.size})",
                         style = MaterialTheme.typography.titleSmall
                     )
 
@@ -202,6 +211,7 @@ fun StageTimelineScreen(
                         val recommendations = templateStage?.recommendedActivities ?: emptyList()
 
                         StageTimelineItem(
+                            position = index + 1,
                             stage = stage,
                             isLast = index == c.stages.lastIndex,
                             recommendations = recommendations,
@@ -266,6 +276,7 @@ fun StageTimelineScreen(
 
 @Composable
 private fun StageTimelineItem(
+    position: Int,
     stage: CropStageDto,
     isLast: Boolean,
     recommendations: List<RecommendedActivityDto> = emptyList(),
@@ -288,7 +299,7 @@ private fun StageTimelineItem(
     }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag("stage_position_$position"),
         verticalAlignment = Alignment.Top
     ) {
         // Timeline dot + line
@@ -383,6 +394,7 @@ private fun StageTimelineItem(
                     if (isActive || isCompleted) {
                         OutlinedButton(
                             onClick = { onLogActivity() },
+                            modifier = Modifier.testTag("stage_activities_${stage.code}"),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
                             Text(

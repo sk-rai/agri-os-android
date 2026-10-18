@@ -1,0 +1,137 @@
+appId: com.agrios.app
+name: Preserved authenticated active-cycle and occupied parcel reads
+tags:
+  - authenticated-reads
+  - preserved-data
+---
+# CROP_CYCLE_ID and COSTED_ACTIVITY_ID are nonsecret IDs from preserved evidence.
+# No Start, Complete, Save, Sync Now or activity-log action is permitted.
+- runFlow:
+    file: helpers/login-existing-fixture.yaml
+    env:
+      TEST_MOBILE: "9900000003"
+- extendedWaitUntil:
+    visible:
+      id: "hydration_4df387e8-114f-5c44-a129-a9d000000003"
+    timeout: 60000
+- extendedWaitUntil:
+    visible:
+      id: "profile_4df387e8-114f-5c44-a129-a9d000000003"
+    timeout: 60000
+- assertVisible: ".*Android Crop Cycle Test Farmer.*"
+- extendedWaitUntil:
+    visible: "cycle_collection: HTTP 200,200,200"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: ${"cycle_" + CROP_CYCLE_ID}
+    direction: DOWN
+    timeout: 60000
+- tapOn:
+    id: ${"cycle_" + CROP_CYCLE_ID}
+- assertVisible: ".*Rice.*KHARIF.*|.*RICE.*KHARIF.*"
+- assertVisible: "Status: ACTIVE"
+- assertVisible: "cycle_detail: HTTP 200"
+- assertVisible: "cycle_template: HTTP 200"
+- scrollUntilVisible:
+    element:
+      text: "Stages \\(6\\)"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: "stage_position_1"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: "stage_position_2"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: "stage_position_3"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: "stage_position_4"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: "stage_position_5"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: "stage_position_6"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: "stage_activities_NURSERY"
+    direction: UP
+- tapOn:
+    id: "stage_activities_NURSERY"
+- extendedWaitUntil:
+    visible: "Finance Summary"
+    timeout: 60000
+- assertVisible: "Activities logged: [1-9][0-9]*"
+- copyTextFrom:
+    id: "finance_actual_expense"
+- evalScript: ${output.actualExpense = Number(maestro.copiedText.replace(/[^0-9.-]/g, ''))}
+- copyTextFrom:
+    id: "finance_total_expenses"
+- evalScript: ${output.totalExpenses = Number(maestro.copiedText.replace(/[^0-9.-]/g, ''))}
+- assertTrue: ${isFinite(output.actualExpense) && output.actualExpense > 0 && output.totalExpenses >= output.actualExpense}
+- scrollUntilVisible:
+    element:
+      id: ${"activity_" + COSTED_ACTIVITY_ID}
+    direction: DOWN
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: "recommendation_NURSERY_0"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: "67a-active-cycle-activities"
+- tapOn:
+    id: "activities_back"
+- tapOn:
+    id: "timeline_back"
+- scrollUntilVisible:
+    element:
+      id: "parcel_availability_navigation"
+    direction: UP
+- tapOn:
+    id: "parcel_availability_navigation"
+- tapOn:
+    id: "eligibility_season"
+- inputText: "KHARIF"
+- hideKeyboard
+- tapOn:
+    id: "load_availability"
+- extendedWaitUntil:
+    visible: "eligible_parcels: HTTP 200"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: "availability_4df387e8-114f-5c44-a129-a9d000000004"
+    direction: DOWN
+- copyTextFrom:
+    id: "availability_status_4df387e8-114f-5c44-a129-a9d000000004"
+- assertTrue: ${maestro.copiedText === 'HAS_ACTIVE_CYCLE'}
+- assertVisible:
+    id: ${"occupied_cycle_" + CROP_CYCLE_ID}
+- copyTextFrom:
+    id: "occupied_sowing_4df387e8-114f-5c44-a129-a9d000000004"
+- assertTrue: '${/^Sowing: 2026-/.test(maestro.copiedText)}'
+- takeScreenshot: "67a-occupied-parcel-read-only"
+- tapOn:
+    id: "read_back"
+- scrollUntilVisible:
+    element:
+      id: "authenticated_contract_checks"
+    direction: UP
+- tapOn:
+    id: "authenticated_contract_checks"
+- extendedWaitUntil:
+    visible: "Contract checks passed \\(not UI coverage\\)"
+    timeout: 120000
+- assertVisible: "contract_expected_empty_enrichment=true"
+- assertNotVisible:
+    id: "assigned_work_navigation"

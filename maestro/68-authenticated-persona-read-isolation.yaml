@@ -1,0 +1,57 @@
+appId: com.agrios.app
+name: Authenticated assigned and unassigned read isolation
+tags:
+  - authenticated-reads
+  - preserved-data
+---
+# Login helper clears local app state only. No assignment or profile writes.
+- runFlow:
+    file: helpers/login-existing-fixture.yaml
+    env:
+      TEST_MOBILE: "9900001301"
+- extendedWaitUntil:
+    visible:
+      id: "assigned_work_navigation"
+    timeout: 60000
+- tapOn:
+    id: "assigned_work_navigation"
+- extendedWaitUntil:
+    visible: "assigned_work: HTTP 200"
+    timeout: 60000
+- assertVisible: "Field-agent assigned work"
+- assertVisible: "Project: 0f7e0a6b-8472-5d6d-8a14-a9d000000201"
+- scrollUntilVisible:
+    element:
+      id: "assigned_farmer_0f7e0a6b-8472-5d6d-8a14-a9d000001402"
+    direction: DOWN
+- takeScreenshot: "68-assigned-farmer-worklist"
+- tapOn:
+    id: "assigned_farmer_0f7e0a6b-8472-5d6d-8a14-a9d000001402"
+- extendedWaitUntil:
+    visible: "assigned_farmer: HTTP 200"
+    timeout: 60000
+- assertVisible:
+    id: "assisted_identity_0f7e0a6b-8472-5d6d-8a14-a9d000001402"
+- takeScreenshot: "68-authorized-assisted-farmer"
+- runFlow:
+    file: helpers/login-existing-fixture.yaml
+    env:
+      TEST_MOBILE: "9900001701"
+- extendedWaitUntil:
+    visible:
+      id: "assigned_work_navigation"
+    timeout: 60000
+- tapOn:
+    id: "assigned_work_navigation"
+# This collection returns a valid empty list for an active unassigned persona.
+# A 401/403 is a failed login/scope check, NOT a successful empty result.
+- extendedWaitUntil:
+    visible: "assigned_work: HTTP 200"
+    timeout: 60000
+- assertVisible:
+    id: "assigned_empty"
+- assertNotVisible:
+    id: "assigned_farmer_0f7e0a6b-8472-5d6d-8a14-a9d000001402"
+- assertNotVisible:
+    id: "read_error"
+- takeScreenshot: "68-unassigned-authorized-empty"

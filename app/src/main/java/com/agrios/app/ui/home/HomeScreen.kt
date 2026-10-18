@@ -14,8 +14,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.ui.auth.AuthenticatedReadContractChecks
 import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AndroidDynamicTestContext
@@ -74,7 +76,9 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToFarmerProfile: (farmerId: String) -> Unit = {},
     onNavigateToCropCycle: () -> Unit = {},
-    onNavigateToStageTimeline: (cycleId: String) -> Unit = {}
+    onNavigateToStageTimeline: (cycleId: String) -> Unit = {},
+    onNavigateToAssignedWork: (projectId: String?) -> Unit = {},
+    onNavigateToAvailability: (farmerId: String) -> Unit = {}
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
@@ -94,11 +98,16 @@ fun HomeScreen(
     var completedCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
     var isLoadingCycles by remember { mutableStateOf(false) }
     var cycleLoadMessage by remember { mutableStateOf<String?>(null) }
+    var cycleReadStatuses by remember { mutableStateOf<String?>(null) }
     var cachedCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
     var useCachedCycleFallback by remember { mutableStateOf(false) }
     var isHydratingProfile by remember { mutableStateOf(false) }
     var hydrationAttempted by remember { mutableStateOf(false) }
     var hydrationMessage by remember { mutableStateOf<String?>(null) }
+    var hydratedIdentity by remember { mutableStateOf<String?>(null) }
+    var assignedWorkAvailable by remember { mutableStateOf(false) }
+    var assignedProject by remember { mutableStateOf<String?>(null) }
+    var modeReadError by remember { mutableStateOf<String?>(null) }
     var staleContextTestEventId by remember { mutableStateOf<String?>(null) }
     var staleContextRecoveryStatus by remember { mutableStateOf<String?>(null) }
     var versionMismatchTestEventId by remember { mutableStateOf<String?>(null) }
@@ -168,6 +177,19 @@ fun HomeScreen(
     }
 
     // Trigger sync on screen entry
+    LaunchedEffect(observedAuthState?.userId) {
+        if (observedAuthState?.userId == null) return@LaunchedEffect
+        assignedWorkAvailable = false
+        assignedProject = AndroidDynamicTestContext.projectIdFor(observedAuthState)
+        modeReadError = null
+        try {
+            val response = withContext(Dispatchers.IO) { api.getModeBootstrap(projectId = assignedProject) }
+            if (response.isSuccessful) {
+                val modes = response.body()?.modes?.takeIf { it.isJsonObject }?.asJsonObject
+                assignedWorkAvailable = modes?.get("agent")?.takeIf { it.isJsonObject }?.asJsonObject?.get("available")?.asBoolean == true
+            } else modeReadError = com.agrios.app.data.repository.readFailureCopy(response.code())
+        } catch (_: Exception) { modeReadError = "Unable to load account capabilities." }
+    }
     LaunchedEffect(Unit) {
         val hasPendingPersistenceSmokeRow = withContext(Dispatchers.IO) {
             listOf(
@@ -187,13 +209,15 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(hasProfile) {
+    // Do not restart/cancel hydration when its first Room insert changes hasProfile.
+    LaunchedEffect(Unit) {
         if (!hydrationAttempted) {
             val authState = withContext(Dispatchers.IO) { db.authDao().getAuthState() }
-            val shouldRefreshDynamicProfile = hasProfile &&
+            val storedProfileExists = withContext(Dispatchers.IO) { db.farmerDao().getFirst() != null }
+            val shouldRefreshDynamicProfile = storedProfileExists &&
                 AndroidDynamicTestContext.isEnabledFor(authState) &&
                 !authState?.mobileNumber.isNullOrBlank()
-            if (hasProfile && !shouldRefreshDynamicProfile) return@LaunchedEffect
+            if (storedProfileExists && !shouldRefreshDynamicProfile) return@LaunchedEffect
 
             hydrationAttempted = true
             isHydratingProfile = true
@@ -215,6 +239,7 @@ fun HomeScreen(
                     }
                 }
                 hydrationMessage = result.message
+                hydratedIdentity = result.farmerId?.takeIf { result.profileExists }
             } catch (e: Exception) {
                 hydrationMessage = e.message
             } finally {
@@ -235,6 +260,7 @@ fun HomeScreen(
 
         isLoadingCycles = true
         cycleLoadMessage = null
+        cycleReadStatuses = null
         try {
             val plannedResponse = withContext(Dispatchers.IO) {
                 api.getCropCycles(farmerId = farmerId, status = "PLANNED")
@@ -245,6 +271,7 @@ fun HomeScreen(
             val completedResponse = withContext(Dispatchers.IO) {
                 api.getCropCycles(farmerId = farmerId, status = "COMPLETED")
             }
+            cycleReadStatuses = "cycle_collection: HTTP ${plannedResponse.code()},${activeResponse.code()},${completedResponse.code()}"
 
             val plannedCycles = if (plannedResponse.isSuccessful) {
                 plannedResponse.body().orEmpty()
@@ -3975,7 +4002,7 @@ fun HomeScreen(
                             Icon(Icons.Default.Refresh, contentDescription = LanguageManager.localize("Sync", "à¤¸à¤¿à¤‚à¤•"))
                         }
                     }
-                    IconButton(onClick = onNavigateToSettings) {
+                    IconButton(onClick = onNavigateToSettings, modifier = Modifier.testTag("home_settings")) {
                         Icon(Icons.Default.Settings, contentDescription = LanguageManager.localize("Settings", "à¤¸à¥‡à¤Ÿà¤¿à¤‚à¤—à¥à¤¸"))
                     }
                 }
@@ -3984,12 +4011,16 @@ fun HomeScreen(
     ) { padding ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxSize().testTag("home_screen")
                 .padding(padding)
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            modeReadError?.let { Text(it, Modifier.testTag("mode_read_error")) }
+            if (assignedWorkAvailable) {
+                OutlinedButton(onClick = { onNavigateToAssignedWork(assignedProject) }, modifier = Modifier.testTag("assigned_work_navigation")) { Text("Assigned farmers") }
+            }
             if (isHydratingProfile) {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -4001,12 +4032,16 @@ fun HomeScreen(
                     }
                 }
             } else if (hasProfile && farmer != null) {
+                AuthenticatedReadContractChecks()
+                if (isDebugBuild) hydratedIdentity?.let { Text("Profile restored from backend", Modifier.testTag("hydration_$it")) }
+                if (isDebugBuild) cycleReadStatuses?.let { Text(it, Modifier.testTag("cycle_collection_status")) }
+                OutlinedButton(onClick = { onNavigateToAvailability(farmer.id) }, modifier = Modifier.testTag("parcel_availability_navigation")) { Text("Parcel availability") }
                 // â•â•â•â•â•â•â•â•â•â•â• PROFILE EXISTS â€” show farmer info + crop actions â•â•â•â•â•â•â•â•â•â•â•
 
                 // Farmer info header (tappable)
                 Card(
                     onClick = { onNavigateToFarmerProfile(farmer.id) },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("profile_${farmer.id}"),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -4045,7 +4080,7 @@ fun HomeScreen(
                         ?: cycle.stages.firstOrNull { it.status.equals("PENDING", ignoreCase = true) }
                     ElevatedCard(
                         onClick = { onNavigateToStageTimeline(cycle.id) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().testTag("cycle_${cycle.id}"),
                         colors = CardDefaults.elevatedCardColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer
                         )

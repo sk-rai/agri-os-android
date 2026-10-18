@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
 import com.agrios.app.core.cache.CropCycleCache
@@ -179,8 +180,8 @@ fun DynamicFormScreen(
                     Text(schema?.resolveTitle(lang) ?: LanguageManager.localize("Loading...", "लोड हो रहा..."))
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = null)
+                    IconButton(onClick = onBack, modifier = Modifier.testTag("form_back")) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -188,7 +189,7 @@ fun DynamicFormScreen(
     ) { padding ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxSize().testTag("form_$formId")
                 .padding(padding)
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),

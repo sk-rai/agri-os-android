@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
@@ -33,7 +34,8 @@ fun FarmerProfileScreen(
     onBack: () -> Unit,
     onNavigateToParcel: ((parcelId: String) -> Unit)? = null,
     onNavigateToAddParcel: ((farmerId: String) -> Unit)? = null,
-    onNavigateToSoilProfile: ((parcelId: String, farmerId: String) -> Unit)? = null
+    onNavigateToSoilProfile: ((parcelId: String, farmerId: String) -> Unit)? = null,
+    onNavigateToLandRead: ((parcelId: String) -> Unit)? = null
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
@@ -71,8 +73,8 @@ fun FarmerProfileScreen(
             TopAppBar(
                 title = { Text(LanguageManager.localize("Farmer Profile", "किसान प्रोफ़ाइल")) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = null)
+                    IconButton(onClick = onBack, modifier = Modifier.testTag("profile_back")) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -215,7 +217,7 @@ fun FarmerProfileScreen(
             onNavigateToAddParcel?.let { navigate ->
                 OutlinedButton(
                     onClick = { navigate(farmerId) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("profile_add_parcel")
                 ) {
                     Text(LanguageManager.localize("Add Land Parcel", "भूमि भूखंड जोड़ें"))
                 }
@@ -234,7 +236,7 @@ fun FarmerProfileScreen(
                 )
             } else {
                 parcels.forEach { parcel ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    Card(modifier = Modifier.fillMaxWidth().testTag("parcel_${parcel.id}")) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -289,6 +291,11 @@ fun FarmerProfileScreen(
                             }
 
                             // Soil profile count for this parcel
+                            onNavigateToLandRead?.let { navigate ->
+                                OutlinedButton(onClick = { navigate(parcel.id) }, modifier = Modifier.testTag("land_read_${parcel.id}")) {
+                                    Text("Land and soil guidance")
+                                }
+                            }
                             val soilCount = soilProfiles.count { it.parcelId == parcel.id }
                             Text(
                                 "🌍 ${LanguageManager.localize("Soil profiles", "मिट्टी प्रोफ़ाइल")}: $soilCount",
@@ -299,7 +306,7 @@ fun FarmerProfileScreen(
                             onNavigateToSoilProfile?.let { navigate ->
                                 OutlinedButton(
                                     onClick = { navigate(parcel.id, farmerId) },
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth().testTag("soil_form_${parcel.id}")
                                 ) {
                                     Text(LanguageManager.localize("Add Soil Profile", "à¤®à¤¿à¤Ÿà¥à¤Ÿà¥€ à¤ªà¥à¤°à¥‹à¤«à¤¼à¤¾à¤‡à¤² à¤œà¥‹à¤¡à¤¼à¥‡à¤‚"))
                                 }

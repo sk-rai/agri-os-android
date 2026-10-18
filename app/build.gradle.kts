@@ -5,6 +5,9 @@ plugins {
     id("com.google.devtools.ksp") version "2.0.0-1.0.24"
 }
 
+val otpPrivacyIsolation = providers.gradleProperty("otpPrivacyIsolation")
+    .map { it == "true" }.getOrElse(false)
+
 android {
     namespace = "com.agrios.app"
     compileSdk = 35
@@ -20,6 +23,9 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            if (otpPrivacyIsolation) applicationIdSuffix = ".otpprivacy"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -27,6 +33,9 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+    if (otpPrivacyIsolation) {
+        sourceSets.getByName("debug").manifest.srcFile("src/otpPrivacyIsolation/AndroidManifest.xml")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

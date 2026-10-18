@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
 import com.agrios.app.core.network.ApiConfig
@@ -82,7 +83,7 @@ fun StageActivitiesScreen(
                         allRecommendations = recResp.body()?.recommendedActivities ?: emptyList()
                         Log.d(TAG, "Recommended activities loaded: ${allRecommendations.size}")
                     } else {
-                        Log.w(TAG, "Recommended activities fetch failed: ${recResp.code()} ${recResp.errorBody()?.string()}")
+                        error("Recommendations unavailable (HTTP ${recResp.code()})")
                     }
 
                     // Fetch logged activities for this cycle
@@ -90,17 +91,16 @@ fun StageActivitiesScreen(
                         val activitiesUrl = "${ApiConfig.BASE_URL}crop-cycles/$cycleId/activities"
                         val activitiesReq = okhttp3.Request.Builder().url(activitiesUrl).build()
                         val activitiesResp = okHttp.newCall(activitiesReq).execute()
-                        if (activitiesResp.isSuccessful) {
-                            val body = activitiesResp.body?.string()
-                            if (body != null) {
-                                loggedActivities = com.google.gson.Gson().fromJson(
-                                    body, object : com.google.gson.reflect.TypeToken<List<Map<String, Any?>>>() {}.type
-                                )
-                                Log.d(TAG, "Logged activities: ${loggedActivities.size}")
-                            }
+                        activitiesResp.use { response ->
+                            check(response.isSuccessful) { "Activities unavailable (HTTP ${response.code})" }
+                            val body = checkNotNull(response.body?.string())
+                            loggedActivities = com.google.gson.Gson().fromJson(
+                                body, object : com.google.gson.reflect.TypeToken<List<Map<String, Any?>>>() {}.type
+                            )
+                            Log.d(TAG, "Logged activities: ${loggedActivities.size}")
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to fetch logged activities: ${e.message}")
+                        throw IllegalStateException("Activity history could not be loaded")
                     }
 
                     // Fetch backend finance summaries for Android-readable totals.
@@ -108,15 +108,17 @@ fun StageActivitiesScreen(
                         val gson = com.google.gson.Gson()
                         val mapType = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
                         fun readMap(url: String): Map<String, Any?>? {
-                            val resp = okHttp.newCall(okhttp3.Request.Builder().url(url).build()).execute()
-                            if (!resp.isSuccessful) return null
-                            val body = resp.body?.string() ?: return null
-                            return gson.fromJson(body, mapType)
+                            return okHttp.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { resp ->
+                                check(resp.isSuccessful) { "Finance unavailable (HTTP ${resp.code})" }
+                                val body = checkNotNull(resp.body?.string())
+                                gson.fromJson(body, mapType)
+                            }
                         }
                         val stageCost = readMap("${ApiConfig.BASE_URL}crop-cycles/$cycleId/stage-cost-summary")
                         val profitLoss = readMap("${ApiConfig.BASE_URL}crop-cycles/$cycleId/profit-loss-summary")
                         val stageTotals = stageCost?.get("totals") as? Map<*, *>
                         val profitLossTotals = profitLoss?.get("totals") as? Map<*, *>
+                        check(stageTotals?.get("actual_expense") != null && profitLossTotals?.get("total_expenses") != null) { "Finance totals missing" }
                         financeSummary = ActivityFinanceSummary(
                             activityCount = formatWholeNumber(stageTotals?.get("activity_count")),
                             actualExpense = stageTotals?.get("actual_expense")?.toString(),
@@ -125,14 +127,13 @@ fun StageActivitiesScreen(
                         )
                         Log.d(TAG, "Finance summary loaded: $financeSummary")
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to fetch finance summaries: ${e.message}")
+                        throw IllegalStateException("Finance summaries could not be loaded")
                     }
                 } else {
                     error = "HTTP ${cycleResp.code()}"
                 }
             } catch (e: Exception) {
-                error = e.message
-                Log.e(TAG, "Load failed", e)
+                error = "Unable to load activity reads. Check your session or access and try again."
             } finally {
                 isLoading = false
             }
@@ -166,7 +167,7 @@ fun StageActivitiesScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) }
+                    IconButton(onClick = onBack, modifier = Modifier.testTag("activities_back")) { Icon(Icons.Default.ArrowBack, "Back") }
                 }
             )
         }
@@ -219,8 +220,8 @@ fun StageActivitiesScreen(
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text("Finance Summary", style = MaterialTheme.typography.titleSmall)
                                 Text("Activities logged: ${summary.activityCount ?: loggedActivities.size}", style = MaterialTheme.typography.bodySmall)
-                                Text("Actual expense: ₹${summary.actualExpense ?: "0.00"}", style = MaterialTheme.typography.bodySmall)
-                                Text("P&L total expenses: ₹${summary.totalExpenses ?: "0.00"}", style = MaterialTheme.typography.bodySmall)
+                                Text("Actual expense: ₹${summary.actualExpense}", modifier = Modifier.testTag("finance_actual_expense"), style = MaterialTheme.typography.bodySmall)
+                                Text("P&L total expenses: ₹${summary.totalExpenses}", modifier = Modifier.testTag("finance_total_expenses"), style = MaterialTheme.typography.bodySmall)
                                 summary.profitOrLoss?.let {
                                     Text("Profit/Loss: ₹$it", style = MaterialTheme.typography.bodySmall)
                                 }
@@ -236,7 +237,7 @@ fun StageActivitiesScreen(
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(activity["input_name"]?.toString().orEmpty(), style = MaterialTheme.typography.bodyMedium)
+                                    Text(activity["input_name"]?.toString().orEmpty(), modifier = Modifier.testTag("activity_${activity["id"]}"), style = MaterialTheme.typography.bodyMedium)
                                     Text(
                                         "₹${activity["cost_amount"] ?: "0.00"} • ${activity["quantity"] ?: ""} ${activity["quantity_unit"] ?: ""} • ${activity["activity_date"] ?: ""}",
                                         style = MaterialTheme.typography.bodySmall,
@@ -321,6 +322,7 @@ fun StageActivitiesScreen(
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
                                                 rec.inputName,
+                                                modifier = Modifier.testTag("recommendation_${rec.stageCode}_$index"),
                                                 style = MaterialTheme.typography.bodyMedium
                                             )
                                             if (isLogged && loggedEntry != null) {

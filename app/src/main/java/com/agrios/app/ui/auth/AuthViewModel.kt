@@ -24,7 +24,11 @@ data class AuthUiState(
     val otpCode: String = "",
     val isLoading: Boolean = false,
     val errorMessage: String? = null
-)
+) {
+    // State may appear in a debugger or diagnostic message. Never include secrets.
+    override fun toString(): String =
+        "AuthUiState(step=$step, isLoading=$isLoading, hasError=${errorMessage != null})"
+}
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -101,12 +105,12 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     step = AuthStep.OTP_INPUT,
                     isLoading = false,
                     otpCode = devOtp ?: "", // Auto-fill OTP in dev builds
-                    errorMessage = if (devOtp != null) "Dev OTP: $devOtp" else null
+                    errorMessage = null
                 )
             } else {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = result.exceptionOrNull()?.message ?: "Failed to send OTP"
+                    errorMessage = "Unable to send OTP. Please try again."
                 )
             }
         }
@@ -120,12 +124,12 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             val result = authRepository.verifyOtp(mobile, otp)
             if (result.isSuccess) {
-                _uiState.value = _uiState.value.copy(isLoading = false)
+                _uiState.value = _uiState.value.copy(isLoading = false, otpCode = "", errorMessage = null)
                 onSuccess()
             } else {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = result.exceptionOrNull()?.message ?: "Invalid OTP"
+                    errorMessage = "Unable to verify OTP. Please try again."
                 )
             }
         }

@@ -1,0 +1,30 @@
+appId: com.agrios.app
+name: Existing deterministic fixture login (no credential artifacts)
+---
+# Only TEST_MOBILE is accepted. OTP remains inside app memory and masked UI.
+# Automatic failure screenshots/hierarchies rely on the tested OTP redaction.
+- assertTrue: ${/^(9900000002|9900000003|9900001301|9900001701)$/.test(TEST_MOBILE)}
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "English"
+    timeout: 30000
+- tapOn: "English"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Mobile Number.*"
+    timeout: 30000
+- tapOn: "Mobile Number.*"
+- inputText: ${TEST_MOBILE}
+- hideKeyboard
+- tapOn: "Send OTP.*"
+- extendedWaitUntil:
+    visible: "Verify.*"
+    timeout: 30000
+- tapOn: "Verify.*"
+- extendedWaitUntil:
+    visible:
+      id: "home_screen"
+    timeout: 120000
+- assertNotVisible: "Verify.*"
+- assertNotVisible: "Mobile Number.*"

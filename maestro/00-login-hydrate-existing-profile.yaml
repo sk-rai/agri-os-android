@@ -6,13 +6,11 @@ name: Login and hydrate existing backend profile
 - extendedWaitUntil:
     visible: ".*Agri-OS"
     timeout: 20000
-- takeScreenshot: "00-00-language"
 - tapOn: "English"
 - tapOn: "Continue"
 - extendedWaitUntil:
     visible: "Mobile Number.*"
     timeout: 20000
-- takeScreenshot: "00-01-auth-start"
 - tapOn:
     text: "Mobile Number.*"
 - inputText: "9900000001"
@@ -22,7 +20,6 @@ name: Login and hydrate existing backend profile
 - extendedWaitUntil:
     visible: ".*OTP.*"
     timeout: 20000
-- takeScreenshot: "00-02-otp"
 - tapOn:
     text: "Verify.*"
 - extendedWaitUntil:
