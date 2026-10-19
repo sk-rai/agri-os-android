@@ -1,0 +1,26 @@
+appId: com.agrios.app
+name: Gate2 existing farmer read-only checkpoint after single-flight fix
+tags:
+  - authenticated-reads
+  - preserved-data
+---
+# REVIEW/APPROVAL REQUIRED. No clearState, OTP, Save, Sync Now or new enrollment.
+# Requires the existing .0002 session. Stop if authentication is no longer valid.
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible:
+      id: "home_screen"
+    timeout: 60000
+- assertNotVisible: "Send OTP.*|Verify.*"
+- extendedWaitUntil:
+    visible:
+      id: ${"hydration_" + GATE2_FARMER_ID}
+    timeout: 60000
+- assertVisible:
+    id: ${"profile_" + GATE2_FARMER_ID}
+- assertVisible: ".*Android Gate2 Test Farmer.*"
+- assertNotVisible: "Create Farm Profile"
+- assertNotVisible:
+    id: "assigned_work_navigation"
+- takeScreenshot: "gate2-profile-rehydrated"

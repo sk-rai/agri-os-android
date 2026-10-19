@@ -53,7 +53,8 @@ class SyncWorker(
 
             WorkManager.getInstance(context).enqueueUniqueWork(
                 "${WORK_NAME}_immediate",
-                ExistingWorkPolicy.REPLACE,
+                // Never cancel a running POST just because another trigger arrives.
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 request
             )
             Log.d(TAG, "Immediate sync triggered")
@@ -93,6 +94,7 @@ class SyncWorker(
             .connectTimeout(ApiConfig.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(ApiConfig.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .writeTimeout(ApiConfig.WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
             .build()
 
         val api = Retrofit.Builder()
@@ -108,21 +110,16 @@ class SyncWorker(
         )
 
         return try {
-            Log.d(TAG, "Running profile materialization repair before queue processing")
-            val requeued = ProfileSyncRepair.enqueueOneTimeMaterializationRepair(applicationContext, db)
-            Log.d(TAG, "Profile materialization repair result: requeued=$requeued")
-            if (requeued > 0) Log.d(TAG, "Requeued $requeued profile sync events for backend materialization")
-
-            // First, fix any previously failed items with bad payloads
-            val fixed = syncManager.fixAndRetryFailedItems()
-            if (fixed > 0) Log.d(TAG, "Auto-fixed $fixed failed items")
-
-            val result = syncManager.processQueue()
+            val result = syncManager.processScheduledQueue {
+                ProfileSyncRepair.enqueueOneTimeMaterializationRepair(applicationContext, db)
+            }
             Log.d(TAG, "Sync complete: ${result.accepted} accepted, ${result.conflicts} conflicts, ${result.failed} failed")
 
             if (result.failed > 0) Result.retry() else Result.success()
-        } catch (e: Exception) {
-            Log.e(TAG, "SyncWorker failed", e)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            Log.e(TAG, "SyncWorker failed; work remains pending or failed")
             Result.retry()
         }
     }

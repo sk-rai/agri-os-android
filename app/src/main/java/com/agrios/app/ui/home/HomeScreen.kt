@@ -322,6 +322,7 @@ fun HomeScreen(
                     .connectTimeout(ApiConfig.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                     .readTimeout(ApiConfig.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                     .writeTimeout(ApiConfig.WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .retryOnConnectionFailure(false)
                     .build()
                 val api = Retrofit.Builder()
                     .baseUrl(ApiConfig.BASE_URL)
@@ -333,6 +334,8 @@ fun HomeScreen(
                 syncManager.fixAndRetryFailedItems()
                 val result = syncManager.processQueue()
                 lastSyncMessage = when {
+                    result.failed > 0 || failedCount > 0 -> "Sync needs review: failed rows remain."
+                    result.conflicts > 0 || conflictCount > 0 -> "Sync needs review: conflicted rows remain."
                     result.accepted > 0 -> "âœ… ${result.accepted} ${LanguageManager.localize("synced", "à¤¸à¤¿à¤‚à¤• à¤¹à¥à¤")}"
                     result.failed > 0 -> "âŒ ${result.failed} ${LanguageManager.localize("failed", "à¤µà¤¿à¤«à¤²")}"
                     result.conflicts > 0 -> "âš ï¸ ${result.conflicts} ${LanguageManager.localize("conflicts", "à¤µà¤¿à¤°à¥‹à¤§")}"
@@ -342,8 +345,10 @@ fun HomeScreen(
                     )
                     else -> LanguageManager.localize("All synced", "à¤¸à¤¬ à¤¸à¤¿à¤‚à¤• à¤¹à¥‹ à¤—à¤¯à¤¾")
                 }
-            } catch (e: Exception) {
-                lastSyncMessage = "âŒ ${e.message}"
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                lastSyncMessage = "Sync could not complete. Review pending and failed rows."
             } finally {
                 isSyncing = false
             }
@@ -360,6 +365,7 @@ fun HomeScreen(
                     .connectTimeout(ApiConfig.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                     .readTimeout(ApiConfig.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                     .writeTimeout(ApiConfig.WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .retryOnConnectionFailure(false)
                     .build()
                 val api = Retrofit.Builder()
                     .baseUrl(ApiConfig.BASE_URL)
@@ -401,8 +407,10 @@ fun HomeScreen(
 
                 lastSyncMessage = "Interrupted resume first batch synced: $finalSynced"
                 Log.d(TAG, "Interrupted resume first batch synced: synced=$finalSynced, pending=$finalPending, accepted=$totalAccepted")
-            } catch (e: Exception) {
-                lastSyncMessage = "Failed: ${e.message}"
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                lastSyncMessage = "First-batch sync could not complete. Review queue status."
             } finally {
                 isSyncing = false
             }

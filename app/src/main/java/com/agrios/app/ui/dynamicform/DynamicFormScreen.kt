@@ -1,6 +1,13 @@
 package com.agrios.app.ui.dynamicform
 
 import android.util.Log
+import androidx.room.withTransaction
+import com.agrios.app.core.sync.ProfileSubmissionOnce
+import com.agrios.app.core.sync.CropCycleCreateOnce
+import com.agrios.app.core.sync.CycleCreateOutcome
+import com.agrios.app.core.sync.cropCycleCreateClient
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.agrios.app.core.sync.profileQueuePayload
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -65,6 +72,9 @@ fun DynamicFormScreen(
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
+    val profileSubmission = remember(formId) { ProfileSubmissionOnce() }
+    val cycleSubmission = remember(formId) { CropCycleCreateOnce<com.agrios.app.data.remote.dto.CropCycleResponseDto>() }
+    var cycleCreateAttempted by rememberSaveable(formId) { mutableStateOf(false) }
     val api = remember {
         val okHttp = OkHttpClient.Builder()
             .addInterceptor(AuthInterceptor(db.authDao()))
@@ -143,9 +153,9 @@ fun DynamicFormScreen(
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
-            loadError = e.message ?: "Network error"
-            Log.e(TAG, "Schema load error", e)
+        } catch (_: Exception) {
+            loadError = "Unable to load the backend form. Check your session or access."
+            Log.e(TAG, "Schema could not be loaded")
         } finally {
             isLoading = false
         }
@@ -310,12 +320,18 @@ fun DynamicFormScreen(
                     if (saveError != null) {
                         Text("❌ $saveError", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
+                    if (formId == "crop_cycle_create" && cycleCreateAttempted && !isSaving && saveError == null) {
+                        Text("A cycle create was already attempted. Check existing cycles before another attempt.",
+                            modifier = Modifier.testTag("cycle_create_reconciliation_required"))
+                    }
 
                     Spacer(Modifier.height(16.dp))
 
                     // Submit button
                     Button(
                         onClick = {
+                            // State is read immediately, not only through a later disabled recomposition.
+                            if (isSaving || saveSuccess || (formId == "crop_cycle_create" && cycleCreateAttempted)) return@Button
                             // Validate
                             val errors = validateForm(schema!!, formValues)
                             if (errors.isNotEmpty()) {
@@ -368,8 +384,6 @@ fun DynamicFormScreen(
                                                 .build()
 
                                             val activityUrl = "${ApiConfig.BASE_URL}crop-cycles/$cycleId/activities"
-                                            Log.d(TAG, "Posting activity to: $activityUrl")
-                                            Log.d(TAG, "Activity payload: ${Gson().toJson(payload)}")
 
                                             val requestBody = okhttp3.RequestBody.create(
                                                 "application/json".toMediaTypeOrNull(),
@@ -385,7 +399,7 @@ fun DynamicFormScreen(
                                                 Log.d(TAG, "Activity logged successfully")
                                             } else {
                                                 val errorBody = response.body?.string()
-                                                Log.e(TAG, "Activity log failed: ${response.code} $errorBody")
+                                                Log.e(TAG, "Activity log failed: HTTP ${response.code}")
                                                 throw Exception("HTTP ${response.code}: ${errorBody ?: response.message}")
                                             }
                                             }
@@ -437,12 +451,12 @@ fun DynamicFormScreen(
                                             AndroidDynamicTestContext.projectIdFor(db.authDao())?.let { projectId ->
                                                 enrichedPayload["project_id"] = projectId
                                             }
-                                            try {
-                                                val okHttp = OkHttpClient.Builder()
+                                            cycleCreateAttempted = true
+                                            val createResult = cycleSubmission.submit {
+                                                val okHttp = cropCycleCreateClient(OkHttpClient.Builder()
                                                     .addInterceptor(AuthInterceptor(db.authDao()))
                                                     .connectTimeout(15, TimeUnit.SECONDS)
-                                                    .readTimeout(15, TimeUnit.SECONDS)
-                                                    .build()
+                                                    .readTimeout(15, TimeUnit.SECONDS))
                                                 val api = Retrofit.Builder()
                                                     .baseUrl(ApiConfig.BASE_URL)
                                                     .client(okHttp)
@@ -450,34 +464,25 @@ fun DynamicFormScreen(
                                                     .build()
                                                     .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
 
-                                                val response = api.createCropCycle(enrichedPayload)
-                                                if (response.isSuccessful) {
-                                                    val cycleResponse = response.body()
-                                                    Log.d(TAG, "Crop cycle created: ${cycleResponse?.id}, inferred stage: ${cycleResponse?.inferredCurrentStage}")
-                                                    createdCycleId = cycleResponse?.id
-                                                    createdCycleResponse = cycleResponse
-                                                    cycleResponse?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
-                                                } else {
-                                                    val errorBody = response.errorBody()?.string()
-                                                    Log.e(TAG, "Crop cycle creation failed: ${response.code()} $errorBody")
-                                                    throw Exception("HTTP ${response.code()}: ${errorBody ?: response.message()}")
-                                                }
-                                            } catch (e: IOException) {
-                                                val offlineCycleId = UUID.randomUUID().toString()
-                                                enrichedPayload.putIfAbsent("status", "PLANNED")
-                                                OfflineCropSyncRepository.enqueueCropCycleCreate(
-                                                    syncQueueDao = db.syncQueueDao(),
-                                                    cropCycleId = offlineCycleId,
-                                                    payload = enrichedPayload
-                                                )
-                                                SyncWorker.triggerImmediateSync(AgriOsApp.instance)
-                                                createdCycleId = null
-                                                createdCycleResponse = null
-                                                Log.d(TAG, "Crop cycle queued for offline sync replay: $offlineCycleId")
+                                                api.createCropCycle(enrichedPayload)
                                             }
+                                            Log.d(TAG, createResult.diagnostic())
+                                            if (createResult.outcome != CycleCreateOutcome.ACCEPTED) {
+                                                isSaving = false
+                                                saveError = if (createResult.outcome == CycleCreateOutcome.HTTP_REJECTED)
+                                                    "Cycle creation was rejected. Check access and existing cycles before another attempt."
+                                                else "Cycle creation outcome is unknown. Do not submit again; check existing cycles first."
+                                                return@withContext
+                                            }
+                                            val cycleResponse = checkNotNull(createResult.value)
+                                            createdCycleId = cycleResponse.id
+                                            createdCycleResponse = cycleResponse
+                                            CropCycleCache.upsert(AgriOsApp.instance, cycleResponse)
                                         }
+                                        if (createdCycleResponse == null) return@launch
                                     } else if (entityType in setOf("FARMER", "PARCEL", "SOIL_PROFILE")) {
-                                        val entityId = saveProfileFormLocally(
+                                        profileSubmission.submit { db.withTransaction {
+                                        val savedEntityId = saveProfileFormLocally(
                                             db = db,
                                             entityType = entityType,
                                             payload = payload,
@@ -494,9 +499,9 @@ fun DynamicFormScreen(
                                         db.syncQueueDao().enqueue(SyncQueueEntity(
                                             eventId = UUID.randomUUID().toString(),
                                             entityType = entityType,
-                                            entityId = entityId,
+                                            entityId = savedEntityId,
                                             operation = "CREATE",
-                                            payload = Gson().toJson(payload),
+                                            payload = profileQueuePayload(payload),
                                             syncStatus = SyncStatus.PENDING.name,
                                             priority = SyncPriority.HIGH.name,
                                             dependencyIds = dependencyIds,
@@ -504,10 +509,12 @@ fun DynamicFormScreen(
                                         ))
                                         enqueueGeometryIfPresent(
                                             entityType = entityType,
-                                            entityId = entityId,
+                                            entityId = savedEntityId,
                                             payload = payload,
-                                            dependencyIds = entityId
+                                            dependencyIds = savedEntityId
                                         )
+                                        savedEntityId
+                                        } }
                                         SyncWorker.triggerImmediateSync(AgriOsApp.instance)
                                     } else {
                                         // For other entity types, use sync queue
@@ -528,14 +535,16 @@ fun DynamicFormScreen(
                                     isSaving = false
                                     saveSuccess = true
                                     Log.d(TAG, "Form saved: $entityType")
-                                } catch (e: Exception) {
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
                                     isSaving = false
-                                    saveError = e.message
-                                    Log.e(TAG, "Form save error", e)
+                                    saveError = "Unable to complete this save. Review sync status before retrying."
+                                    Log.e(TAG, "Form save did not complete normally")
                                 }
                             }
                         },
-                        enabled = !isSaving,
+                        enabled = !isSaving && !(formId == "crop_cycle_create" && cycleCreateAttempted),
                         modifier = Modifier.fillMaxWidth().height(56.dp)
                     ) {
                         if (isSaving) {

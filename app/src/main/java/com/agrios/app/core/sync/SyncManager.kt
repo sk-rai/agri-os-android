@@ -1,6 +1,10 @@
 package com.agrios.app.core.sync
 
-import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import com.agrios.app.data.local.dao.SyncQueueDao
 import com.agrios.app.data.local.entity.SyncQueueEntity
 import com.agrios.app.data.local.entity.SyncStatus
@@ -20,12 +24,17 @@ import kotlin.math.pow
  * - Exponential backoff (30s → 60s → 2min → ... → 24h cap)
  * - Max 10 retries then FAILED (dead letter)
  * - Dependency ordering (parent must sync before child)
- * - Idempotent (same event_id submitted twice = safe)
+ * - Single-flight in this process; stable IDs retained for uncertain replay.
+ * - Server exactly-once materialization is a separate backend responsibility.
  */
 class SyncManager(
     private val syncQueueDao: SyncQueueDao,
     private val api: AgriOsApi,
-    private val gson: Gson = Gson()
+    private val gson: Gson = Gson(),
+    private val singleFlight: QueueSingleFlight = QueueSingleFlight.applicationQueue,
+    private val diagnostic: (SyncDiagnostic) -> Unit = { android.util.Log.d("SyncManager", it.toString()) },
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val retryJitter: () -> Long = { (0..5000).random().toLong() }
 ) {
     companion object {
         private const val TAG = "SyncManager"
@@ -38,8 +47,21 @@ class SyncManager(
      * Process pending sync queue. Call from WorkManager or on connectivity restore.
      * Returns number of items successfully synced.
      */
-    suspend fun processQueue(drainFollowUps: Boolean = true): SyncResult {
-        val now = System.currentTimeMillis()
+    suspend fun processQueue(drainFollowUps: Boolean = true): SyncResult = singleFlight.run(
+        syncQueueDao, { syncQueueDao.recoverInterruptedSubmissions() }
+    ) { processQueueLocked(drainFollowUps) }
+
+    /** Startup repair and the drain must not race a manual/other worker drain. */
+    suspend fun processScheduledQueue(beforeDrain: suspend () -> Unit): SyncResult = singleFlight.run(
+        syncQueueDao, { syncQueueDao.recoverInterruptedSubmissions() }
+    ) {
+        beforeDrain()
+        fixAndRetryFailedItemsLocked()
+        processQueueLocked(true)
+    }
+
+    private suspend fun processQueueLocked(drainFollowUps: Boolean): SyncResult {
+        val now = clock()
         var pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE)
 
         if (pending.isEmpty()) {
@@ -48,19 +70,13 @@ class SyncManager(
 
         val normalizedCount = normalizeInvalidCropStageEntityIds(pending)
         if (normalizedCount > 0) {
-            Log.d(TAG, "Normalized $normalizedCount pending crop_stage entity IDs before sync")
             pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE)
         }
 
-        Log.d(TAG, "Processing ${pending.size} pending items")
-        pending.forEach { item ->
-            Log.d(TAG, "  Queue item: eventId=${item.eventId}, entityType=${item.entityType}, entityId=${item.entityId}, deps=${item.dependencyIds}, status=${item.syncStatus}, retries=${item.retryCount}")
-        }
 
         // Filter by dependencies: skip items whose parents haven't synced
         val eligible = filterByDependencies(pending)
         if (eligible.isEmpty()) {
-            Log.d(TAG, "All pending items blocked by unsynced dependencies")
             return SyncResult(0, 0, 0)
         }
 
@@ -83,7 +99,6 @@ class SyncManager(
             // Sanitize village_id: never send non-UUID strings to backend
             val villageId = payloadMap["village_id"] as? String
             if (villageId != null && !VillageIdUtil.isValidUuid(villageId)) {
-                Log.w(TAG, "Sanitizing invalid village_id='$villageId' → null (extracting manual name)")
                 val manualName = VillageIdUtil.extractManualVillageName(villageId)
                     ?: payloadMap["village_name_manual"] as? String
                 payloadMap["village_id"] = null
@@ -104,13 +119,10 @@ class SyncManager(
             )
         }
 
-        Log.d(TAG, "Sending ${events.size} events to POST /sync/events")
-        events.forEach { event ->
-            Log.d(TAG, "  → eventId=${event.eventId}, type=${event.entityType}, op=${event.operation}")
-            Log.d(TAG, "    payload=${gson.toJson(event.payload)}")
-        }
 
-        return try {
+        // Keep this bounded HTTP batch and acknowledgement under the lock even
+        // when its caller is cancelled. Observe cancellation before another batch.
+        val result = withContext(NonCancellable) { try {
             // Mark as syncing
             syncEventItems.forEach { syncQueueDao.updateStatus(it.eventId, SyncStatus.SYNCING.name) }
 
@@ -119,43 +131,38 @@ class SyncManager(
 
             if (response.isSuccessful) {
                 val body = response.body()!!
-                Log.d(TAG, "✅ Server response: accepted=${body.accepted.size}, conflicts=${body.conflicts.size}, failed=${body.failed.size}")
+                val expectedIds = syncEventItems.map { it.eventId }.toSet()
+                val acknowledgements = body.accepted + body.conflicts.map { it.eventId } + body.failed.map { it.eventId }
+                check(acknowledgements.all { it in expectedIds } && acknowledgements.distinct().size == acknowledgements.size)
+                val unacknowledged = syncEventItems.filter { it.eventId !in acknowledgements }
+                diagnostic(SyncDiagnostic(if (unacknowledged.isEmpty()) SyncOutcome.RESPONSE else SyncOutcome.RESPONSE_UNCERTAIN,
+                    body.accepted.size, body.conflicts.size, body.failed.size + unacknowledged.size, response.code()))
                 handleSyncResponse(body.accepted, body.conflicts, body.failed, syncEventItems)
-                val result = SyncResult(
+                markBatchForRetry(unacknowledged, "RESPONSE_UNCERTAIN")
+                SyncResult(
                     accepted = body.accepted.size,
                     conflicts = body.conflicts.size,
-                    failed = body.failed.size
-                )
-                // If items were accepted, immediately process again to pick up
-                // any newly unblocked dependents (e.g. parcels waiting on farmer)
-                if (drainFollowUps && result.accepted > 0) {
-                    Log.d(TAG, "Items accepted — running follow-up pass for unblocked dependents")
-                    val followUp = processQueue(drainFollowUps = true)
-                    return SyncResult(
-                        accepted = geometryResult.accepted + result.accepted + followUp.accepted,
-                        conflicts = geometryResult.conflicts + result.conflicts + followUp.conflicts,
-                        failed = geometryResult.failed + result.failed + followUp.failed
-                    )
-                }
-                SyncResult(
-                    accepted = geometryResult.accepted + result.accepted,
-                    conflicts = geometryResult.conflicts + result.conflicts,
-                    failed = geometryResult.failed + result.failed
+                    failed = body.failed.size + unacknowledged.size
                 )
             } else {
-                // Server error — log full details for debugging
-                val errorBody = try { response.errorBody()?.string() } catch (_: Exception) { null }
-                Log.e(TAG, "❌ Server rejected sync: HTTP ${response.code()} ${response.message()}")
-                Log.e(TAG, "❌ Response body: $errorBody")
-                Log.e(TAG, "Request had ${events.size} events for entities: ${syncEventItems.map { "${it.entityType}:${it.entityId}" }}")
-                markBatchForRetry(syncEventItems, "HTTP ${response.code()}: ${errorBody ?: response.message()}")
-                SyncResult(geometryResult.accepted, geometryResult.conflicts, geometryResult.failed + syncEventItems.size)
+                response.errorBody()?.close()
+                diagnostic(SyncDiagnostic(SyncOutcome.HTTP_FAILURE, failed = syncEventItems.size, httpStatus = response.code()))
+                markBatchForRetry(syncEventItems, "HTTP ${response.code()}")
+                SyncResult(0, 0, syncEventItems.size)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Sync network error: ${e.javaClass.simpleName}: ${e.message}", e)
-            markBatchForRetry(syncEventItems, "${e.javaClass.simpleName}: ${e.message}")
-            SyncResult(geometryResult.accepted, geometryResult.conflicts, geometryResult.failed + syncEventItems.size)
-        }
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { markBatchForRetry(syncEventItems, "TRANSPORT_UNCERTAIN") }
+            throw e
+        } catch (_: Exception) {
+            diagnostic(SyncDiagnostic(SyncOutcome.TRANSPORT_UNCERTAIN, failed = syncEventItems.size))
+            markBatchForRetry(syncEventItems, "TRANSPORT_UNCERTAIN")
+            SyncResult(0, 0, syncEventItems.size)
+        } }
+        currentCoroutineContext().ensureActive()
+        val followUp = if (drainFollowUps && result.accepted > 0) processQueueLocked(true) else SyncResult(0, 0, 0)
+        return SyncResult(geometryResult.accepted + result.accepted + followUp.accepted,
+            geometryResult.conflicts + result.conflicts + followUp.conflicts,
+            geometryResult.failed + result.failed + followUp.failed)
     }
 
     /**
@@ -172,30 +179,31 @@ class SyncManager(
         var accepted = 0
         var failed = 0
         items.forEach { item ->
-            try {
+            currentCoroutineContext().ensureActive()
+            withContext(NonCancellable) { try {
                 syncQueueDao.updateStatus(item.eventId, SyncStatus.SYNCING.name)
                 val result = GeometryRepository.resultFromQueuePayload(item.payload)
                 val response = api.updateParcelGeometry(item.entityId, GeometryRepository.requestFromResult(result))
                 if (response.isSuccessful) {
                     syncQueueDao.markSynced(item.eventId)
                     accepted++
-                    Log.d(TAG, "Parcel geometry synced: parcelId=${item.entityId}, source=${result.geometrySource}")
                 } else {
-                    val errorBody = try { response.errorBody()?.string() } catch (_: Exception) { null }
-                    val error = "HTTP ${response.code()}: ${errorBody ?: response.message()}"
+                    response.errorBody()?.close()
+                    val error = "HTTP ${response.code()}"
                     if (response.code() in 400..499) {
                         syncQueueDao.markFailed(item.eventId, error)
                     } else {
                         markBatchForRetry(listOf(item), error)
                     }
                     failed++
-                    Log.e(TAG, "Parcel geometry sync failed: parcelId=${item.entityId}, $error")
                 }
-            } catch (e: Exception) {
-                markBatchForRetry(listOf(item), "${e.javaClass.simpleName}: ${e.message}")
+            } catch (e: CancellationException) {
+                withContext(NonCancellable) { markBatchForRetry(listOf(item), "TRANSPORT_UNCERTAIN") }
+                throw e
+            } catch (_: Exception) {
+                markBatchForRetry(listOf(item), "TRANSPORT_UNCERTAIN")
                 failed++
-                Log.e(TAG, "Parcel geometry sync error: parcelId=${item.entityId}, ${e.message}", e)
-            }
+            } }
         }
         return SyncResult(accepted, 0, failed)
     }
@@ -222,7 +230,6 @@ class SyncManager(
             if (unsyncedDeps.isEmpty()) {
                 eligible.add(item)
             } else {
-                Log.d(TAG, "Skipping ${item.eventId}: waiting on ${unsyncedDeps.size} dependencies (depIds=$depIds)")
             }
         }
         return eligible
@@ -237,7 +244,6 @@ class SyncManager(
                 val fixedEntityId = UUID.randomUUID().toString()
                 syncQueueDao.updateEntityId(item.eventId, fixedEntityId)
                 fixedCount++
-                Log.d(TAG, "Fixed pending crop_stage entity_id for ${item.eventId}: '${item.entityId}' -> '$fixedEntityId'")
             }
         return fixedCount
     }
@@ -251,32 +257,27 @@ class SyncManager(
         // Mark accepted
         accepted.forEach { eventId ->
             syncQueueDao.markSynced(eventId)
-            Log.d(TAG, "✅ Synced: $eventId")
         }
 
         // Mark conflicts
         conflicts.forEach { conflict ->
             syncQueueDao.markConflicted(conflict.eventId, gson.toJson(conflict))
-            Log.w(TAG, "⚠️ Conflict: ${conflict.eventId} - ${conflict.conflictType}")
         }
 
         // Handle failures
         failed.forEach { failure ->
-            Log.e(TAG, "Server failed event: ${failure.eventId}, code=${failure.errorCode}, detailCode=${failure.detailCode}, message=${failure.message}, retryable=${failure.retryable}")
+            diagnostic(SyncDiagnostic(SyncOutcome.SERVER_REJECTED, failed = 1,
+                failure = safeSyncFailure(failure.errorCode)))
             val item = items.find { it.eventId == failure.eventId }
             if (item != null) {
-                val errorDetail = listOfNotNull(failure.errorCode, failure.detailCode, failure.message)
-                    .joinToString(": ")
+                val errorDetail = safeSyncFailure(failure.errorCode).name
                 if (failure.isStaleLocalContextFailure()) {
-                    syncQueueDao.markFailed(failure.eventId, gson.toJson(failure))
-                    Log.w(TAG, "Stale local context detected for ${failure.eventId}; refresh profile/parcels and rebuild local draft")
+                    syncQueueDao.markFailed(failure.eventId, gson.toJson(failure.copy(message = "Refresh local context before retrying.")))
                 } else if (failure.isRetryableDependencyMissing() && item.retryCount < item.maxRetries) {
                     val nextRetry = calculateNextRetry(item.retryCount + 1)
                     syncQueueDao.markForRetry(failure.eventId, nextRetry, errorDetail)
-                    Log.d(TAG, "Retry scheduled: ${failure.eventId} (attempt ${item.retryCount + 1})")
                 } else {
                     syncQueueDao.markFailed(failure.eventId, errorDetail)
-                    Log.e(TAG, "Failed permanently: ${failure.eventId} - $errorDetail")
                 }
             }
         }
@@ -309,8 +310,7 @@ class SyncManager(
     private fun calculateNextRetry(retryCount: Int): Long {
         val delayMs = INITIAL_BACKOFF_MS * 2.0.pow(retryCount.toDouble()).toLong()
         val capped = min(delayMs, MAX_BACKOFF_MS)
-        val jitter = (0..5000).random() // 0-5 seconds jitter
-        return System.currentTimeMillis() + capped + jitter
+        return clock() + capped + retryJitter()
     }
 
     data class SyncResult(
@@ -327,13 +327,16 @@ class SyncManager(
      * Fixes invalid village_id values (e.g., "manual_saraimohan" → null + village_name_manual).
      * Returns the number of items reset for retry.
      */
-    suspend fun fixAndRetryFailedItems(): Int {
+    suspend fun fixAndRetryFailedItems(): Int = singleFlight.run(
+        syncQueueDao, { syncQueueDao.recoverInterruptedSubmissions() }
+    ) { fixAndRetryFailedItemsLocked() }
+
+    private suspend fun fixAndRetryFailedItemsLocked(): Int {
         val failedItems = syncQueueDao.getFailedItems()
         var fixedCount = 0
 
         for (item in failedItems) {
             if (item.lastError.isStaleLocalContextError()) {
-                Log.d(TAG, "Skipping auto-retry for stale local context item ${item.eventId}")
                 continue
             }
 
@@ -354,7 +357,6 @@ class SyncManager(
                     payloadMap["village_name_manual"] = manualName
                 }
                 modified = true
-                Log.d(TAG, "Fixed payload for ${item.eventId}: village_id='$villageId' → null, manual='$manualName'")
             }
 
             if (modified) {
@@ -364,15 +366,15 @@ class SyncManager(
             if (item.entityType == "crop_stage" && runCatching { UUID.fromString(item.entityId) }.isFailure) {
                 val fixedEntityId = UUID.randomUUID().toString()
                 syncQueueDao.updateEntityId(item.eventId, fixedEntityId)
-                Log.d(TAG, "Fixed crop_stage entity_id for ${item.eventId}: '${item.entityId}' -> '$fixedEntityId'")
+                modified = true
             }
 
+            // A permanent server failure is not an implicit retry request.
+            if (!modified) continue
             syncQueueDao.resetFailedItem(item.eventId)
             fixedCount++
-            Log.d(TAG, "Reset failed item ${item.eventId} (${item.entityType}) for retry")
         }
 
-        Log.d(TAG, "Fixed and reset $fixedCount failed items")
         return fixedCount
     }
 

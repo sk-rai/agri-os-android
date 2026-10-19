@@ -7,6 +7,11 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface SyncQueueDao {
 
+    // Called once per queue/process, under the application-wide drain boundary.
+    // A terminated process may have lost the response: preserve the original ID.
+    @Query("UPDATE sync_queue SET sync_status = 'PENDING' WHERE sync_status = 'SYNCING'")
+    suspend fun recoverInterruptedSubmissions()
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun enqueue(event: SyncQueueEntity)
 
@@ -36,11 +41,11 @@ interface SyncQueueDao {
             retry_count = retry_count + 1, 
             next_retry_after = :nextRetry, 
             last_error = :error 
-        WHERE event_id = :eventId
+        WHERE event_id = :eventId AND sync_status = 'SYNCING'
     """)
     suspend fun markForRetry(eventId: String, nextRetry: Long, error: String?)
 
-    @Query("UPDATE sync_queue SET sync_status = 'FAILED', last_error = :error WHERE event_id = :eventId")
+    @Query("UPDATE sync_queue SET sync_status = 'FAILED', last_error = :error WHERE event_id = :eventId AND sync_status != 'SYNCED'")
     suspend fun markFailed(eventId: String, error: String?)
 
     @Query("UPDATE sync_queue SET sync_status = 'SYNCED' WHERE event_id = :eventId")

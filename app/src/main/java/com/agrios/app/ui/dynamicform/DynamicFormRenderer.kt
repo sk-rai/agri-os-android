@@ -449,13 +449,13 @@ private suspend fun loadDynamicOptions(source: String, formValues: Map<String, A
                 val body = response.body?.string() ?: return@withContext null
                 parseDynamicOptionItems(body)
             } else {
-                Log.w(TAG, "Dynamic options load failed: ${response.code} for $fullUrl")
+                Log.w(TAG, "Dynamic options load failed: HTTP ${response.code}")
                 null
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Dynamic options load error: ${e.message}")
+            Log.w(TAG, "Dynamic options could not be loaded")
             null
         }
     }
@@ -540,7 +540,7 @@ private suspend fun loadEligibleParcelOptions(season: String?): List<Pair<String
             val response = okHttp.newCall(request).execute()
 
             if (!response.isSuccessful) {
-                Log.w(TAG, "Eligible parcels load failed: ${response.code} for $fullUrl")
+                Log.w(TAG, "Eligible parcels load failed: HTTP ${response.code}")
                 return@withContext null
             }
 
@@ -572,7 +572,7 @@ private suspend fun loadEligibleParcelOptions(season: String?): List<Pair<String
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Eligible parcels load error: ${e.message}")
+            Log.w(TAG, "Eligible parcels could not be loaded")
             null
         }
     }

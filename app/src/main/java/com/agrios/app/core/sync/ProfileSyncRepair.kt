@@ -52,7 +52,7 @@ object ProfileSyncRepair {
                 Log.d(TAG, "Skipping FARMER materialization repair: existing sync queue item found for id=${farmer.id}")
                 return@forEach
             }
-            Log.d(TAG, "Queueing FARMER materialization event: id=${farmer.id}, mobile=${farmer.mobileNumber}")
+            Log.d(TAG, "Queueing legacy farmer materialization event")
             db.syncQueueDao().enqueue(
                 SyncQueueEntity(
                     eventId = UUID.randomUUID().toString(),
