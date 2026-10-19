@@ -64,7 +64,8 @@ fun StageTimelineScreen(
 
     // Build API client
     fun buildApi(): AgriOsApi {
-        val okHttp = OkHttpClient.Builder()
+        val okHttp = com.agrios.app.data.repository.authenticatedReadClientBuilder()
+            .followRedirects(false).followSslRedirects(false)
             .addInterceptor(AuthInterceptor(db.authDao()))
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
@@ -100,15 +101,17 @@ fun StageTimelineScreen(
                                 Log.d(TAG, "Template loaded: ${template?.cropCode}, ${template?.stages?.size} stages")
                             }
                         } catch (e: Exception) {
-                            Log.w(TAG, "Template fetch failed (non-critical): ${e.message}")
+                            Log.w(TAG, "Template read unavailable")
                         }
                     }
                 } else {
                     error = "HTTP ${response.code()}"
                 }
-            } catch (e: Exception) {
-                error = e.message
-                Log.e(TAG, "Load failed", e)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                error = "Unable to load cycle reads. Check your session or access."
+                Log.e(TAG, "Cycle reads unavailable")
             } finally {
                 isLoading = false
             }
@@ -171,7 +174,7 @@ fun StageTimelineScreen(
                                 )
                             }
                             Text(
-                                "Status: ${c.status}",
+                                "Status: ${c.status}", modifier = Modifier.testTag("cycle_status"),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (isCycleCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
                             )
@@ -343,6 +346,8 @@ private fun StageTimelineItem(
                 "$statusIcon ${stage.getDisplayName()}",
                 style = MaterialTheme.typography.bodyMedium
             )
+            Text("${stage.code}: ${stage.status}", modifier = Modifier.testTag("stage_state_${stage.code}"),
+                style = MaterialTheme.typography.bodySmall)
             if (stage.expectedStartDate != null) {
                 Text(
                     "${stage.expectedStartDate} — ${stage.expectedEndDate ?: ""}",
@@ -391,19 +396,13 @@ private fun StageTimelineItem(
                             Text(LanguageManager.localize("Complete", "????"), style = MaterialTheme.typography.labelSmall)
                         }
                     }
-                    if (isActive || isCompleted) {
-                        OutlinedButton(
-                            onClick = { onLogActivity() },
-                            modifier = Modifier.testTag("stage_activities_${stage.code}"),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                if (isCompleted) LanguageManager.localize("View Activities", "View Activities")
-                                else LanguageManager.localize("Activities", "Activities"),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
+                }
+            }
+            // Read navigation is independent of Start/Complete/Skip and never advances a stage.
+            if (canViewStageReads(stage.status)) {
+                OutlinedButton(onClick = onLogActivity,
+                    modifier = Modifier.testTag("stage_activities_${stage.code}")) {
+                    Text("View recommendations and activities", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

@@ -1,0 +1,27 @@
+appId: com.agrios.app
+---
+- assertVisible: "Status: PLANNED"
+- scrollUntilVisible:
+    element: { id: "stage_state_NURSERY" }
+    direction: DOWN
+- assertVisible: "NURSERY: PENDING"
+- scrollUntilVisible:
+    element: { id: "stage_state_TRANSPLANTING" }
+    direction: DOWN
+- assertVisible: "TRANSPLANTING: PENDING"
+- scrollUntilVisible:
+    element: { id: "stage_state_TILLERING" }
+    direction: DOWN
+- assertVisible: "TILLERING: PENDING"
+- scrollUntilVisible:
+    element: { id: "stage_state_FLOWERING" }
+    direction: DOWN
+- assertVisible: "FLOWERING: PENDING"
+- scrollUntilVisible:
+    element: { id: "stage_state_GRAIN_FILLING" }
+    direction: DOWN
+- assertVisible: "GRAIN_FILLING: PENDING"
+- scrollUntilVisible:
+    element: { id: "stage_state_HARVEST" }
+    direction: DOWN
+- assertVisible: "HARVEST: PENDING"

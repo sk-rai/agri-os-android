@@ -1,0 +1,48 @@
+appId: com.agrios.app
+name: Gate2 pending read mutation controls occupancy and relaunch
+---
+- scrollUntilVisible:
+    element: { text: "Activities are view only for this stage" }
+    direction: DOWN
+    timeout: 60000
+- assertNotVisible: { id: "log_custom_activity" }
+- assertNotVisible: ".*Log Custom Activity.*"
+- takeScreenshot: "67c-pending-no-mutation-action"
+- tapOn: { id: "activities_back" }
+- tapOn: { id: "timeline_back" }
+- scrollUntilVisible:
+    element: { id: "parcel_availability_navigation" }
+    direction: UP
+    timeout: 60000
+- tapOn: { id: "parcel_availability_navigation" }
+- tapOn: { id: "eligibility_season" }
+- inputText: "KHARIF"
+- hideKeyboard
+- tapOn: { id: "load_availability" }
+- extendedWaitUntil:
+    visible: "eligible_parcels: HTTP 200"
+    timeout: 60000
+- scrollUntilVisible:
+    element: { id: "availability_9d3bf97b-fa15-49f8-b4f0-36e2763e8299" }
+    direction: DOWN
+- copyTextFrom: { id: "availability_status_9d3bf97b-fa15-49f8-b4f0-36e2763e8299" }
+- assertTrue: ${maestro.copiedText === 'HAS_ACTIVE_CYCLE'}
+- assertVisible: "Eligible: false"
+- assertVisible: { id: "occupied_cycle_54d5583e-0624-4087-ba34-d3edcdf4635e" }
+- takeScreenshot: "67c-exact-parcel-occupied"
+- stopApp
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: { id: "hydration_107d7261-ca96-4e95-bb1a-8eb837f3388b" }
+    timeout: 60000
+- scrollUntilVisible:
+    element: { id: "cycle_54d5583e-0624-4087-ba34-d3edcdf4635e" }
+    direction: DOWN
+- tapOn: { id: "cycle_54d5583e-0624-4087-ba34-d3edcdf4635e" }
+- extendedWaitUntil:
+    visible: "cycle_detail: HTTP 200"
+    timeout: 60000
+- runFlow: 67c-assert-six-pending-stages.yaml
+- takeScreenshot: "67c-stages-pending-after-relaunch"
+- stopApp

@@ -173,6 +173,9 @@ fun ParcelAvailabilityReadScreen(farmerId: String, onBack: () -> Unit) {
                     Column(Modifier.padding(12.dp)) {
                         Text(row.stringValue("survey_number") ?: "Parcel")
                         Text(row.stringValue("eligibility_status").orEmpty(), Modifier.testTag("availability_status_$id"))
+                        row.get("eligible")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.let {
+                            Text("Eligible: ${it.asBoolean}", Modifier.testTag("availability_eligible_$id"))
+                        }
                         val cycle = row.get("active_cycle")?.takeIf { it.isJsonObject }?.asJsonObject
                         cycle?.let {
                             Text("${it.stringValue("crop_code")} / ${it.stringValue("season_code")}", Modifier.testTag("occupied_cycle_${it.stringValue("id")}"))

@@ -51,15 +51,18 @@ fun StageActivitiesScreen(
     var cycle by remember { mutableStateOf<CropCycleResponseDto?>(null) }
     var allRecommendations by remember { mutableStateOf<List<CycleRecommendedActivityDto>>(emptyList()) }
     var loggedActivities by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
-    var financeSummary by remember { mutableStateOf<ActivityFinanceSummary?>(null) }
+    var financeSummary by remember { mutableStateOf<CycleFinanceRead?>(null) }
+    val readStatuses = remember(cycleId) { mutableStateMapOf<String, Int>() }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(cycleId) {
         isLoading = true
+        error = null
         withContext(Dispatchers.IO) {
             try {
-                val okHttp = OkHttpClient.Builder()
+                val okHttp = com.agrios.app.data.repository.authenticatedReadClientBuilder()
+                    .followRedirects(false).followSslRedirects(false)
                     .addInterceptor(AuthInterceptor(db.authDao()))
                     .connectTimeout(15, TimeUnit.SECONDS)
                     .readTimeout(15, TimeUnit.SECONDS)
@@ -73,15 +76,22 @@ fun StageActivitiesScreen(
 
                 // Load cycle
                 val cycleResp = api.getCropCycle(cycleId)
+                fun record(route: String, status: Int) {
+                    readStatuses[route] = status
+                    Log.d(TAG, "CycleRead(route=$route, status=$status)")
+                }
+                record("cycle_detail", cycleResp.code())
                 if (cycleResp.isSuccessful) {
-                    cycle = cycleResp.body()
+                    cycle = checkNotNull(cycleResp.body())
+                    check(cycle?.id == cycleId)
 
                     // Load cycle-aware recommended activities with backend-calculated dates
                     val recResp = api.getRecommendedActivities(cycleId)
-                    Log.d(TAG, "Recommended activities response: ${recResp.code()}, body null? ${recResp.body() == null}")
+                    record("recommendations", recResp.code())
                     if (recResp.isSuccessful) {
-                        allRecommendations = recResp.body()?.recommendedActivities ?: emptyList()
-                        Log.d(TAG, "Recommended activities loaded: ${allRecommendations.size}")
+                        val body = checkNotNull(recResp.body())
+                        check(body.cycleId == cycleId)
+                        allRecommendations = body.recommendedActivities
                     } else {
                         error("Recommendations unavailable (HTTP ${recResp.code()})")
                     }
@@ -92,47 +102,44 @@ fun StageActivitiesScreen(
                         val activitiesReq = okhttp3.Request.Builder().url(activitiesUrl).build()
                         val activitiesResp = okHttp.newCall(activitiesReq).execute()
                         activitiesResp.use { response ->
+                            record("activities", response.code)
                             check(response.isSuccessful) { "Activities unavailable (HTTP ${response.code})" }
                             val body = checkNotNull(response.body?.string())
-                            loggedActivities = com.google.gson.Gson().fromJson(
+                            loggedActivities = checkNotNull(com.google.gson.Gson().fromJson<List<Map<String, Any?>>>(
                                 body, object : com.google.gson.reflect.TypeToken<List<Map<String, Any?>>>() {}.type
-                            )
-                            Log.d(TAG, "Logged activities: ${loggedActivities.size}")
+                            ))
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         throw IllegalStateException("Activity history could not be loaded")
                     }
 
                     // Fetch backend finance summaries for Android-readable totals.
                     try {
-                        val gson = com.google.gson.Gson()
-                        val mapType = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
-                        fun readMap(url: String): Map<String, Any?>? {
+                        fun readMap(route: String, url: String): com.google.gson.JsonObject {
                             return okHttp.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { resp ->
+                                record(route, resp.code)
                                 check(resp.isSuccessful) { "Finance unavailable (HTTP ${resp.code})" }
                                 val body = checkNotNull(resp.body?.string())
-                                gson.fromJson(body, mapType)
+                                com.google.gson.JsonParser.parseString(body).asJsonObject
                             }
                         }
-                        val stageCost = readMap("${ApiConfig.BASE_URL}crop-cycles/$cycleId/stage-cost-summary")
-                        val profitLoss = readMap("${ApiConfig.BASE_URL}crop-cycles/$cycleId/profit-loss-summary")
-                        val stageTotals = stageCost?.get("totals") as? Map<*, *>
-                        val profitLossTotals = profitLoss?.get("totals") as? Map<*, *>
-                        check(stageTotals?.get("actual_expense") != null && profitLossTotals?.get("total_expenses") != null) { "Finance totals missing" }
-                        financeSummary = ActivityFinanceSummary(
-                            activityCount = formatWholeNumber(stageTotals?.get("activity_count")),
-                            actualExpense = stageTotals?.get("actual_expense")?.toString(),
-                            totalExpenses = profitLossTotals?.get("total_expenses")?.toString(),
-                            profitOrLoss = profitLossTotals?.get("profit_or_loss")?.toString()
-                        )
-                        Log.d(TAG, "Finance summary loaded: $financeSummary")
+                        val stageCost = readMap("stage_cost", "${ApiConfig.BASE_URL}crop-cycles/$cycleId/stage-cost-summary")
+                        val profitLoss = readMap("profit_loss", "${ApiConfig.BASE_URL}crop-cycles/$cycleId/profit-loss-summary")
+                        val tenant = checkNotNull(db.authDao().getAuthState()?.tenantId)
+                        financeSummary = parseCycleFinance(stageCost, profitLoss, cycleId, tenant)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         throw IllegalStateException("Finance summaries could not be loaded")
                     }
                 } else {
                     error = "HTTP ${cycleResp.code()}"
                 }
-            } catch (e: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
                 error = "Unable to load activity reads. Check your session or access and try again."
             } finally {
                 isLoading = false
@@ -145,18 +152,10 @@ fun StageActivitiesScreen(
         ?: cycle?.stages?.find { it.status == "IN_PROGRESS" || it.status == "ACTIVE" || it.status == "STARTED" }
     val targetStageCode = targetStage?.code
     val stageStartDate = targetStage?.expectedStartDate
-    val isReadOnly = cycle?.status.equals("COMPLETED", ignoreCase = true) ||
-        targetStage?.status.equals("COMPLETED", ignoreCase = true)
+    val isReadOnly = !canLogStageActivity(cycle?.status, targetStage?.status)
 
     // Get cycle-aware recommendations for the selected/target stage.
     val recommendations = allRecommendations.filter { it.stageCode == targetStageCode }
-
-    // Debug
-    LaunchedEffect(cycle, allRecommendations, selectedStageCode) {
-        Log.d(TAG, "Selected stage: code='$selectedStageCode'; target code='$targetStageCode', status='${targetStage?.status}'")
-        Log.d(TAG, "Recommendation stage codes: ${allRecommendations.map { it.stageCode }.distinct()}")
-        Log.d(TAG, "Recommendations count for '$targetStageCode': ${recommendations.size}")
-    }
 
     Scaffold(
         topBar = {
@@ -189,6 +188,17 @@ fun StageActivitiesScreen(
                     Text("❌ $error", color = MaterialTheme.colorScheme.error)
                 }
                 else -> {
+                    if (AgriOsApp.instance.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                        readStatuses.forEach { (route, status) ->
+                            Text("$route: HTTP $status", Modifier.testTag("cycle_read_$route"))
+                        }
+                        if (financeSummary != null) {
+                            Text("stage_cost_schema=crop_cycle_stage_cost_summary.v1")
+                            Text("profit_loss_schema=crop_cycle_profit_loss_summary.v1")
+                        }
+                    }
+                    Text("Cycle recommendations: ${allRecommendations.size}", Modifier.testTag("cycle_recommendation_count"))
+                    Text("Stage recommendations: ${recommendations.size}", Modifier.testTag("stage_recommendation_count"))
                     // Stage info header
                     if (targetStage != null) {
                         Card(
@@ -200,9 +210,12 @@ fun StageActivitiesScreen(
                                     "🌱 ${targetStage.getDisplayName()} — ${cycle?.cropCode ?: ""}",
                                     style = MaterialTheme.typography.titleSmall
                                 )
+                                Text("${targetStage.code}: ${targetStage.status}", Modifier.testTag("activities_stage_state"))
+                                if (isReadOnly) Text("Read only — activity logging is unavailable for this stage.",
+                                    Modifier.testTag("stage_read_only"))
                                 if (stageStartDate != null) {
                                     Text(
-                                        "${LanguageManager.localize("Started", "शुरू")}: $stageStartDate",
+                                        "Expected start: $stageStartDate",
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                 }
@@ -219,17 +232,18 @@ fun StageActivitiesScreen(
                         ) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text("Finance Summary", style = MaterialTheme.typography.titleSmall)
-                                Text("Activities logged: ${summary.activityCount ?: loggedActivities.size}", style = MaterialTheme.typography.bodySmall)
+                                Text("Activities logged: ${summary.activityCount}", style = MaterialTheme.typography.bodySmall)
                                 Text("Actual expense: ₹${summary.actualExpense}", modifier = Modifier.testTag("finance_actual_expense"), style = MaterialTheme.typography.bodySmall)
                                 Text("P&L total expenses: ₹${summary.totalExpenses}", modifier = Modifier.testTag("finance_total_expenses"), style = MaterialTheme.typography.bodySmall)
-                                summary.profitOrLoss?.let {
-                                    Text("Profit/Loss: ₹$it", style = MaterialTheme.typography.bodySmall)
-                                }
+                                Text("P&L total income: ₹${summary.totalIncome}", Modifier.testTag("finance_total_income"))
+                                Text("Profit/Loss: ₹${summary.profitOrLoss}", Modifier.testTag("finance_profit_loss"))
                             }
                         }
                     }
 
-                    if (loggedActivities.isNotEmpty()) {
+                    if (loggedActivities.isEmpty()) {
+                        Text("No activities recorded", Modifier.testTag("activities_empty"))
+                    } else {
                         Text("Logged Activities", style = MaterialTheme.typography.titleSmall)
                         loggedActivities.forEach { activity ->
                             Card(
@@ -290,8 +304,9 @@ fun StageActivitiesScreen(
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .testTag("recommendation_card_${rec.stageCode}_$index")
                                     .clickable(enabled = !isReadOnly && !isLogged) {
-                                        if (!isLogged) {
+                                        if (!isReadOnly && !isLogged) {
                                             // Pre-fill the activity form
                                             val prefill = mutableMapOf(
                                                 "activity_type" to rec.activityType,
@@ -346,7 +361,7 @@ fun StageActivitiesScreen(
                                                 Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                         }
-                                        if (!isLogged) Text("→", style = MaterialTheme.typography.titleMedium)
+                                        if (!isReadOnly && !isLogged) Text("→", style = MaterialTheme.typography.titleMedium)
                                     }
                                 }
                             }
@@ -363,15 +378,15 @@ fun StageActivitiesScreen(
 
                     if (isReadOnly) {
                         Text(
-                            "Completed stage - activities are view only",
+                            "Activities are view only for this stage",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
                         // Custom activity button
                         OutlinedButton(
-                            onClick = onLogCustomActivity,
-                            modifier = Modifier.fillMaxWidth()
+                            onClick = { if (!isReadOnly) onLogCustomActivity() },
+                            modifier = Modifier.fillMaxWidth().testTag("log_custom_activity")
                         ) {
                             Text(LanguageManager.localize("+ Log Custom Activity", "+ Log Custom Activity"))
                         }
@@ -379,21 +394,6 @@ fun StageActivitiesScreen(
                 }
             }
         }
-    }
-}
-
-private data class ActivityFinanceSummary(
-    val activityCount: String?,
-    val actualExpense: String?,
-    val totalExpenses: String?,
-    val profitOrLoss: String?
-)
-
-private fun formatWholeNumber(value: Any?): String? {
-    return when (value) {
-        null -> null
-        is Number -> value.toLong().toString()
-        else -> value.toString().removeSuffix(".0")
     }
 }
 
