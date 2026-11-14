@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.room.withTransaction
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.agrios.app.data.local.dao.AuthDao
 import com.agrios.app.data.local.dao.GeographyCacheDao
 import com.agrios.app.data.local.dao.SyncQueueDao
@@ -11,6 +14,9 @@ import com.agrios.app.data.local.dao.FarmerDao
 import com.agrios.app.data.local.dao.ParcelDao
 import com.agrios.app.data.local.dao.SoilProfileDao
 import com.agrios.app.data.local.entity.*
+import com.agrios.app.core.auth.SessionExpiryCoordinator
+import com.agrios.app.core.sync.holdDepartingQueueRows
+import com.agrios.app.core.sync.invalidateSessionWithQueueHold
 
 @Database(
     entities = [
@@ -27,10 +33,15 @@ import com.agrios.app.data.local.entity.*
         CacheMetadataEntity::class,
         SoilProfileEntity::class,
     ],
-    version = 6,
+    version = 10,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
+    // Bind before publishing the singleton, including a cold WorkManager start
+    // which can precede Application.onCreate. In-memory test DBs remain explicit.
+    val sessionExpiry: SessionExpiryCoordinator by lazy {
+        SessionExpiryCoordinator.attach(authDao(), this::invalidateExpiredSession, this::holdDepartingQueueOwner)
+    }
     abstract fun authDao(): AuthDao
     abstract fun geographyCacheDao(): GeographyCacheDao
     abstract fun syncQueueDao(): SyncQueueDao
@@ -38,7 +49,43 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun parcelDao(): ParcelDao
     abstract fun soilProfileDao(): SoilProfileDao
 
+    suspend fun invalidateExpiredSession(expectedJwt: String): Boolean = withTransaction {
+        invalidateSessionWithQueueHold(authDao(), syncQueueDao(), expectedJwt)
+    }
+
+    private suspend fun holdDepartingQueueOwner(departing: AuthStateEntity) = withTransaction {
+        check(authDao().getAuthState() == departing) { "LOCAL_SESSION_OWNER_CHANGED" }
+        holdDepartingQueueRows(syncQueueDao(), departing)
+    }
+
     companion object {
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sync_queue ADD COLUMN dispatch_claim_id TEXT")
+            }
+        }
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // No active-login inference or backfill: pre-existing sources stay unproven.
+                for (table in listOf("farmers_local", "parcels_local", "soil_profiles_local")) {
+                    db.execSQL("ALTER TABLE $table ADD COLUMN origin_tenant_id TEXT")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN origin_user_id TEXT")
+                }
+            }
+        }
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // NULL owners quarantine legacy rows without altering their retained history.
+                db.execSQL("ALTER TABLE sync_queue ADD COLUMN origin_tenant_id TEXT")
+                db.execSQL("ALTER TABLE sync_queue ADD COLUMN origin_user_id TEXT")
+                db.execSQL("ALTER TABLE sync_queue ADD COLUMN dispatch_reserved INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE auth_state ADD COLUMN reauth_required INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -49,8 +96,9 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "agrios_local.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .build()
+                instance.sessionExpiry
                 INSTANCE = instance
                 instance
             }

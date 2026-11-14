@@ -17,4 +17,14 @@ interface AuthDao {
 
     @Query("DELETE FROM auth_state")
     suspend fun clearAuth()
+
+    /** One atomic durable invalidation; retains only the nonsecret identity checkpoint. */
+    @Transaction
+    suspend fun invalidateSession(expectedJwt: String): Boolean {
+        val current = getAuthState() ?: return false
+        if (!current.isAuthenticated || current.jwt != expectedJwt) return false
+        saveAuthState(current.copy(jwt = null, deviceKey = null, mobileNumber = null,
+            isAuthenticated = false, reauthRequired = true))
+        return true
+    }
 }

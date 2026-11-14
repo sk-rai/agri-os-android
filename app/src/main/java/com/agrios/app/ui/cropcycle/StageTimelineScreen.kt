@@ -18,28 +18,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.sync.OwnershipContainment
+import com.agrios.app.core.sync.UnsupportedOwnershipAction
 import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
-import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.LanguageManager
-import com.agrios.app.data.repository.OfflineCropSyncRepository
 import com.agrios.app.data.remote.api.AgriOsApi
 import com.agrios.app.data.remote.dto.CropCycleResponseDto
 import com.agrios.app.data.remote.dto.CropStageDto
 import com.agrios.app.data.remote.dto.CropTemplateDto
 import com.agrios.app.data.remote.dto.RecommendedActivityDto
-import com.agrios.app.data.remote.dto.StageUpdateDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "StageTimeline"
@@ -220,51 +215,8 @@ fun StageTimelineScreen(
                             recommendations = recommendations,
                             stageStartDate = stage.expectedStartDate,
                             isCycleCompleted = isCycleCompleted,
-                            onAdvance = { newStatus ->
-                                scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        try {
-                                            val api = buildApi()
-                                            val stageId = stage.id ?: stage.code
-                                            val resp = api.updateStage(
-                                                cycleId = cycleId,
-                                                stageId = stageId,
-                                                request = StageUpdateDto(action = newStatus)
-                                            )
-                                            if (resp.isSuccessful) {
-                                                val updatedCycle = resp.body()?.cropCycle
-                                                if (updatedCycle != null) {
-                                                    cycle = updatedCycle
-                                                    CropCycleCache.upsert(AgriOsApp.instance, updatedCycle)
-                                                } else {
-                                                    val reloadResp = api.getCropCycle(cycleId)
-                                                    if (reloadResp.isSuccessful) {
-                                                        cycle = reloadResp.body()
-                                                        cycle?.let { CropCycleCache.upsert(AgriOsApp.instance, it) }
-                                                    }
-                                                }
-                                                actionMessage = "Updated ${stage.getDisplayName()} -> $newStatus"
-                                            } else {
-                                                actionMessage = "❌ ${resp.code()}: ${resp.message()}"
-                                            }
-                                        } catch (e: IOException) {
-                                            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                                            OfflineCropSyncRepository.enqueueStageTransition(
-                                                syncQueueDao = db.syncQueueDao(),
-                                                cropCycleId = cycleId,
-                                                stageCode = stage.code,
-                                                action = newStatus,
-                                                dependencyIds = emptyList(),
-                                                actualStartDate = if (newStatus == "START") today else null,
-                                                actualEndDate = if (newStatus == "COMPLETE") today else null
-                                            )
-                                            SyncWorker.triggerImmediateSync(AgriOsApp.instance)
-                                            actionMessage = "Saved offline; syncing ${stage.getDisplayName()} -> $newStatus"
-                                        } catch (e: Exception) {
-                                            actionMessage = "❌ ${e.message}"
-                                        }
-                                    }
-                                }
+                            onAdvance = {
+                                OwnershipContainment.block(UnsupportedOwnershipAction.STAGE_TRANSITION) { actionMessage = it }
                             },
                             onLogActivity = {
                                 onNavigateToActivityLog?.invoke(cycleId, stage.code)

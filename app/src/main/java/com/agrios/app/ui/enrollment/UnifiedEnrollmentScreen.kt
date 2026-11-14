@@ -19,6 +19,8 @@ import com.agrios.app.AgriOsApp
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.sync.SyncWorker
+import com.agrios.app.core.sync.NewQueueOrigin
+import kotlinx.coroutines.CancellationException
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.core.util.UnitConverter
@@ -70,6 +72,13 @@ fun UnifiedEnrollmentScreen(
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
+    var origin by remember(db) { mutableStateOf<NewQueueOrigin?>(null) }
+    LaunchedEffect(db) { origin = NewQueueOrigin.capture(db.authDao()) }
+    val formOrigin = origin
+    if (formOrigin == null) {
+        Text("An authenticated origin session is required. Reopen this form after signing in.")
+        return
+    }
 
     // Farmer fields
     var mobileNumber by remember { mutableStateOf("+91") }
@@ -313,9 +322,16 @@ fun UnifiedEnrollmentScreen(
                         errorMessage = null; isSaving = true
 
                         scope.launch {
+                            try {
+                            formOrigin.commit(db) {
+                            check(db.farmerDao().getByMobile(mobileNumber) == null) { "QUEUE_NEW_RECORD_ALREADY_EXISTS" }
+                            check(parcels.map { it.id }.distinct().size == parcels.size) { "QUEUE_NEW_RECORD_ALREADY_EXISTS" }
+                            for (parcel in parcels) {
+                                check(db.parcelDao().getById(parcel.id) == null) { "QUEUE_NEW_RECORD_ALREADY_EXISTS" }
+                            }
                             val now = System.currentTimeMillis()
                             val farmerId = UUID.randomUUID().toString()
-                            val authState = db.authDao().getAuthState()
+                            check(db.farmerDao().getById(farmerId) == null) { "QUEUE_NEW_RECORD_ALREADY_EXISTS" }
                             val villageId = if (isManualVillage) "manual_$selectedVillageName" else selectedVillageId
 
                             // Save farmer
@@ -326,10 +342,11 @@ fun UnifiedEnrollmentScreen(
                                 age = age.toIntOrNull(), gender = gender.ifBlank { null },
                                 aadhaarNumber = aadhaarNumber.ifBlank { null },
                                 assistanceMode = "DEALER_ASSISTED", syncStatus = SyncStatus.PENDING.name,
-                                createdAt = now, updatedAt = now, actorId = authState?.userId ?: "unknown"
+                                createdAt = now, updatedAt = now, actorId = formOrigin.owner.userId,
+                                originTenantId = formOrigin.owner.tenantId, originUserId = formOrigin.owner.userId
                             ))
                             // Queue farmer sync
-                            db.syncQueueDao().enqueue(SyncQueueEntity(
+                            db.syncQueueDao().enqueue(formOrigin.bindNewEvent(SyncQueueEntity(
                                 eventId = UUID.randomUUID().toString(), entityType = "FARMER", entityId = farmerId,
                                 operation = "CREATE", payload = Gson().toJson(mapOf(
                                     "mobile_number" to mobileNumber,
@@ -344,7 +361,7 @@ fun UnifiedEnrollmentScreen(
                                     "language_preference" to LanguageManager.getLanguage(),
                                     "assistance_mode" to "DEALER_ASSISTED"
                                 )), syncStatus = SyncStatus.PENDING.name, priority = SyncPriority.HIGH.name, createdAt = now
-                            ))
+                            )))
 
                             // Save each parcel + soil
                             for (parcel in parcels) {
@@ -360,9 +377,10 @@ fun UnifiedEnrollmentScreen(
                                     annualRent = parcel.annualRent.toDoubleOrNull(),
                                     sharePercentage = parcel.sharePercentage.toIntOrNull(),
                                     sharecropPercentage = parcel.sharecropPercentage.toIntOrNull(),
-                                    syncStatus = SyncStatus.PENDING.name, createdAt = now, updatedAt = now, actorId = authState?.userId ?: "unknown"
+                                    syncStatus = SyncStatus.PENDING.name, createdAt = now, updatedAt = now, actorId = formOrigin.owner.userId,
+                                    originTenantId = formOrigin.owner.tenantId, originUserId = formOrigin.owner.userId
                                 ))
-                                db.syncQueueDao().enqueue(SyncQueueEntity(
+                                db.syncQueueDao().enqueue(formOrigin.bindNewEvent(SyncQueueEntity(
                                     eventId = UUID.randomUUID().toString(), entityType = "PARCEL", entityId = parcelId,
                                     operation = "CREATE", payload = Gson().toJson(mapOf(
                                         "farmer_id" to farmerId,
@@ -384,20 +402,22 @@ fun UnifiedEnrollmentScreen(
                                         )
                                     )), syncStatus = SyncStatus.PENDING.name, priority = SyncPriority.HIGH.name,
                                     dependencyIds = farmerId, createdAt = now
-                                ))
+                                )))
 
                                 // Soil profile (if texture or color selected)
                                 if (parcel.soilTexture.isNotBlank() || parcel.soilColor.isNotBlank() || inferredSoilType.isNotBlank()) {
                                     val soilId = UUID.randomUUID().toString()
+                                    check(db.soilProfileDao().getById(soilId) == null) { "QUEUE_NEW_RECORD_ALREADY_EXISTS" }
                                     db.soilProfileDao().insert(SoilProfileEntity(
                                         id = soilId, parcelId = parcelId, farmerId = farmerId,
                                         soilTypeCode = inferredSoilType.ifBlank { null },
                                         soilTexture = parcel.soilTexture.ifBlank { null },
                                         soilColor = parcel.soilColor.ifBlank { null },
                                         dataSource = "INFERRED", syncStatus = SyncStatus.PENDING.name,
-                                        createdAt = now, updatedAt = now, actorId = authState?.userId ?: "unknown"
+                                        createdAt = now, updatedAt = now, actorId = formOrigin.owner.userId,
+                                        originTenantId = formOrigin.owner.tenantId, originUserId = formOrigin.owner.userId
                                     ))
-                                    db.syncQueueDao().enqueue(SyncQueueEntity(
+                                    db.syncQueueDao().enqueue(formOrigin.bindNewEvent(SyncQueueEntity(
                                         eventId = UUID.randomUUID().toString(), entityType = "SOIL_PROFILE", entityId = soilId,
                                         operation = "CREATE", payload = Gson().toJson(mapOf(
                                             "parcel_id" to parcelId, "farmer_id" to farmerId,
@@ -407,13 +427,23 @@ fun UnifiedEnrollmentScreen(
                                             "data_source" to "INFERRED"
                                         )), syncStatus = SyncStatus.PENDING.name, priority = SyncPriority.MEDIUM.name,
                                         dependencyIds = parcelId, createdAt = now
-                                    ))
+                                    )))
                                 }
+                            }
                             }
 
                             // Auto-trigger sync
-                            SyncWorker.triggerImmediateSync(AgriOsApp.instance)
-                            isSaving = false; isFormLocked = true; saveSuccess = true
+                            isFormLocked = true; saveSuccess = true
+                            try {
+                                SyncWorker.triggerImmediateSync(AgriOsApp.instance, formOrigin)
+                            } catch (e: CancellationException) { throw e
+                            } catch (_: Exception) {
+                                errorMessage = "Saved locally. Sync scheduling failed; do not enroll again."
+                            }
+                            } catch (e: CancellationException) { throw e
+                            } catch (_: Exception) {
+                                errorMessage = "Enrollment was not completed. Reopen the form with the original account; do not resubmit automatically."
+                            } finally { isSaving = false }
                         }
                     },
                     enabled = !isSaving,

@@ -1,13 +1,15 @@
 package com.agrios.app.core.network
 
-import android.util.Log
+import com.agrios.app.core.auth.SessionExpiryCoordinator
 import com.agrios.app.data.local.dao.AuthDao
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.Response
+import okhttp3.Protocol
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 /**
- * OkHttp interceptor that auto-injects auth headers on every request.
+ * Backend-scoped header injection and application-owned, bounded 401 recovery.
  * Extracts JWT, tenant_id, and user_id from local auth state.
  *
  * Required headers for backend:
@@ -15,13 +17,11 @@ import okhttp3.Response
  * - X-Tenant-ID: <tenant_id> (REQUIRED — backend returns 400 if missing/empty)
  * - X-Actor-ID: <user_id>
  */
-class AuthInterceptor(private val authDao: AuthDao) : Interceptor {
+class AuthInterceptor(private val authDao: AuthDao,
+    private val expiry: SessionExpiryCoordinator? = SessionExpiryCoordinator.registeredFor(authDao)) : Interceptor {
 
     companion object {
-        private const val TAG = "AuthInterceptor"
-        // Default tenant for single-tenant pilot deployment.
-        // Backend requires a non-empty X-Tenant-ID on every request.
-        // If auth response didn't include tenant_id, use this fallback.
+        // Legacy callers still reference this value; it is NOT an auth-header fallback.
         const val DEFAULT_TENANT_ID = "default"
     }
 
@@ -30,30 +30,41 @@ class AuthInterceptor(private val authDao: AuthDao) : Interceptor {
 
         // Skip auth injection only for login/device-auth endpoints. Authenticated
         // bootstrap endpoints such as /auth/mode-bootstrap still need headers.
-        val path = originalRequest.url.encodedPath
-        if (path.contains("/auth/otp/") || path.endsWith("/auth/device")) {
+        if (!SessionRoutePolicy.backendRequest(originalRequest) || SessionRoutePolicy.authentication(originalRequest)) {
             return chain.proceed(originalRequest)
         }
 
-        val authState = runBlocking { authDao.getAuthState() }
+        val protected = SessionRoutePolicy.protected(originalRequest)
+        val selected = originalRequest.tag(com.agrios.app.core.sync.QueueDispatchLease::class.java)
+        if (selected != null && (expiry !== selected.coordinator ||
+                !runBlocking { selected.coordinator.isCurrentLease(selected.selected) })) {
+            return Response.Builder().request(originalRequest).protocol(Protocol.HTTP_1_1).code(409)
+                .message("QUEUE_SESSION_CHANGED").body("".toResponseBody()).build()
+        }
+        val lease = selected?.selected ?: runBlocking { expiry?.requestLease() }
+        val authState = runBlocking { lease?.state ?: if (expiry == null) authDao.getAuthState() else null }
+            ?.takeIf { it.isAuthenticated && !it.reauthRequired && !it.jwt.isNullOrBlank() &&
+                !it.userId.isNullOrBlank() && !it.tenantId.isNullOrBlank() }
 
-        val request = if (authState?.jwt != null) {
-            val tenantId = AndroidDynamicTestContext.effectiveTenantId(authState, DEFAULT_TENANT_ID)
-            val actorId = authState.userId ?: ""
-
-            if (authState.tenantId.isNullOrBlank()) {
-                Log.w(TAG, "tenant_id is null/empty in auth state — using fallback '$DEFAULT_TENANT_ID'. Backend may have not returned tenant_id during login.")
-            }
-
-            originalRequest.newBuilder()
-                .addHeader("Authorization", "Bearer ${authState.jwt}")
-                .addHeader("X-Tenant-ID", tenantId)
-                .addHeader("X-Actor-ID", actorId)
-                .build()
-        } else {
-            originalRequest
+        if (protected && expiry != null && authState == null) {
+            runBlocking { expiry.requireLogin() }
+            return Response.Builder().request(originalRequest).protocol(Protocol.HTTP_1_1).code(401)
+                .message("SESSION_REQUIRED").body("".toResponseBody()).build()
         }
 
-        return chain.proceed(request)
+        val request = if (authState?.jwt != null) {
+            originalRequest.newBuilder()
+                .header("Authorization", "Bearer ${authState.jwt}")
+                .header("X-Tenant-ID", authState.tenantId!!)
+                .header("X-Actor-ID", authState.userId!!)
+                .build()
+        } else {
+            originalRequest.newBuilder().removeHeader("Authorization").removeHeader("X-Tenant-ID").removeHeader("X-Actor-ID").build()
+        }
+
+        // Exactly one proceed; no refresh, retry, anonymous or tenant-scope fallback.
+        val response = chain.proceed(request)
+        if (protected && lease != null && response.code == 401) runBlocking { expiry?.unauthorized(lease) }
+        return response
     }
 }

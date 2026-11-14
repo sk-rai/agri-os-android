@@ -2,6 +2,7 @@ package com.agrios.app.data.repository
 
 import android.util.Log
 import com.agrios.app.core.geo.GeoJson
+import com.agrios.app.core.sync.QueueOwner
 import com.agrios.app.data.local.dao.SyncQueueDao
 import com.agrios.app.data.local.entity.SyncPriority
 import com.agrios.app.data.local.entity.SyncQueueEntity
@@ -67,8 +68,10 @@ object GeometryRepository {
         parcelId: String,
         result: GeometryCaptureResult,
         dependencyIds: String? = parcelId,
-        gson: Gson = Gson()
+        gson: Gson = Gson(),
+        originOwner: QueueOwner? = null
     ) {
+        checkNotNull(originOwner) { "QUEUE_SOURCE_OWNER_REQUIRED" }
         val payload = gson.toJson(
             mapOf(
                 "geometry_source" to result.geometrySource,
@@ -86,7 +89,9 @@ object GeometryRepository {
                 syncStatus = SyncStatus.PENDING.name,
                 priority = SyncPriority.HIGH.name,
                 dependencyIds = dependencyIds,
-                createdAt = System.currentTimeMillis()
+                createdAt = System.currentTimeMillis(),
+                originTenantId = originOwner.tenantId,
+                originUserId = originOwner.userId
             )
         )
     }

@@ -4,8 +4,10 @@ import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.Button
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -15,6 +17,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.agrios.app.AgriOsApp
+import com.agrios.app.BuildConfig
+import com.agrios.app.core.auth.RecoveryPhase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.agrios.app.core.network.AndroidDynamicTestContext
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
@@ -67,29 +73,63 @@ object Routes {
 fun AppNavigation() {
     val navController = rememberNavController()
     val db = AgriOsApp.instance.database
+    val expiry = AgriOsApp.instance.sessionExpiry
+    val recovery by expiry.state.collectAsState()
 
-    // Determine start destination
-    var startDestination by remember { mutableStateOf<String?>(null) }
+    var startup by remember { mutableStateOf<StartupResult?>(null) }
+    var startupStage by remember { mutableStateOf(StartupStage.SESSION_RESTORE) }
+    var startupAttempt by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        startDestination = when {
-            // First time: language setup
-            !LanguageManager.isSetupDone() -> Routes.LANGUAGE_SETUP
-            // Not authenticated: login
-            db.authDao().getAuthState()?.isAuthenticated != true -> Routes.AUTH
-            // No master data cached: download
-            db.geographyCacheDao().getStateCount() == 0 -> Routes.MASTER_DATA_LOADING
-            // All good: home
-            else -> Routes.HOME
-        }
+    LaunchedEffect(startupAttempt) {
+        startup = null
+        val result = resolveStartup(
+            restoreSession = { withContext(Dispatchers.IO) {
+                expiry.restore()
+                expiry.state.value.phase != RecoveryPhase.CLEAR_FAILED
+            } },
+            hasActiveSession = { withContext(Dispatchers.IO) { expiry.requestState() != null } },
+            languageConfigured = { withContext(Dispatchers.IO) { LanguageManager.isSetupDone() } },
+            cachedStateCount = { withContext(Dispatchers.IO) { db.geographyCacheDao().getStateCount() } },
+            onStage = {
+                startupStage = it
+                if (BuildConfig.DEBUG) android.util.Log.d("AppStartup", "STARTUP_${it.name}")
+            }
+        )
+        startup = result
+        if (BuildConfig.DEBUG) android.util.Log.d("AppStartup", when (result) {
+            is StartupResult.Ready -> "STARTUP_READY_${result.destination.name}"
+            is StartupResult.Failed -> "STARTUP_FAILED_${result.stage.name}_${result.failure.name}"
+        })
     }
 
-    if (startDestination == null) return // Loading
+    if (recovery.phase == RecoveryPhase.CLEAR_FAILED) {
+        StartupStatusScreen("Sign-in is blocked because local session storage could not be secured.")
+        return
+    }
+    val startDestination = when ((startup as? StartupResult.Ready)?.destination) {
+        StartupDestination.LANGUAGE_SETUP -> Routes.LANGUAGE_SETUP
+        StartupDestination.AUTH -> Routes.AUTH
+        StartupDestination.MASTER_DATA_LOADING -> Routes.MASTER_DATA_LOADING
+        StartupDestination.HOME -> Routes.HOME
+        null -> null
+    }
+    if (startDestination == null) {
+        val failed = startup as? StartupResult.Failed
+        if (failed == null) {
+            StartupStatusScreen("Starting Agri-OS...", loading = true,
+                detail = if (BuildConfig.DEBUG) "Startup stage: ${startupStage.name}" else null)
+        } else {
+            StartupStatusScreen("App startup could not complete. Your local work has not been cleared.",
+                detail = if (BuildConfig.DEBUG) "${failed.stage.name}: ${failed.failure.name}" else null,
+                onRetry = { startup = null; startupStage = StartupStage.SESSION_RESTORE; startupAttempt++ })
+        }
+        return
+    }
 
     NavHost(
         modifier = Modifier.semantics { testTagsAsResourceId = true },
         navController = navController,
-        startDestination = startDestination!!
+        startDestination = startDestination
     ) {
         composable(Routes.LANGUAGE_SETUP) {
             LanguageSetupScreen(
@@ -106,11 +146,8 @@ fun AppNavigation() {
             val authViewModel: AuthViewModel = viewModel()
             AuthScreen(
                 viewModel = authViewModel,
-                onAuthSuccess = {
-                    navController.navigate(Routes.MASTER_DATA_LOADING) {
-                        popUpTo(Routes.AUTH) { inclusive = true }
-                    }
-                }
+                // The application coordinator owns both OTP and device-auth success navigation.
+                onAuthSuccess = {}
             )
         }
 
@@ -387,12 +424,34 @@ fun AppNavigation() {
             }
         }
         composable("${Routes.ASSISTED_READ}/{farmerId}") { entry ->
-            AssignedFarmerReadScreen(entry.arguments?.getString("farmerId").orEmpty()) { navController.popBackStack() }
+            val farmerId = entry.arguments?.getString("farmerId").orEmpty()
+            AssignedFarmerReadScreen(
+                farmerId = farmerId,
+                onBack = { navController.popBackStack() },
+                onRegisterParcel = {
+                    navController.navigate("${Routes.PARCEL_REGISTER}?farmerId=${Uri.encode(farmerId)}")
+                },
+                onStartCycle = { parcelId, projectId ->
+                    navController.navigate("${Routes.CROP_CYCLE_CREATE}?farmerId=${Uri.encode(farmerId)}&parcelId=${Uri.encode(parcelId)}&projectId=${Uri.encode(projectId)}")
+                }
+            )
         }
 
-        composable(Routes.CROP_CYCLE_CREATE) {
+        composable(
+            "${Routes.CROP_CYCLE_CREATE}?farmerId={farmerId}&parcelId={parcelId}&projectId={projectId}",
+            arguments = listOf("farmerId", "parcelId", "projectId").map { name ->
+                androidx.navigation.navArgument(name) { defaultValue = "" }
+            }
+        ) { entry ->
+            val selectedContext = mapOf(
+                "farmer_id" to entry.arguments?.getString("farmerId").orEmpty(),
+                "parcel_id" to entry.arguments?.getString("parcelId").orEmpty(),
+                "project_id" to entry.arguments?.getString("projectId").orEmpty()
+            ).filterValues { it.isNotBlank() }
             DynamicFormScreen(
                 formId = "crop_cycle_create",
+                projectId = selectedContext["project_id"],
+                contextValues = selectedContext,
                 onBack = { navController.popBackStack() },
                 onSuccess = {
                     // Navigate to stage timeline if we have a cycle ID
@@ -423,6 +482,25 @@ fun AppNavigation() {
                     navController.navigate(Routes.STAGE_ACTIVITIES + "?cycleId=${Uri.encode(cId)}&stageCode=${Uri.encode(stageCode)}")
                 }
             )
+        }
+    }
+    SessionRecoveryNavigation(expiry, navController)
+}
+
+@Composable
+private fun StartupStatusScreen(message: String, loading: Boolean = false,
+    detail: String? = null, onRetry: (() -> Unit)? = null) {
+    Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center) {
+        if (loading) {
+            CircularProgressIndicator()
+            Spacer(Modifier.height(16.dp))
+        }
+        Text(message)
+        detail?.let { Spacer(Modifier.height(12.dp)); Text(it) }
+        onRetry?.let { retry ->
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = retry) { Text("Retry startup") }
         }
     }
 }

@@ -28,6 +28,11 @@ data class SyncQueueEntity(
     @ColumnInfo(name = "last_error") val lastError: String? = null,
     @ColumnInfo(name = "version") val version: Int = 1,
     @ColumnInfo(name = "created_at") val createdAt: Long, // epoch millis
+    @ColumnInfo(name = "origin_tenant_id") val originTenantId: String? = null,
+    @ColumnInfo(name = "origin_user_id") val originUserId: String? = null,
+    // Monotonic one-attempt hold. No restart/reauth/repair may clear it.
+    @ColumnInfo(name = "dispatch_reserved", defaultValue = "0") val dispatchReserved: Boolean = false,
+    @ColumnInfo(name = "dispatch_claim_id") val dispatchClaimId: String? = null,
 )
 
 enum class SyncStatus {

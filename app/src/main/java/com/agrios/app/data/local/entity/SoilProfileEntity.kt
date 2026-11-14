@@ -41,5 +41,7 @@ data class SoilProfileEntity(
     @ColumnInfo(name = "sync_status") val syncStatus: String = SyncStatus.PENDING.name,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
-    @ColumnInfo(name = "actor_id") val actorId: String
-)
+    @ColumnInfo(name = "actor_id") val actorId: String,
+    @ColumnInfo(name = "origin_tenant_id") override val originTenantId: String? = null,
+    @ColumnInfo(name = "origin_user_id") override val originUserId: String? = null,
+) : LocallyOwnedRecord

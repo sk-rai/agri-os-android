@@ -258,7 +258,8 @@ interface AgriOsApi {
 
     // --- Sync ---
     @POST("sync/events")
-    suspend fun syncEvents(@Body request: SyncBatchRequestDto): Response<SyncBatchResponseDto>
+    suspend fun syncEvents(@Body request: SyncBatchRequestDto,
+        @Tag selected: com.agrios.app.core.sync.QueueDispatchLease? = null): Response<SyncBatchResponseDto>
 
     @GET("sync/conflicts")
     suspend fun getConflicts(): Response<List<SyncConflictDto>>
@@ -300,7 +301,8 @@ interface AgriOsApi {
     suspend fun getCropCycles(
         @Query("parcel_id") parcelId: String? = null,
         @Query("farmer_id") farmerId: String? = null,
-        @Query("status") status: String? = null
+        @Query("status") status: String? = null,
+        @Tag selected: com.agrios.app.core.sync.QueueDispatchLease? = null
     ): Response<List<CropCycleResponseDto>>
 
     @GET("crop-cycles/eligible-parcels")

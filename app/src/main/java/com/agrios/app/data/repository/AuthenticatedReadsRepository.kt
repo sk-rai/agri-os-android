@@ -117,7 +117,7 @@ data class ReadResult(val route: String, val status: Int?, val durationMs: Long,
 }
 
 fun readFailureCopy(status: Int?): String = when (status) {
-    401 -> "Your session has expired. Sign in again from Settings."
+    401 -> "Your session has expired. Sign in again."
     403 -> "Access denied. This account cannot view this information."
     404 -> "This information is unavailable or not shared with this account."
     200 -> "The server response could not be read."

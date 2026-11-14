@@ -31,4 +31,6 @@ data class FarmerEntity(
     @ColumnInfo(name = "actor_id") val actorId: String,
     @ColumnInfo(name = "gps_lat") val gpsLat: Double? = null,
     @ColumnInfo(name = "gps_lng") val gpsLng: Double? = null,
-)
+    @ColumnInfo(name = "origin_tenant_id") override val originTenantId: String? = null,
+    @ColumnInfo(name = "origin_user_id") override val originUserId: String? = null,
+) : LocallyOwnedRecord

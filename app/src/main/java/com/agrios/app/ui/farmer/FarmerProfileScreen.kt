@@ -9,20 +9,20 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.agrios.app.core.sync.NewQueueOrigin
+import com.agrios.app.core.sync.OwnershipContainment
+import com.agrios.app.core.sync.UnsupportedOwnershipAction
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
-import com.agrios.app.core.geo.GeoJson
 import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.local.entity.*
-import com.agrios.app.data.repository.GeometryRepository
-import com.agrios.app.ui.geo.GpsPointCaptureWidget
-import com.agrios.app.ui.geo.GpsPolygonWalkingWidget
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -39,10 +39,29 @@ fun FarmerProfileScreen(
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
+    var origin by remember(db, farmerId) { mutableStateOf<NewQueueOrigin?>(null) }
+    LaunchedEffect(db, farmerId) { origin = NewQueueOrigin.capture(db.authDao()) }
+    val formOrigin = origin
+    if (formOrigin == null) {
+        Text("An authenticated origin session is required. Reopen this screen after signing in.")
+        return
+    }
 
-    var farmer by remember { mutableStateOf<FarmerEntity?>(null) }
-    val parcels by db.parcelDao().observeByFarmer(farmerId).collectAsState(initial = emptyList())
-    val soilProfiles by db.soilProfileDao().observeByFarmer(farmerId).collectAsState(initial = emptyList())
+    val authState by db.authDao().observeAuthState().collectAsState(initial = null)
+    val epoch by formOrigin.sessionEpoch.collectAsState()
+    if (!formOrigin.matchesObservedSession(authState, epoch)) {
+        Text("Profile session is unavailable or has changed. Reopen this screen after signing in.")
+        return
+    }
+    val farmer by remember(db, farmerId, formOrigin.owner) {
+        db.farmerDao().observeOwnedById(farmerId, formOrigin.owner.tenantId, formOrigin.owner.userId)
+    }.collectAsState(initial = null)
+    val parcels by remember(db, farmerId, formOrigin.owner) {
+        db.parcelDao().observeOwnedByFarmer(farmerId, formOrigin.owner.tenantId, formOrigin.owner.userId)
+    }.collectAsState(initial = emptyList())
+    val soilProfiles by remember(db, farmerId, formOrigin.owner) {
+        db.soilProfileDao().observeOwnedByFarmer(farmerId, formOrigin.owner.tenantId, formOrigin.owner.userId)
+    }.collectAsState(initial = emptyList())
 
     var isEditing by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf("") }
@@ -54,14 +73,9 @@ fun FarmerProfileScreen(
     var editingParcelId by remember { mutableStateOf<String?>(null) }
     var editSurveyNumber by remember { mutableStateOf("") }
 
-    // Reusable geometry capture state for existing parcels
-    var editingGeometryParcelId by remember { mutableStateOf<String?>(null) }
-    var geometryMode by remember { mutableStateOf("PIN_DROP") }
-    var geometryGeoJson by remember { mutableStateOf<String?>(null) }
     var geometryMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(farmerId) {
-        farmer = db.farmerDao().getById(farmerId)
+    LaunchedEffect(farmer?.id) {
         farmer?.let {
             editName = it.displayName ?: ""
             editAadhaar = it.aadhaarNumber ?: ""
@@ -94,7 +108,7 @@ fun FarmerProfileScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (farmer == null) {
-                Text(LanguageManager.localize("Loading...", "लोड हो रहा है..."))
+                Text(OwnershipContainment.SOURCE_UNAVAILABLE)
                 return@Column
             }
 
@@ -168,32 +182,57 @@ fun FarmerProfileScreen(
                             onClick = {
                                 isSaving = true
                                 scope.launch {
-                                    db.farmerDao().updateProfile(
-                                        id = farmerId,
-                                        name = editName.ifBlank { null },
-                                        aadhaar = editAadhaar.ifBlank { null },
-                                        updatedAt = System.currentTimeMillis()
-                                    )
-                                    // Queue sync event for the update
-                                    val payload = Gson().toJson(mapOf(
-                                        "display_name" to editName.ifBlank { null },
-                                        "aadhaar_number" to editAadhaar.ifBlank { null }
-                                    ))
-                                    db.syncQueueDao().enqueue(SyncQueueEntity(
-                                        eventId = UUID.randomUUID().toString(),
-                                        entityType = "FARMER",
-                                        entityId = farmerId,
-                                        operation = "UPDATE",
-                                        payload = payload,
-                                        syncStatus = SyncStatus.PENDING.name,
-                                        priority = SyncPriority.MEDIUM.name,
-                                        createdAt = System.currentTimeMillis()
-                                    ))
-                                    SyncWorker.triggerImmediateSync(AgriOsApp.instance)
-                                    farmer = db.farmerDao().getById(farmerId)
-                                    isEditing = false
-                                    isSaving = false
-                                    saveMessage = LanguageManager.localize("✅ Saved", "✅ सहेजा")
+                                    try {
+                                        try {
+                                            if (!formOrigin.isCurrentSession()) return@launch
+                                            formOrigin.commit(db) {
+                                                formOrigin.requireSource(db.farmerDao().getById(farmerId))
+                                                db.farmerDao().updateProfile(
+                                                    id = farmerId,
+                                                    name = editName.ifBlank { null },
+                                                    aadhaar = editAadhaar.ifBlank { null },
+                                                    updatedAt = System.currentTimeMillis()
+                                                )
+                                                // Queue sync event for the update
+                                                val payload = Gson().toJson(mapOf(
+                                                    "display_name" to editName.ifBlank { null },
+                                                    "aadhaar_number" to editAadhaar.ifBlank { null }
+                                                ))
+                                                db.syncQueueDao().enqueue(formOrigin.bindNewEvent(SyncQueueEntity(
+                                                    eventId = UUID.randomUUID().toString(),
+                                                    entityType = "FARMER",
+                                                    entityId = farmerId,
+                                                    operation = "UPDATE",
+                                                    payload = payload,
+                                                    syncStatus = SyncStatus.PENDING.name,
+                                                    priority = SyncPriority.MEDIUM.name,
+                                                    createdAt = System.currentTimeMillis()
+                                                )))
+                                            }
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (_: Exception) {
+                                            formOrigin.publishIfCurrent {
+                                                saveMessage = "Profile save blocked: original source ownership is not established. No automatic retry."
+                                            }
+                                            return@launch
+                                        }
+
+                                        // A committed edit must attempt scheduling before any suspending feedback check.
+                                        val scheduled = try {
+                                            SyncWorker.triggerImmediateSync(AgriOsApp.instance, formOrigin)
+                                            true
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (_: Exception) {
+                                            false
+                                        }
+                                        formOrigin.publishIfCurrent {
+                                            isEditing = false
+                                            saveMessage = if (scheduled) LanguageManager.localize("✅ Saved", "✅ सहेजा")
+                                                else "Saved locally. Sync scheduling failed; do not submit again."
+                                        }
+                                    } finally { isSaving = false }
                                 }
                             },
                             enabled = !isSaving,
@@ -265,12 +304,25 @@ fun FarmerProfileScreen(
                                     Spacer(Modifier.width(8.dp))
                                     Button(onClick = {
                                         scope.launch {
-                                            db.parcelDao().updateSurveyNumber(
-                                                parcel.id,
-                                                editSurveyNumber.ifBlank { null },
-                                                System.currentTimeMillis()
-                                            )
-                                            editingParcelId = null
+                                            try {
+                                                if (!formOrigin.isCurrentSession()) return@launch
+                                                formOrigin.commit(db) {
+                                                    val source = db.parcelDao().getById(parcel.id)
+                                                    formOrigin.requireSource(source)
+                                                    check(source?.farmerId == farmerId) { "QUEUE_SOURCE_RELATION_MISMATCH" }
+                                                    check(db.parcelDao().updateOwnedSurveyNumber(
+                                                        parcel.id, formOrigin.owner.tenantId, formOrigin.owner.userId,
+                                                        editSurveyNumber.ifBlank { null }, System.currentTimeMillis()
+                                                    ) == 1) { "LOCAL_SOURCE_UPDATE_NOT_CONFIRMED" }
+                                                }
+                                                formOrigin.publishIfCurrent {
+                                                    editingParcelId = null
+                                                    saveMessage = "Survey number saved on this device only. No synchronization was queued."
+                                                }
+                                            } catch (e: CancellationException) { throw e
+                                            } catch (_: Exception) {
+                                                formOrigin.publishIfCurrent { saveMessage = OwnershipContainment.SOURCE_UNAVAILABLE }
+                                            }
                                         }
                                     }) { Text("✓") }
                                 }
@@ -319,110 +371,11 @@ fun FarmerProfileScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
-                            if (editingGeometryParcelId == parcel.id) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    FilterChip(
-                                        selected = geometryMode == "PIN_DROP",
-                                        onClick = {
-                                            geometryMode = "PIN_DROP"
-                                            geometryGeoJson = null
-                                            geometryMessage = null
-                                        },
-                                        label = { Text(LanguageManager.localize("Point", "?????")) }
-                                    )
-                                    FilterChip(
-                                        selected = geometryMode == "GPS_WALK",
-                                        onClick = {
-                                            geometryMode = "GPS_WALK"
-                                            geometryGeoJson = null
-                                            geometryMessage = null
-                                        },
-                                        label = { Text(LanguageManager.localize("Walk", "????")) }
-                                    )
-                                }
-
-                                if (geometryMode == "GPS_WALK") {
-                                    GpsPolygonWalkingWidget(
-                                        label = LanguageManager.localize("Parcel boundary", "??? ?? ????"),
-                                        value = geometryGeoJson,
-                                        enabled = true,
-                                        draftKey = "parcel:${parcel.id}:geometry",
-                                        onValueChange = { geometryGeoJson = it }
-                                    )
-                                } else {
-                                    GpsPointCaptureWidget(
-                                        label = LanguageManager.localize("Parcel GPS point", "??? GPS ?????"),
-                                        value = geometryGeoJson,
-                                        enabled = true,
-                                        draftKey = "parcel:${parcel.id}:geometry",
-                                        onValueChange = { geometryGeoJson = it }
-                                    )
-                                }
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(
-                                        onClick = {
-                                            val capturedGeometry = geometryGeoJson
-                                            if (capturedGeometry.isNullOrBlank()) {
-                                                geometryMessage = LanguageManager.localize(
-                                                    "Capture GPS before saving",
-                                                    "?????? ?? ???? GPS ?????? ????"
-                                                )
-                                                return@Button
-                                            }
-
-                                            scope.launch {
-                                                val point = GeoJson.parsePoint(capturedGeometry)
-                                                db.parcelDao().update(
-                                                    parcel.copy(
-                                                        geometrySource = geometryMode,
-                                                        gpsLat = point?.lat,
-                                                        gpsLng = point?.lng,
-                                                        updatedAt = System.currentTimeMillis()
-                                                    )
-                                                )
-                                                GeometryRepository.enqueueParcelGeometry(
-                                                    syncQueueDao = db.syncQueueDao(),
-                                                    parcelId = parcel.id,
-                                                    result = GeometryRepository.resultForSource(
-                                                        geometrySource = geometryMode,
-                                                        geoJson = capturedGeometry
-                                                    ),
-                                                    dependencyIds = parcel.id
-                                                )
-                                                SyncWorker.triggerImmediateSync(AgriOsApp.instance)
-                                                editingGeometryParcelId = null
-                                                geometryGeoJson = null
-                                                geometryMessage = LanguageManager.localize(
-                                                    "Geometry queued for sync",
-                                                    "GPS ???? ?? ??? ???? ??? ??"
-                                                )
-                                            }
-                                        }
-                                    ) {
-                                        Text(LanguageManager.localize("Save GPS", "GPS ??????"))
-                                    }
-                                    OutlinedButton(
-                                        onClick = {
-                                            editingGeometryParcelId = null
-                                            geometryGeoJson = null
-                                            geometryMessage = null
-                                        }
-                                    ) {
-                                        Text(LanguageManager.localize("Cancel", "???? ????"))
-                                    }
-                                }
-                            } else {
-                                OutlinedButton(
-                                    onClick = {
-                                        editingGeometryParcelId = parcel.id
-                                        geometryMode = parcel.geometrySource?.takeIf { it == "GPS_WALK" } ?: "PIN_DROP"
-                                        geometryGeoJson = null
-                                        geometryMessage = null
-                                    }
-                                ) {
-                                    Text(LanguageManager.localize("Update GPS", "GPS ????? ????"))
-                                }
+                            // No GPS widget/draft is opened while this path is unsupported.
+                            OutlinedButton(onClick = {
+                                OwnershipContainment.block(UnsupportedOwnershipAction.PROFILE_GPS) { geometryMessage = it }
+                            }) {
+                                Text("Update GPS")
                             }
 
                             if (geometryMessage != null) {

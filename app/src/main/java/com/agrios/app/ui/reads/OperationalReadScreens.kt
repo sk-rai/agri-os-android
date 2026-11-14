@@ -223,13 +223,34 @@ fun AssignedWorkReadScreen(projectId: String?, onBack: () -> Unit, onFarmer: (St
 }
 
 @Composable
-fun AssignedFarmerReadScreen(farmerId: String, onBack: () -> Unit) {
+fun AssignedFarmerReadScreen(
+    farmerId: String,
+    onBack: () -> Unit,
+    onRegisterParcel: () -> Unit,
+    onStartCycle: (parcelId: String, projectId: String) -> Unit = { _, _ -> }
+) {
     val repository = readRepository()
     var result by remember { mutableStateOf<ReadResult?>(null) }
     var tenant by remember { mutableStateOf("") }
+    var cycleParcels by remember(farmerId) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     LaunchedEffect(farmerId) {
         tenant = withContext(Dispatchers.IO) { AgriOsApp.instance.database.authDao().getAuthState()?.tenantId.orEmpty() }
         result = repository.assignedFarmer(farmerId)
+        val root = result?.value?.takeIf { it.isJsonObject }?.asJsonObject
+        if (result?.successful == true && root?.stringValue("tenant_id") == tenant &&
+            root.getAsJsonObject("farmer").stringValue("id") == farmerId) {
+            val choices = mutableListOf<Pair<String, String>>()
+            root.getAsJsonArray("project_enrollments")?.forEach { element ->
+                val enrollment = element.asJsonObject
+                val project = enrollment.stringValue("project_id")
+                if (enrollment.stringValue("status") == "ACTIVE" && !project.isNullOrBlank()) {
+                    availabilityRows(repository.eligibility(farmerId, "KHARIF", project), farmerId)
+                        ?.filter { it.get("eligible")?.asBoolean == true }
+                        ?.forEach { row -> row.stringValue("parcel_id")?.let { choices.add(it to project) } }
+                }
+            }
+            cycleParcels = choices.distinct()
+        }
     }
     ReadPage("Assisted farmer", onBack) {
         ReadStatus(result)
@@ -246,7 +267,21 @@ fun AssignedFarmerReadScreen(farmerId: String, onBack: () -> Unit) {
                     Text("Project: ${enrollment.stringValue("project_id").orEmpty()}")
                     Text("Enrollment: ${enrollment.stringValue("status").orEmpty()}")
                 }
-                Text("Read-only assisted farmer context. No profile or assignment changes.")
+                Text("Farmer profile and assignment details are read-only.")
+                Button(
+                    onClick = onRegisterParcel,
+                    modifier = Modifier.testTag("assisted_register_parcel_$farmerId")
+                ) {
+                    Text("Register parcel for this farmer")
+                }
+                cycleParcels.forEach { (parcelId, projectId) ->
+                    Text("Parcel: $parcelId")
+                    Text("Project: $projectId")
+                    OutlinedButton(onClick = { onStartCycle(parcelId, projectId) },
+                        modifier = Modifier.testTag("assisted_start_cycle_$parcelId")) {
+                        Text("Start KHARIF crop cycle")
+                    }
+                }
             }
         }
     }

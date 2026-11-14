@@ -43,6 +43,11 @@ fun AuthScreen(
 
         Spacer(modifier = Modifier.height(48.dp))
 
+        if (uiState.reauthRequired) {
+            Text("Your session has expired. Sign in again.")
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
         when (uiState.step) {
             AuthStep.MOBILE_INPUT -> MobileInputSection(
                 mobile = uiState.mobileNumber,

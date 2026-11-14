@@ -1,5 +1,7 @@
 package com.agrios.app.core.sync
 
+import com.agrios.app.core.auth.SessionExpiryCoordinator
+import com.agrios.app.core.auth.SessionLease
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -16,13 +18,10 @@ import com.agrios.app.data.repository.GeometryRepository
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.util.UUID
-import kotlin.math.min
-import kotlin.math.pow
 
 /**
  * SyncManager: Orchestrates offline queue processing.
- * - Exponential backoff (30s → 60s → 2min → ... → 24h cap)
- * - Max 10 retries then FAILED (dead letter)
+ * - Ambiguous submissions retain their claim and are not automatically retried.
  * - Dependency ordering (parent must sync before child)
  * - Single-flight in this process; stable IDs retained for uncertain replay.
  * - Server exactly-once materialization is a separate backend responsibility.
@@ -34,13 +33,11 @@ class SyncManager(
     private val singleFlight: QueueSingleFlight = QueueSingleFlight.applicationQueue,
     private val diagnostic: (SyncDiagnostic) -> Unit = { android.util.Log.d("SyncManager", it.toString()) },
     private val clock: () -> Long = System::currentTimeMillis,
-    private val retryJitter: () -> Long = { (0..5000).random().toLong() }
+    private val authDao: com.agrios.app.data.local.dao.AuthDao? = null
 ) {
     companion object {
         private const val TAG = "SyncManager"
         private const val BATCH_SIZE = 10
-        private const val INITIAL_BACKOFF_MS = 30_000L // 30 seconds
-        private const val MAX_BACKOFF_MS = 86_400_000L // 24 hours
     }
 
     /**
@@ -60,34 +57,75 @@ class SyncManager(
         processQueueLocked(true)
     }
 
-    private suspend fun processQueueLocked(drainFollowUps: Boolean): SyncResult {
+    /** The tap's exact lease governs admission, including recovery and failed-row repair. */
+    internal suspend fun processManualQueue(admission: QueueDispatchLease): SyncResult? = processBoundQueue(admission)
+
+    internal suspend fun processBoundQueue(
+        admission: QueueDispatchLease, mayStart: suspend () -> Boolean = { true },
+    ): SyncResult? {
+        val owner = authDao?.let { SessionExpiryCoordinator.registeredFor(it) } ?: return null
+        if (owner !== admission.coordinator) return null
+        return singleFlight.runAdmitted(syncQueueDao, admit = { needsRecovery ->
+            owner.withCurrentLease(admission.selected) {
+                if (!mayStart()) false else {
+                    if (needsRecovery) syncQueueDao.recoverInterruptedSubmissions()
+                    true
+                }
+            } == true
+        }) {
+            owner.withCurrentLease(admission.selected) { fixAndRetryFailedItemsLocked() }
+                ?: return@runAdmitted SyncResult(0, 0, 0)
+            processQueueLocked(true, admission)
+        }
+    }
+
+    private suspend fun processQueueLocked(drainFollowUps: Boolean, manualAdmission: QueueDispatchLease? = null): SyncResult {
+        val sessionOwner = authDao?.let { SessionExpiryCoordinator.registeredFor(it) }
+            ?: return SyncResult(0, 0, 0)
+        if (manualAdmission != null && sessionOwner !== manualAdmission.coordinator) return SyncResult(0, 0, 0)
+        val manualLease = manualAdmission?.selected
+        val lease = manualLease ?: sessionOwner.requestLease() ?: return SyncResult(0, 0, 0)
+        val eligible = if (manualLease == null) selectEligible(lease) else
+            sessionOwner.withCurrentLease(lease) { selectEligible(lease) } ?: return SyncResult(0, 0, 0)
+        if (eligible.isEmpty()) return SyncResult(0, 0, 0)
+
+        val geometryItems = eligible.filter { it.entityType == GeometryRepository.ENTITY_TYPE_PARCEL_GEOMETRY }
+        val syncEventItems = eligible.filterNot { it.entityType == GeometryRepository.ENTITY_TYPE_PARCEL_GEOMETRY }
+        val geometryResult = if (manualLease == null) processParcelGeometryItems(geometryItems) else
+            sessionOwner.withCurrentLease(lease) { processParcelGeometryItems(geometryItems) }
+                ?: return SyncResult(0, 0, 0)
+
+        if (syncEventItems.isEmpty()) return geometryResult
+
+        return dispatchSelected(drainFollowUps, manualAdmission, sessionOwner, lease, geometryResult, syncEventItems)
+    }
+
+    private suspend fun selectEligible(lease: SessionLease): List<SyncQueueEntity> {
         val now = clock()
-        var pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE)
+        var pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE).filter {
+            it.originTenantId == lease.state.tenantId && it.originUserId == lease.state.userId && !it.dispatchReserved
+        }
 
         if (pending.isEmpty()) {
-            return SyncResult(0, 0, 0)
+            return emptyList()
         }
 
         val normalizedCount = normalizeInvalidCropStageEntityIds(pending)
         if (normalizedCount > 0) {
-            pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE)
+            pending = syncQueueDao.getPendingBatch(now, BATCH_SIZE).filter {
+                it.originTenantId == lease.state.tenantId && it.originUserId == lease.state.userId && !it.dispatchReserved
+            }
         }
 
 
         // Filter by dependencies: skip items whose parents haven't synced
-        val eligible = filterByDependencies(pending)
-        if (eligible.isEmpty()) {
-            return SyncResult(0, 0, 0)
-        }
+        return filterByDependencies(pending)
+    }
 
-        val geometryItems = eligible.filter { it.entityType == GeometryRepository.ENTITY_TYPE_PARCEL_GEOMETRY }
-        val syncEventItems = eligible.filterNot { it.entityType == GeometryRepository.ENTITY_TYPE_PARCEL_GEOMETRY }
-        val geometryResult = processParcelGeometryItems(geometryItems)
-
-        if (syncEventItems.isEmpty()) {
-            return geometryResult
-        }
-
+    private suspend fun dispatchSelected(
+        drainFollowUps: Boolean, manualAdmission: QueueDispatchLease?, sessionOwner: SessionExpiryCoordinator,
+        lease: SessionLease, geometryResult: SyncResult, syncEventItems: List<SyncQueueEntity>,
+    ): SyncResult {
         // Build batch payload
         val events = syncEventItems.map { item ->
             val payloadMap: MutableMap<String, Any?> = gson.fromJson(
@@ -123,11 +161,23 @@ class SyncManager(
         // Keep this bounded HTTP batch and acknowledgement under the lock even
         // when its caller is cancelled. Observe cancellation before another batch.
         val result = withContext(NonCancellable) { try {
-            // Mark as syncing
-            syncEventItems.forEach { syncQueueDao.updateStatus(it.eventId, SyncStatus.SYNCING.name) }
+            val claim = UUID.randomUUID().toString()
+            val tenant = checkNotNull(lease.state.tenantId)
+            val user = checkNotNull(lease.state.userId)
+            val reserved = sessionOwner.withCurrentLease(lease) {
+                syncQueueDao.reserveBatch(syncEventItems, tenant, user, claim, clock())
+                true
+            } == true
+            if (!reserved) return@withContext SyncResult(0, 0, syncEventItems.size)
 
             // Send batch to server
-            val response = api.syncEvents(SyncBatchRequestDto(events))
+            val response = api.syncEvents(SyncBatchRequestDto(events), QueueDispatchLease(sessionOwner, lease))
+
+            // Never let a replacement epoch settle an old reservation. A hold survives restart.
+            if (!sessionOwner.isCurrentLease(lease)) {
+                response.errorBody()?.close()
+                return@withContext SyncResult(0, 0, syncEventItems.size)
+            }
 
             if (response.isSuccessful) {
                 val body = response.body()!!
@@ -137,8 +187,13 @@ class SyncManager(
                 val unacknowledged = syncEventItems.filter { it.eventId !in acknowledgements }
                 diagnostic(SyncDiagnostic(if (unacknowledged.isEmpty()) SyncOutcome.RESPONSE else SyncOutcome.RESPONSE_UNCERTAIN,
                     body.accepted.size, body.conflicts.size, body.failed.size + unacknowledged.size, response.code()))
-                handleSyncResponse(body.accepted, body.conflicts, body.failed, syncEventItems)
-                markBatchForRetry(unacknowledged, "RESPONSE_UNCERTAIN")
+                val settled = sessionOwner.withCurrentLease(lease) {
+                    syncQueueDao.settleBatch(syncEventItems, tenant, user, claim,
+                        responseSettlements(body.accepted, body.conflicts, body.failed, syncEventItems))
+                    // Missing responses remain durably reserved, never automatically replayed.
+                    true
+                } == true
+                if (!settled) return@withContext SyncResult(0, 0, syncEventItems.size)
                 SyncResult(
                     accepted = body.accepted.size,
                     conflicts = body.conflicts.size,
@@ -147,19 +202,27 @@ class SyncManager(
             } else {
                 response.errorBody()?.close()
                 diagnostic(SyncDiagnostic(SyncOutcome.HTTP_FAILURE, failed = syncEventItems.size, httpStatus = response.code()))
-                markBatchForRetry(syncEventItems, "HTTP ${response.code()}")
+                if (response.code() == 401 || response.code() == 403) {
+                    val reason = if (response.code() == 401) "SESSION_REAUTH_REQUIRED" else "AUTHORIZATION_REVIEW_REQUIRED"
+                    sessionOwner.withCurrentLease(lease) {
+                        syncQueueDao.settleBatch(syncEventItems, tenant, user, claim, syncEventItems.map {
+                            QueueClaimSettlement(it.eventId, QueueClaimOutcome.REJECTED, reason)
+                        })
+                    }
+                }
                 SyncResult(0, 0, syncEventItems.size)
             }
         } catch (e: CancellationException) {
-            withContext(NonCancellable) { markBatchForRetry(syncEventItems, "TRANSPORT_UNCERTAIN") }
             throw e
+        } catch (_: QueueClaimMismatch) {
+            // Reservation rolled back, or settlement did not match. Do not guess or release a claim.
+            SyncResult(0, 0, syncEventItems.size)
         } catch (_: Exception) {
             diagnostic(SyncDiagnostic(SyncOutcome.TRANSPORT_UNCERTAIN, failed = syncEventItems.size))
-            markBatchForRetry(syncEventItems, "TRANSPORT_UNCERTAIN")
             SyncResult(0, 0, syncEventItems.size)
         } }
         currentCoroutineContext().ensureActive()
-        val followUp = if (drainFollowUps && result.accepted > 0) processQueueLocked(true) else SyncResult(0, 0, 0)
+        val followUp = if (drainFollowUps && result.accepted > 0) processQueueLocked(true, manualAdmission) else SyncResult(0, 0, 0)
         return SyncResult(geometryResult.accepted + result.accepted + followUp.accepted,
             geometryResult.conflicts + result.conflicts + followUp.conflicts,
             geometryResult.failed + result.failed + followUp.failed)
@@ -176,36 +239,10 @@ class SyncManager(
      */
     private suspend fun processParcelGeometryItems(items: List<SyncQueueEntity>): SyncResult {
         if (items.isEmpty()) return SyncResult(0, 0, 0)
-        var accepted = 0
-        var failed = 0
-        items.forEach { item ->
-            currentCoroutineContext().ensureActive()
-            withContext(NonCancellable) { try {
-                syncQueueDao.updateStatus(item.eventId, SyncStatus.SYNCING.name)
-                val result = GeometryRepository.resultFromQueuePayload(item.payload)
-                val response = api.updateParcelGeometry(item.entityId, GeometryRepository.requestFromResult(result))
-                if (response.isSuccessful) {
-                    syncQueueDao.markSynced(item.eventId)
-                    accepted++
-                } else {
-                    response.errorBody()?.close()
-                    val error = "HTTP ${response.code()}"
-                    if (response.code() in 400..499) {
-                        syncQueueDao.markFailed(item.eventId, error)
-                    } else {
-                        markBatchForRetry(listOf(item), error)
-                    }
-                    failed++
-                }
-            } catch (e: CancellationException) {
-                withContext(NonCancellable) { markBatchForRetry(listOf(item), "TRANSPORT_UNCERTAIN") }
-                throw e
-            } catch (_: Exception) {
-                markBatchForRetry(listOf(item), "TRANSPORT_UNCERTAIN")
-                failed++
-            } }
-        }
-        return SyncResult(accepted, 0, failed)
+        // No approved owner-bound idempotency/reconciliation contract for PATCH.
+        // Do not dispatch this path in the foundation slice.
+        items.forEach { syncQueueDao.markFailed(it.eventId, "GEOMETRY_OWNER_ADMISSION_REQUIRED") }
+        return SyncResult(0, 0, items.size)
     }
 
     private suspend fun filterByDependencies(items: List<SyncQueueEntity>): List<SyncQueueEntity> {
@@ -248,43 +285,29 @@ class SyncManager(
         return fixedCount
     }
 
-    private suspend fun handleSyncResponse(
+    private fun responseSettlements(
         accepted: List<String>,
         conflicts: List<com.agrios.app.data.remote.dto.SyncConflictDto>,
         failed: List<com.agrios.app.data.remote.dto.SyncFailedDto>,
         items: List<SyncQueueEntity>
-    ) {
-        // Mark accepted
-        accepted.forEach { eventId ->
-            syncQueueDao.markSynced(eventId)
-        }
-
-        // Mark conflicts
-        conflicts.forEach { conflict ->
-            syncQueueDao.markConflicted(conflict.eventId, gson.toJson(conflict))
-        }
-
-        // Handle failures
+    ): List<QueueClaimSettlement> = buildList {
+        accepted.forEach { add(QueueClaimSettlement(it, QueueClaimOutcome.ACCEPTED)) }
+        conflicts.forEach { add(QueueClaimSettlement(it.eventId, QueueClaimOutcome.CONFLICT, gson.toJson(it))) }
+        val byId = items.associateBy { it.eventId }
         failed.forEach { failure ->
             diagnostic(SyncDiagnostic(SyncOutcome.SERVER_REJECTED, failed = 1,
                 failure = safeSyncFailure(failure.errorCode)))
-            val item = items.find { it.eventId == failure.eventId }
-            if (item != null) {
-                val errorDetail = safeSyncFailure(failure.errorCode).name
-                if (failure.isStaleLocalContextFailure()) {
-                    syncQueueDao.markFailed(failure.eventId, gson.toJson(failure.copy(message = "Refresh local context before retrying.")))
-                } else if (failure.isRetryableDependencyMissing() && item.retryCount < item.maxRetries) {
-                    val nextRetry = calculateNextRetry(item.retryCount + 1)
-                    syncQueueDao.markForRetry(failure.eventId, nextRetry, errorDetail)
-                } else {
-                    syncQueueDao.markFailed(failure.eventId, errorDetail)
-                }
+            val item = byId.getValue(failure.eventId)
+            val error = when {
+                failure.isStaleLocalContextFailure() ->
+                    gson.toJson(failure.copy(message = "Refresh local context before retrying."))
+                // Retain the existing no-automatic-retry behavior for reserved retryable rows.
+                (failure.retryable || failure.errorCode == "DEPENDENCY_MISSING") && item.retryCount < item.maxRetries ->
+                    return@forEach
+                else -> safeSyncFailure(failure.errorCode).name
             }
+            add(QueueClaimSettlement(failure.eventId, QueueClaimOutcome.REJECTED, error))
         }
-    }
-
-    private fun com.agrios.app.data.remote.dto.SyncFailedDto.isRetryableDependencyMissing(): Boolean {
-        return retryable || errorCode == "DEPENDENCY_MISSING"
     }
 
     private fun com.agrios.app.data.remote.dto.SyncFailedDto.isStaleLocalContextFailure(): Boolean {
@@ -295,22 +318,6 @@ class SyncManager(
             "INVALID_FARMER_FOR_TENANT",
             "INVALID_PROJECT_FOR_TENANT"
         )
-    }
-    private suspend fun markBatchForRetry(items: List<SyncQueueEntity>, error: String) {
-        items.forEach { item ->
-            if (item.retryCount < item.maxRetries) {
-                val nextRetry = calculateNextRetry(item.retryCount + 1)
-                syncQueueDao.markForRetry(item.eventId, nextRetry, error)
-            } else {
-                syncQueueDao.markFailed(item.eventId, "MAX_RETRIES: $error")
-            }
-        }
-    }
-
-    private fun calculateNextRetry(retryCount: Int): Long {
-        val delayMs = INITIAL_BACKOFF_MS * 2.0.pow(retryCount.toDouble()).toLong()
-        val capped = min(delayMs, MAX_BACKOFF_MS)
-        return clock() + capped + retryJitter()
     }
 
     data class SyncResult(
@@ -332,10 +339,12 @@ class SyncManager(
     ) { fixAndRetryFailedItemsLocked() }
 
     private suspend fun fixAndRetryFailedItemsLocked(): Int {
-        val failedItems = syncQueueDao.getFailedItems()
+        val failedItems = syncQueueDao.getFailedItems().filterNot { it.isOwnershipHeld() }
         var fixedCount = 0
 
         for (item in failedItems) {
+            // Reauthentication is not permission to replay an already-rejected mutation.
+            if (item.lastError in setOf("SESSION_REAUTH_REQUIRED", "AUTHORIZATION_REVIEW_REQUIRED")) continue
             if (item.lastError.isStaleLocalContextError()) {
                 continue
             }

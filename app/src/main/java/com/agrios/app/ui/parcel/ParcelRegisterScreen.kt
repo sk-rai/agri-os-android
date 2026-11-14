@@ -8,7 +8,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.agrios.app.core.sync.NewQueueOrigin
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
@@ -35,6 +38,13 @@ fun ParcelRegisterScreen(
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
+    var origin by remember(db) { mutableStateOf<NewQueueOrigin?>(null) }
+    LaunchedEffect(db) { origin = NewQueueOrigin.capture(db.authDao()) }
+    val formOrigin = origin
+    if (formOrigin == null) {
+        Text("An authenticated origin session is required. Reopen this form after signing in.")
+        return
+    }
 
     // Farmer selection — pre-select if coming from farmer enrollment
     var selectedFarmerId by remember { mutableStateOf(preselectedFarmerId) }
@@ -150,7 +160,20 @@ fun ParcelRegisterScreen(
             // --- Select Farmer ---
             Text("${LanguageManager.localize("Select Farmer", "किसान चुनें")} *", style = MaterialTheme.typography.titleSmall)
 
-            if (selectedFarmerName.isNotEmpty()) {
+            if (preselectedFarmerId.isNotEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("parcel_assisted_farmer_$preselectedFarmerId"),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Assisted farmer")
+                        selectedFarmerName.takeIf { it.isNotEmpty() }?.let { Text(it) }
+                        Text(preselectedFarmerId, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            } else if (selectedFarmerName.isNotEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
@@ -178,7 +201,7 @@ fun ParcelRegisterScreen(
                     }
                 }
             } else {
-                if (farmers.isEmpty()) {
+                if (farmers.isEmpty() && preselectedFarmerId.isEmpty()) {
                     Text(
                         LanguageManager.localize("No farmers enrolled. Enroll a farmer first.", "कोई किसान नामांकित नहीं। पहले किसान नामांकन करें।"),
                         color = MaterialTheme.colorScheme.error,
@@ -310,10 +333,14 @@ fun ParcelRegisterScreen(
                     isSaving = true
 
                     scope.launch {
+                        try {
+                        var committedParcelId = ""
+                        formOrigin.commit(db) {
                         val now = System.currentTimeMillis()
                         val parcelId = UUID.randomUUID().toString()
-                        val authState = db.authDao().getAuthState()
                         val farmer = db.farmerDao().getById(selectedFarmerId)
+                        formOrigin.requireSource(farmer)
+                        check(db.parcelDao().getById(parcelId) == null) { "QUEUE_NEW_RECORD_ALREADY_EXISTS" }
                         val point = GeoJson.parsePoint(geometryGeoJson)
                         val lat = point?.lat ?: centroidLat.toDoubleOrNull()
                         val lng = point?.lng ?: centroidLng.toDoubleOrNull()
@@ -334,7 +361,8 @@ fun ParcelRegisterScreen(
                             syncStatus = SyncStatus.PENDING.name,
                             createdAt = now,
                             updatedAt = now,
-                            actorId = authState?.userId ?: "unknown"
+                            actorId = formOrigin.owner.userId,
+                            originTenantId = formOrigin.owner.tenantId, originUserId = formOrigin.owner.userId
                         )
                         db.parcelDao().insert(parcel)
 
@@ -354,7 +382,7 @@ fun ParcelRegisterScreen(
                             "centroid_lng" to lng
                         ))
 
-                        db.syncQueueDao().enqueue(SyncQueueEntity(
+                        db.syncQueueDao().enqueue(formOrigin.bindNewEvent(SyncQueueEntity(
                             eventId = UUID.randomUUID().toString(),
                             entityType = "PARCEL",
                             entityId = parcelId,
@@ -364,7 +392,7 @@ fun ParcelRegisterScreen(
                             priority = SyncPriority.HIGH.name,
                             dependencyIds = selectedFarmerId,
                             createdAt = now
-                        ))
+                        )))
 
                         val capturedGeometry = geometryGeoJson
                         if (gpsMode != "NONE" && !capturedGeometry.isNullOrBlank()) {
@@ -375,15 +403,25 @@ fun ParcelRegisterScreen(
                                     geometrySource = gpsMode,
                                     geoJson = capturedGeometry
                                 ),
-                                dependencyIds = parcelId
+                                dependencyIds = parcelId,
+                                originOwner = formOrigin.owner
                             )
+                        }
+                        committedParcelId = parcelId
                         }
 
                         isSaving = false
                         showSuccess = true
-                        savedParcelId = parcelId
+                        savedParcelId = committedParcelId
                         // Trigger immediate background sync
-                        com.agrios.app.core.sync.SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+                        try {
+                            com.agrios.app.core.sync.SyncWorker.triggerImmediateSync(AgriOsApp.instance, formOrigin)
+                        } catch (e: CancellationException) { throw e
+                        } catch (_: Exception) { errorMessage = "Saved locally. Sync scheduling failed; do not register again." }
+                        } catch (e: CancellationException) { throw e
+                        } catch (_: Exception) {
+                            errorMessage = "Parcel save blocked: original source ownership is not established. No automatic retry."
+                        } finally { isSaving = false }
                     }
                 },
                 enabled = !isSaving,

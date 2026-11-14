@@ -15,4 +15,7 @@ data class AuthStateEntity(
     @ColumnInfo(name = "role") val role: String?,
     @ColumnInfo(name = "mobile_number") val mobileNumber: String?,
     @ColumnInfo(name = "is_authenticated") val isAuthenticated: Boolean = false,
-)
+    @ColumnInfo(name = "reauth_required", defaultValue = "0") val reauthRequired: Boolean = false,
+) {
+    override fun toString() = "AuthState(authenticated=$isAuthenticated, reauthRequired=$reauthRequired)"
+}

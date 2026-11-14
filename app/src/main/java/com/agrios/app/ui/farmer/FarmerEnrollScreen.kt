@@ -12,6 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
+import com.agrios.app.core.sync.NewQueueOrigin
+import kotlinx.coroutines.CancellationException
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.core.util.VillageIdUtil
@@ -29,6 +31,13 @@ fun FarmerEnrollScreen(
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
+    var origin by remember(db) { mutableStateOf<NewQueueOrigin?>(null) }
+    LaunchedEffect(db) { origin = NewQueueOrigin.capture(db.authDao()) }
+    val formOrigin = origin
+    if (formOrigin == null) {
+        Text("An authenticated origin session is required. Reopen this form after signing in.")
+        return
+    }
 
     // Form state
     var mobileNumber by remember { mutableStateOf("+91") }
@@ -376,14 +385,17 @@ fun FarmerEnrollScreen(
                     errorMessage = null; isSaving = true
 
                     scope.launch {
+                        try {
+                        var committedFarmerId = ""
+                        formOrigin.commit(db) {
                         val existing = db.farmerDao().getByMobile(mobileNumber)
                         if (existing != null) {
-                            errorMessage = "👤 ${LanguageManager.localize("Already enrolled", "पहले से नामांकित")}"; isSaving = false; return@launch
+                            error("QUEUE_NEW_RECORD_ALREADY_EXISTS")
                         }
 
                         val now = System.currentTimeMillis()
                         val farmerId = UUID.randomUUID().toString()
-                        val authState = db.authDao().getAuthState()
+                        check(db.farmerDao().getById(farmerId) == null) { "QUEUE_NEW_RECORD_ALREADY_EXISTS" }
                         val villageId = if (isManualVillage) "manual_${selectedVillageName}" else selectedVillageId
 
                         db.farmerDao().insert(FarmerEntity(
@@ -391,7 +403,8 @@ fun FarmerEnrollScreen(
                             villageName = selectedVillageName, primaryCropCode = selectedKharif.firstOrNull(),
                             displayName = displayName.ifBlank { null }, assistanceMode = "DEALER_ASSISTED",
                             syncStatus = SyncStatus.PENDING.name, createdAt = now, updatedAt = now,
-                            actorId = authState?.userId ?: "unknown"
+                            actorId = formOrigin.owner.userId,
+                            originTenantId = formOrigin.owner.tenantId, originUserId = formOrigin.owner.userId
                         ))
 
                         val payload = Gson().toJson(mapOf(
@@ -405,15 +418,27 @@ fun FarmerEnrollScreen(
                             "assistance_mode" to "DEALER_ASSISTED"
                         ))
 
-                        db.syncQueueDao().enqueue(SyncQueueEntity(
+                        db.syncQueueDao().enqueue(formOrigin.bindNewEvent(SyncQueueEntity(
                             eventId = UUID.randomUUID().toString(), entityType = "FARMER", entityId = farmerId,
                             operation = "CREATE", payload = payload, syncStatus = SyncStatus.PENDING.name,
                             priority = SyncPriority.HIGH.name, createdAt = now
-                        ))
+                        )))
 
-                        isSaving = false; showSuccess = true; enrolledFarmerId = farmerId
+                        committedFarmerId = farmerId
+                        }
+                        enrolledFarmerId = committedFarmerId
+                        showSuccess = true
                         // Trigger immediate background sync
-                        com.agrios.app.core.sync.SyncWorker.triggerImmediateSync(AgriOsApp.instance)
+                        try {
+                            com.agrios.app.core.sync.SyncWorker.triggerImmediateSync(AgriOsApp.instance, formOrigin)
+                        } catch (e: CancellationException) { throw e
+                        } catch (_: Exception) {
+                            errorMessage = "Saved locally. Sync scheduling failed; do not enroll again."
+                        }
+                        } catch (e: CancellationException) { throw e
+                        } catch (_: Exception) {
+                            errorMessage = "Enrollment was not completed. Reopen the form with the original account; do not resubmit automatically."
+                        } finally { isSaving = false }
                     }
                 },
                 enabled = !isSaving,

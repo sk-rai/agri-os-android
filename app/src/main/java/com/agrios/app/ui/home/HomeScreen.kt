@@ -18,12 +18,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.agrios.app.AgriOsApp
 import com.agrios.app.ui.auth.AuthenticatedReadContractChecks
-import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AndroidDynamicTestContext
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.sync.SyncManager
-import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.Labels
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.data.local.entity.FarmerEntity
@@ -38,12 +36,15 @@ import com.agrios.app.data.remote.dto.ResolveConflictDto
 import com.agrios.app.data.remote.dto.resolve
 import com.agrios.app.data.repository.OfflineCropSyncRepository
 import com.agrios.app.data.repository.ProfileHydrationRepository
+import com.agrios.app.core.sync.*
 import com.agrios.app.ui.components.SyncStatusBadge
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -82,29 +83,54 @@ fun HomeScreen(
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
-    val pendingCount by db.syncQueueDao().observePendingCount().collectAsState(initial = 0)
-    val conflictCount by db.syncQueueDao().observeConflictCount().collectAsState(initial = 0)
-    val failedCount by db.syncQueueDao().observeFailedCount().collectAsState(initial = 0)
-    val attentionItems by db.syncQueueDao().observeAttentionItems().collectAsState(initial = emptyList())
-    var isSyncing by remember { mutableStateOf(false) }
-    var lastSyncMessage by remember { mutableStateOf<String?>(null) }
-
-    // Check if farmer profile exists (enrollment done)
-    val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
     val observedAuthState by db.authDao().observeAuthState().collectAsState(initial = null)
-    val hasProfile = farmers.isNotEmpty()
-    val farmer = farmers.firstOrNull()
-    var activeCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
-    var completedCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
-    var isLoadingCycles by remember { mutableStateOf(false) }
-    var cycleLoadMessage by remember { mutableStateOf<String?>(null) }
-    var cycleReadStatuses by remember { mutableStateOf<String?>(null) }
-    var cachedCycles by remember { mutableStateOf<List<CropCycleResponseDto>>(emptyList()) }
-    var useCachedCycleFallback by remember { mutableStateOf(false) }
-    var isHydratingProfile by remember { mutableStateOf(false) }
-    var hydrationAttempted by remember { mutableStateOf(false) }
-    var hydrationMessage by remember { mutableStateOf<String?>(null) }
-    var hydratedIdentity by remember { mutableStateOf<String?>(null) }
+    val queueOwner = observedAuthState?.takeIf {
+        it.isAuthenticated && !it.reauthRequired && !it.jwt.isNullOrBlank() &&
+            !it.tenantId.isNullOrBlank() && !it.userId.isNullOrBlank()
+    }?.let { QueueOwner(it.tenantId!!, it.userId!!) }
+    val observedSummary by remember(db, queueOwner) {
+        db.syncQueueDao().observeOwnerSummary(queueOwner?.tenantId.orEmpty(), queueOwner?.userId.orEmpty())
+    }.collectAsState(initial = null)
+    // Tag the aggregate with its queried owner; never render a previous owner's cached emission.
+    val queueSummary = observedSummary?.takeIf { it.visibleTo(queueOwner) }
+    val pendingCount = queueSummary?.pending ?: 0
+    val conflictCount = queueSummary?.conflicted ?: 0
+    val failedCount = queueSummary?.failed ?: 0
+    val heldCount = queueSummary?.held ?: 0
+    val observedAttention by db.syncQueueDao().observeAttentionItems().collectAsState(initial = emptyList())
+    var isSyncing by remember(queueOwner) { mutableStateOf(false) }
+    var lastSyncMessage by remember(queueOwner) { mutableStateOf<String?>(null) }
+    var unsupportedActionNotice by remember(queueOwner) { mutableStateOf(false) }
+
+    // A missing emission is loading, not a confirmed empty result for this owner.
+    val farmerResult = queueOwner?.let { owner ->
+        key(db, owner) {
+            val result by remember(db, owner) {
+                db.farmerDao().observeFirstOwned(owner.tenantId, owner.userId)
+                    .map { HomeFarmerResult(owner, it?.farmer, ownerActive = it?.activeOwner == 1) }
+            }.collectAsState(initial = null)
+            result
+        }
+    }
+    val farmer = farmerResult?.visibleFarmer(queueOwner)
+    val cycleScope = observedAuthState?.let { session ->
+        farmer?.let { HomeCycleScope(session, it.id) }
+    }
+    val latestCycleScope by rememberUpdatedState(cycleScope)
+    var cycleResult by remember(cycleScope) { mutableStateOf<HomeCycleResult?>(null) }
+    var isLoadingCycles by remember(cycleScope) { mutableStateOf(false) }
+    val visibleCycleResult = cycleResult?.visibleFor(cycleScope)
+
+    fun openCycleTimeline(cycleId: String) {
+        val result = visibleCycleResult ?: return
+        if (result.cycles.none { it.id == cycleId }) return
+        scope.launch {
+            if (db.sessionExpiry.isCurrentLease(result.lease) && result.canOpen(cycleId, latestCycleScope)) {
+                onNavigateToStageTimeline(cycleId)
+            }
+        }
+    }
+
     var assignedWorkAvailable by remember { mutableStateOf(false) }
     var assignedProject by remember { mutableStateOf<String?>(null) }
     var modeReadError by remember { mutableStateOf<String?>(null) }
@@ -190,133 +216,58 @@ fun HomeScreen(
             } else modeReadError = com.agrios.app.data.repository.readFailureCopy(response.code())
         } catch (_: Exception) { modeReadError = "Unable to load account capabilities." }
     }
-    LaunchedEffect(Unit) {
-        val hasPendingPersistenceSmokeRow = withContext(Dispatchers.IO) {
-            listOf(
-                "android_maestro_cold_start_persistence_test",
-                "android_maestro_device_restart_persistence_test"
-            ).any { payloadNeedle ->
-                db.syncQueueDao().countByPayloadNeedleAndStatus(
-                    payloadNeedle,
-                    SyncStatus.PENDING.name
-                ) > 0
-            }
-        }
-        if (!hasPendingPersistenceSmokeRow) {
-            SyncWorker.triggerImmediateSync(AgriOsApp.instance)
-        } else {
-            Log.d(TAG, "Skipped startup auto-sync for offline persistence smoke")
-        }
-    }
 
-    // Do not restart/cancel hydration when its first Room insert changes hasProfile.
-    LaunchedEffect(Unit) {
-        if (!hydrationAttempted) {
-            val authState = withContext(Dispatchers.IO) { db.authDao().getAuthState() }
-            val storedProfileExists = withContext(Dispatchers.IO) { db.farmerDao().getFirst() != null }
-            val shouldRefreshDynamicProfile = storedProfileExists &&
-                AndroidDynamicTestContext.isEnabledFor(authState) &&
-                !authState?.mobileNumber.isNullOrBlank()
-            if (storedProfileExists && !shouldRefreshDynamicProfile) return@LaunchedEffect
+    // Automatic profile restore is disabled until provenance and session-bound writes are defined.
 
-            hydrationAttempted = true
-            isHydratingProfile = true
-            hydrationMessage = null
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    val repository = ProfileHydrationRepository(
-                        context = AgriOsApp.instance,
-                        db = db,
-                        api = api
-                    )
-                    if (shouldRefreshDynamicProfile) {
-                        repository.hydrateByMobile(
-                            mobile = authState?.mobileNumber.orEmpty(),
-                            projectId = AndroidDynamicTestContext.projectIdFor(authState)
-                        )
-                    } else {
-                        repository.hydrateAfterLogin()
-                    }
-                }
-                hydrationMessage = result.message
-                hydratedIdentity = result.farmerId?.takeIf { result.profileExists }
-            } catch (e: Exception) {
-                hydrationMessage = e.message
-            } finally {
-                isHydratingProfile = false
-            }
-        }
-    }
-
-    LaunchedEffect(farmer?.id) {
-        val farmerId = farmer?.id
-        if (farmerId.isNullOrBlank()) {
-            activeCycles = emptyList()
-            completedCycles = emptyList()
-            cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
-            useCachedCycleFallback = true
-            return@LaunchedEffect
-        }
-
+    LaunchedEffect(cycleScope) {
+        val selected = cycleScope ?: return@LaunchedEffect
+        val coordinator = db.sessionExpiry
+        val lease = coordinator.requestLease()?.takeIf { it.state == selected.session } ?: return@LaunchedEffect
+        val requestTag = QueueDispatchLease(coordinator, lease)
         isLoadingCycles = true
-        cycleLoadMessage = null
-        cycleReadStatuses = null
         try {
-            val plannedResponse = withContext(Dispatchers.IO) {
-                api.getCropCycles(farmerId = farmerId, status = "PLANNED")
+            val planned = api.getCropCycles(farmerId = selected.farmerId, status = "PLANNED", selected = requestTag)
+            val active = api.getCropCycles(farmerId = selected.farmerId, status = "ACTIVE", selected = requestTag)
+            val completed = api.getCropCycles(farmerId = selected.farmerId, status = "COMPLETED", selected = requestTag)
+            val cycles = listOf(planned, active, completed)
+                .filter { it.isSuccessful }
+                .flatMap { it.body().orEmpty() }
+            val failed = listOf(active, completed).firstOrNull { !it.isSuccessful && it.code() != 405 }
+            if (coordinator.isCurrentLease(lease) && latestCycleScope == selected) {
+                cycleResult = HomeCycleResult(selected, lease, cycles,
+                    message = failed?.let { "Could not load crop cycles (${it.code()})" },
+                    readStatuses = "cycle_collection: HTTP ${planned.code()},${active.code()},${completed.code()}")
             }
-            val activeResponse = withContext(Dispatchers.IO) {
-                api.getCropCycles(farmerId = farmerId, status = "ACTIVE")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            if (coordinator.isCurrentLease(lease) && latestCycleScope == selected) {
+                cycleResult = HomeCycleResult(selected, lease, emptyList(), message = "Unable to load crop cycles.")
             }
-            val completedResponse = withContext(Dispatchers.IO) {
-                api.getCropCycles(farmerId = farmerId, status = "COMPLETED")
-            }
-            cycleReadStatuses = "cycle_collection: HTTP ${plannedResponse.code()},${activeResponse.code()},${completedResponse.code()}"
-
-            val plannedCycles = if (plannedResponse.isSuccessful) {
-                plannedResponse.body().orEmpty()
-            } else {
-                emptyList()
-            }
-
-            if (activeResponse.isSuccessful) {
-                activeCycles = (plannedCycles + activeResponse.body().orEmpty()).dedupeForHome()
-                activeCycles.forEach { CropCycleCache.upsert(AgriOsApp.instance, it) }
-            } else {
-                activeCycles = plannedCycles
-                plannedCycles.forEach { CropCycleCache.upsert(AgriOsApp.instance, it) }
-                if (activeResponse.code() != 405 && plannedCycles.isEmpty()) {
-                    cycleLoadMessage = "Could not load active crop cycles (${activeResponse.code()})"
-                }
-            }
-
-            if (completedResponse.isSuccessful) {
-                completedCycles = completedResponse.body().orEmpty()
-                completedCycles.forEach { CropCycleCache.upsert(AgriOsApp.instance, it) }
-            } else {
-                completedCycles = emptyList()
-                if (completedResponse.code() != 405 && cycleLoadMessage == null) {
-                    cycleLoadMessage = "Could not load completed crop cycles (${completedResponse.code()})"
-                }
-            }
-            cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
-            useCachedCycleFallback = false
-        } catch (e: Exception) {
-            activeCycles = emptyList()
-            completedCycles = emptyList()
-            cachedCycles = CropCycleCache.getAll(AgriOsApp.instance)
-            useCachedCycleFallback = true
-            cycleLoadMessage = e.message
         } finally {
             isLoadingCycles = false
         }
     }
 
+    fun blockUnsupportedHomeAction(): Boolean =
+        OwnershipContainment.block(UnsupportedOwnershipAction.HOME_DIAGNOSTIC) {
+            lastSyncMessage = it
+            unsupportedActionNotice = true
+        }
+
     fun runSyncNow() {
+        val selectedOwner = queueOwner ?: return
+        val selectedAuth = observedAuthState ?: return
         scope.launch {
             isSyncing = true
             lastSyncMessage = null
             try {
+                val coordinator = db.sessionExpiry
+                val lease = coordinator.requestLease()
+                if (lease == null || lease.state != selectedAuth || !selectedOwner.matchesSession(lease.state)) {
+                    lastSyncMessage = "Session changed. Sync was not started."
+                    return@launch
+                }
                 val okHttpClient = OkHttpClient.Builder()
                     .addInterceptor(AuthInterceptor(db.authDao()))
                     .connectTimeout(ApiConfig.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -330,21 +281,16 @@ fun HomeScreen(
                     .addConverterFactory(GsonConverterFactory.create())
                     .build()
                     .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
-                val syncManager = SyncManager(db.syncQueueDao(), api)
-                syncManager.fixAndRetryFailedItems()
-                val result = syncManager.processQueue()
-                lastSyncMessage = when {
-                    result.failed > 0 || failedCount > 0 -> "Sync needs review: failed rows remain."
-                    result.conflicts > 0 || conflictCount > 0 -> "Sync needs review: conflicted rows remain."
-                    result.accepted > 0 -> "âœ… ${result.accepted} ${LanguageManager.localize("synced", "à¤¸à¤¿à¤‚à¤• à¤¹à¥à¤")}"
-                    result.failed > 0 -> "âŒ ${result.failed} ${LanguageManager.localize("failed", "à¤µà¤¿à¤«à¤²")}"
-                    result.conflicts > 0 -> "âš ï¸ ${result.conflicts} ${LanguageManager.localize("conflicts", "à¤µà¤¿à¤°à¥‹à¤§")}"
-                    pendingCount > 0 -> LanguageManager.localize(
-                        "Still waiting - parent records/dependencies may need to sync first",
-                        "à¤…à¤­à¥€ à¤ªà¥à¤°à¤¤à¥€à¤•à¥à¤·à¤¾ à¤®à¥‡à¤‚ - à¤ªà¤¹à¤²à¥‡ à¤®à¥‚à¤² à¤°à¤¿à¤•à¥‰à¤°à¥à¤¡/à¤¨à¤¿à¤°à¥à¤­à¤°à¤¤à¤¾à¤à¤‚ à¤¸à¤¿à¤‚à¤• à¤¹à¥‹ à¤¸à¤•à¤¤à¥€ à¤¹à¥ˆà¤‚"
-                    )
-                    else -> LanguageManager.localize("All synced", "à¤¸à¤¬ à¤¸à¤¿à¤‚à¤• à¤¹à¥‹ à¤—à¤¯à¤¾")
+                val syncManager = SyncManager(db.syncQueueDao(), api, authDao = db.authDao())
+                if (syncManager.processManualQueue(QueueDispatchLease(coordinator, lease)) == null) {
+                    lastSyncMessage = "Session changed. Sync was not started."
+                    return@launch
                 }
+                val snapshot = coordinator.withCurrentLease(lease) {
+                    db.syncQueueDao().getOwnerSummary(selectedOwner.tenantId, selectedOwner.userId)
+                }
+                lastSyncMessage = if (snapshot != null)
+                    snapshot.message() else "Session changed. Retained work must be reviewed with its original account."
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -356,6 +302,7 @@ fun HomeScreen(
     }
 
     fun runSyncFirstBatchOnlyForTest() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             isSyncing = true
             lastSyncMessage = null
@@ -373,7 +320,7 @@ fun HomeScreen(
                     .addConverterFactory(GsonConverterFactory.create())
                     .build()
                     .create(com.agrios.app.data.remote.api.AgriOsApi::class.java)
-                val syncManager = SyncManager(db.syncQueueDao(), api)
+                val syncManager = SyncManager(db.syncQueueDao(), api, authDao = db.authDao())
                 val payloadNeedle = "android_maestro_interrupted_multibatch_resume_test"
 
                 syncManager.fixAndRetryFailedItems()
@@ -417,6 +364,7 @@ fun HomeScreen(
         }
     }
     fun queueStaleContextTestEvent() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val eventId = UUID.randomUUID().toString()
             val cropCycleId = UUID.randomUUID().toString()
@@ -450,6 +398,7 @@ fun HomeScreen(
     }
 
     fun checkStaleContextFailureEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             staleContextRecoveryStatus = "Stale context failure check running..."
             try {
@@ -493,6 +442,7 @@ fun HomeScreen(
     }
 
     fun queueVersionMismatchTestEvent() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000111"
             val activityId = "0f7e0a6b-8472-5d6d-8a14-a9d000000112"
@@ -530,6 +480,7 @@ fun HomeScreen(
     }
 
     fun queueWorkflowInvalidTestEvent() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000121"
             val stageEntityId = "0f7e0a6b-8472-5d6d-8a14-a9d000000122"
@@ -558,6 +509,7 @@ fun HomeScreen(
     }
 
     fun checkVersionMismatchConflictEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             versionMismatchRecoveryStatus = "Version mismatch conflict check running..."
             try {
@@ -598,6 +550,7 @@ fun HomeScreen(
     }
 
     fun checkWorkflowInvalidConflictEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             workflowInvalidRecoveryStatus = "Workflow invalid conflict check running..."
             try {
@@ -638,6 +591,7 @@ fun HomeScreen(
     }
 
     fun queueStaleConflict404TestEvent() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val eventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000404"
             val activityId = "0f7e0a6b-8472-5d6d-8a14-a9d000000405"
@@ -689,6 +643,7 @@ fun HomeScreen(
     }
 
     fun queueColdStartPersistenceTestEvent() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val eventId = UUID.randomUUID().toString()
             val activityId = UUID.randomUUID().toString()
@@ -728,6 +683,7 @@ fun HomeScreen(
     }
 
     fun checkColdStartPersistenceEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             coldStartPersistenceStatus = "Cold start persistence check running..."
             try {
@@ -779,6 +735,7 @@ fun HomeScreen(
     }
 
     fun queueDeviceRestartPersistenceTestEvent() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val eventId = UUID.randomUUID().toString()
             val activityId = UUID.randomUUID().toString()
@@ -820,6 +777,7 @@ fun HomeScreen(
     }
 
     fun checkDeviceRestartPersistenceEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             deviceRestartPersistenceStatus = "Device restart persistence check running..."
             try {
@@ -873,6 +831,7 @@ fun HomeScreen(
         }
     }
     fun queueUncertainResultIdempotencyTestEvent() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val eventId = UUID.randomUUID().toString()
             val activityId = UUID.randomUUID().toString()
@@ -914,6 +873,7 @@ fun HomeScreen(
     }
 
     fun simulateUncertainResultRetry() {
+        if (blockUnsupportedHomeAction()) return
         val eventId = uncertainResultTestEventId ?: return
         scope.launch {
             withContext(Dispatchers.IO) {
@@ -929,6 +889,7 @@ fun HomeScreen(
     }
 
     fun checkUncertainResultIdempotencyEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             uncertainResultStatus = "Uncertain result idempotency check running..."
             try {
@@ -985,6 +946,7 @@ fun HomeScreen(
     }
 
     fun queueDependencyOrderReplayTestEvents() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val cycleEventId = UUID.randomUUID().toString()
             val cycleId = UUID.randomUUID().toString()
@@ -1059,6 +1021,7 @@ fun HomeScreen(
     }
 
     fun checkDependencyOrderReplayEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             dependencyOrderStatus = "Dependency order replay check running..."
             try {
@@ -1125,6 +1088,7 @@ fun HomeScreen(
         }
     }
     fun queuePartialBatchReplayTestEvents() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val validActivityEventId = UUID.randomUUID().toString()
             val validActivityId = UUID.randomUUID().toString()
@@ -1184,6 +1148,7 @@ fun HomeScreen(
     }
 
     fun queuePartialBatchMissingDependency() {
+        if (blockUnsupportedHomeAction()) return
         val ids = partialBatchTestIds?.split(",") ?: return
         if (ids.size < 6) return
         val missingCycleEventId = ids[2]
@@ -1215,6 +1180,7 @@ fun HomeScreen(
         }
     }
     fun checkPartialBatchReplayEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             partialBatchStatus = "Partial batch replay check running..."
             try {
@@ -1291,6 +1257,7 @@ fun HomeScreen(
         }
     }
     fun queuePartialBatchConflictTestEvents() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val activityEventId = UUID.randomUUID().toString()
             val activityId = UUID.randomUUID().toString()
@@ -1347,6 +1314,7 @@ fun HomeScreen(
         }
     }
     fun checkPartialBatchConflictEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             partialBatchConflictStatus = "Partial batch conflict check running..."
             try {
@@ -1409,6 +1377,7 @@ fun HomeScreen(
         }
     }
     fun queueMultiConflictPendingDrawerTestEvents() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val versionEventId = "0f7e0a6b-8472-5d6d-8a14-a9d000000111"
             val versionActivityId = "0f7e0a6b-8472-5d6d-8a14-a9d000000112"
@@ -1465,6 +1434,7 @@ fun HomeScreen(
         }
     }
     fun checkMultiConflictPendingDrawerEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             multiConflictStatus = "Multi-conflict drawer check running..."
             try {
@@ -1531,6 +1501,7 @@ fun HomeScreen(
     }
 
     fun ackMultiConflictVersionOnly() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             try {
                 val ids = multiConflictTestEventIds?.split(",") ?: error("multi-conflict ids missing")
@@ -1577,6 +1548,7 @@ fun HomeScreen(
     }
 
     fun ackMultiConflictWorkflowOnly() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             try {
                 val ids = multiConflictTestEventIds?.split(",") ?: error("multi-conflict ids missing")
@@ -1621,6 +1593,7 @@ fun HomeScreen(
         }
     }
     fun queueBackpressureTestEvents() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val count = 25
             val amount = 20.0
@@ -1704,6 +1677,7 @@ fun HomeScreen(
         }
     }
     fun checkQueueBackpressureEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             queueBackpressureStatus = "Queue backpressure check running..."
             try {
@@ -1756,6 +1730,7 @@ fun HomeScreen(
         }
     }
     fun queueInterruptedMultibatchResumeTestEvents() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val count = 25
             val amount = 20.0
@@ -1839,6 +1814,7 @@ fun HomeScreen(
         }
     }
     fun checkInterruptedMultibatchResumeEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             interruptedMultibatchResumeStatus = "Interrupted multibatch resume check running..."
             try {
@@ -1900,6 +1876,7 @@ fun HomeScreen(
         }
     }
     fun queuePoisonRowBacklogTestEvents() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             val count = 25
             val poisonIndex = 10
@@ -2005,6 +1982,7 @@ fun HomeScreen(
         }
     }
     fun checkPoisonRowBacklogEvidence() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             poisonRowBacklogStatus = "Poison row backlog check running..."
             try {
@@ -2273,6 +2251,7 @@ fun HomeScreen(
     }
 
     fun checkAgentAssistedFarmerManagementContract() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             lastSyncMessage = null
             personaLifecycleStatus = "Agent assisted management check running..."
@@ -3413,6 +3392,7 @@ fun HomeScreen(
     }
 
     fun checkBroadcastReadAckLifecycleContract() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             broadcastReadAckStatus = "Broadcast read ack lifecycle check running..."
             try {
@@ -3633,6 +3613,7 @@ fun HomeScreen(
     }
 
     fun checkLandSummaryDigiPinContract() {
+        if (blockUnsupportedHomeAction()) return
         scope.launch {
             lastSyncMessage = null
             landSummaryDigiPinStatus = "Land summary + DigiPin check running..."
@@ -3786,217 +3767,49 @@ fun HomeScreen(
     }
 
     fun refreshContextAndDiscardDraft(item: SyncQueueEntity) {
-        val currentFarmer = farmer ?: return
+        if (!item.canDiscardLocally()) {
+            lastSyncMessage = OwnershipContainment.HELD_MESSAGE
+            return
+        }
         scope.launch {
             isSyncing = true
-            lastSyncMessage = null
-            val eventId = item.eventId
-            Log.d(TAG, "Refreshing context and discarding stale draft: eventId=$eventId")
-            val isFlow54StaleContext = staleContextTestEventId == eventId && item.isStaleLocalContextFailure()
-            val failedRowPreservedBeforeRecovery = item.syncStatus == "FAILED"
-            val failedDraftNotMaterialized = item.syncStatus == "FAILED" && item.isStaleLocalContextFailure()
-            val refreshOk = refreshBackendOwnedContext(currentFarmer)
-            withContext(Dispatchers.IO) {
-                db.syncQueueDao().deleteByEventId(eventId)
-            }
-            Log.d(TAG, "Deleted stale local draft queue row: eventId=$eventId")
-            if (isFlow54StaleContext) {
-                val localRowDiscarded = withContext(Dispatchers.IO) {
-                    db.syncQueueDao().countByEventId(eventId) == 0
+            try {
+                val origin = NewQueueOrigin.capture(db.authDao())
+                if (origin == null || !origin.owner.owns(item)) {
+                    lastSyncMessage = OwnershipContainment.NOT_REMOVED
+                    return@launch
                 }
-                val noSyncConflictRow = withContext(Dispatchers.IO) {
-                    val pending = api.getPendingConflicts(limit = 100)
-                    pending.isSuccessful &&
-                        findPendingConflictId(pending.body(), eventId) == null &&
-                        db.syncQueueDao().getConflicts().none { it.eventId == eventId }
+                var affected = 0
+                origin.commit(db) {
+                    affected = db.syncQueueDao().deleteOwnedUnreserved(
+                        item.eventId, origin.owner.tenantId, origin.owner.userId)
                 }
-                val evidence = listOf(
-                    "Stale context recovery check: ready",
-                    "stale_context_event_id=$eventId",
-                    "stale_context_failure_visible=true",
-                    "stale_context_error_code=MATERIALIZATION_FAILED",
-                    "stale_context_detail_code=PARCEL_PROJECT_MISMATCH",
-                    "stale_context_refresh_required_copy=true",
-                    "stale_context_refresh_local_data_copy=true",
-                    "stale_context_no_manual_conflict_ui=true",
-                    "stale_context_no_version_mismatch_copy=true",
-                    "stale_context_no_workflow_invalid_copy=true",
-                    "stale_context_local_row_discarded=$localRowDiscarded",
-                    "stale_context_backend_conflict_ack_not_called=true",
-                    "stale_context_failed_row_preserved=$failedRowPreservedBeforeRecovery",
-                    "stale_context_no_sync_conflict_row=$noSyncConflictRow",
-                    "stale_context_failed_draft_not_materialized=$failedDraftNotMaterialized"
-                ).joinToString("\n")
-                staleContextRecoveryStatus = evidence
-                lastSyncMessage = evidence
-            } else {
-                lastSyncMessage = if (refreshOk) {
-                    "Context refreshed; stale draft discarded"
-                } else {
-                    "Stale draft discarded; refresh again if data looks old"
-                }
-            }
-            staleContextTestEventId = null
-            isSyncing = false
-            Log.d(TAG, lastSyncMessage.orEmpty())
+                lastSyncMessage = localDiscardMessage(affected)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+            } catch (_: Exception) { lastSyncMessage = OwnershipContainment.NOT_REMOVED
+            } finally { isSyncing = false }
         }
     }
 
     fun acceptServerConflictAndDiscardLocal(item: SyncQueueEntity) {
-        val currentFarmer = farmer ?: return
-        scope.launch {
-            isSyncing = true
-            lastSyncMessage = null
-            val parsed = parseSyncError(item.lastError.orEmpty())
-            val conflictType = parsed["conflict_type"].orEmpty()
-            val localConflictId = parsed["conflict_id"]?.takeIf { it.isNotBlank() }
-            val isStaleConflict404Test = item.payload.contains("android_maestro_stale_conflict_404_test") ||
-                parsed["source"] == "android_maestro_stale_conflict_404_test"
-            fun staleConflict404Evidence(cardVisibleAfter404: Boolean): String = listOf(
-                "Stale conflict 404 dismissal check: ready",
-                "stale_conflict_ack_404_dismissed=true",
-                "stale_conflict_card_visible_after_404=$cardVisibleAfter404",
-                "stale_conflict_resolution=SERVER_ALREADY_GONE",
-                "stale_conflict_fatal_error_visible=false",
-                "stale_conflict_retry_loop=false"
-            ).joinToString("\n")
-            suspend fun clearStaleLocalConflict(reason: String, conflictId: String?) {
-                withContext(Dispatchers.IO) {
-                    db.syncQueueDao().deleteByEventId(item.eventId)
-                }
-                val rowStillPresent = withContext(Dispatchers.IO) {
-                    db.syncQueueDao().countByEventId(item.eventId) > 0
-                }
-                if (isStaleConflict404Test) {
-                    val evidence = staleConflict404Evidence(cardVisibleAfter404 = rowStillPresent)
-                    staleConflict404TestStatus = evidence
-                    lastSyncMessage = evidence
-                } else {
-                    lastSyncMessage = when (conflictType) {
-                        "VERSION_MISMATCH" -> "Server conflict already cleared; local edit discarded"
-                        "WORKFLOW_INVALID" -> "Server conflict already cleared; local action discarded"
-                        else -> "Server conflict already cleared; local draft discarded"
-                    }
-                }
-                Log.d(TAG, "$reason: eventId=${item.eventId}, conflictId=${conflictId ?: "missing"}")
-            }
-            try {
-                refreshBackendOwnedContext(currentFarmer)
-                val conflictId = localConflictId ?: withContext(Dispatchers.IO) {
-                    val pending = api.getPendingConflicts(limit = 100)
-                    if (pending.code() == 404) {
-                        return@withContext null
-                    }
-                    if (!pending.isSuccessful) {
-                        error("Could not fetch pending conflicts (${pending.code()})")
-                    }
-                    findPendingConflictId(pending.body(), item.eventId)
-                }
-                if (conflictId == null) {
-                    clearStaleLocalConflict(
-                        reason = "Cleared stale local conflict row after missing server conflict",
-                        conflictId = null
-                    )
-                    return@launch
-                }
-                val resolved = withContext(Dispatchers.IO) {
-                    api.resolveConflict(
-                        conflictId = conflictId,
-                        request = ResolveConflictDto(
-                            strategy = "ACCEPT_SERVER",
-                            comment = "Android user discarded local conflicted draft after refreshing context."
-                        )
-                    )
-                }
-                if (resolved.code() == 404) {
-                    clearStaleLocalConflict(
-                        reason = "Cleared stale local conflict row after 404 acknowledgement",
-                        conflictId = conflictId
-                    )
-                    return@launch
-                }
-                if (!resolved.isSuccessful) {
-                    error("Conflict acknowledgement failed (${resolved.code()})")
-                }
-                withContext(Dispatchers.IO) {
-                    db.syncQueueDao().deleteByEventId(item.eventId)
-                }
-                if (conflictType == "VERSION_MISMATCH" && item.eventId == "0f7e0a6b-8472-5d6d-8a14-a9d000000111") {
-                    val localRowDiscarded = withContext(Dispatchers.IO) {
-                        db.syncQueueDao().countByEventId(item.eventId) == 0
-                    }
-                    val pendingConflictRemoved = withContext(Dispatchers.IO) {
-                        val pending = api.getPendingConflicts(limit = 100)
-                        pending.isSuccessful && findPendingConflictId(pending.body(), item.eventId) == null
-                    }
-                    val noFailedRow = withContext(Dispatchers.IO) {
-                        db.syncQueueDao().getFailedItems().none { it.eventId == item.eventId }
-                    }
-                    val evidence = listOf(
-                        "Version mismatch recovery check: ready",
-                        "version_mismatch_conflict_visible=true",
-                        "version_mismatch_conflict_type=VERSION_MISMATCH",
-                        "version_mismatch_resolution_strategy=MANUAL_REVIEW",
-                        "version_mismatch_copy_manual_review=true",
-                        "version_mismatch_copy_server_newer=true",
-                        "version_mismatch_no_stale_context_copy=true",
-                        "version_mismatch_no_workflow_changed_copy=true",
-                        "version_mismatch_local_row_discarded=$localRowDiscarded",
-                        "version_mismatch_backend_ack_accept_server=${resolved.isSuccessful}",
-                        "version_mismatch_pending_conflict_removed=$pendingConflictRemoved",
-                        "version_mismatch_no_failed_sync_row=$noFailedRow"
-                    ).joinToString("\n")
-                    versionMismatchRecoveryStatus = evidence
-                    lastSyncMessage = evidence
-                } else if (conflictType == "WORKFLOW_INVALID" && item.eventId == "0f7e0a6b-8472-5d6d-8a14-a9d000000121") {
-                    val localRowDiscarded = withContext(Dispatchers.IO) {
-                        db.syncQueueDao().countByEventId(item.eventId) == 0
-                    }
-                    val pendingConflictRemoved = withContext(Dispatchers.IO) {
-                        val pending = api.getPendingConflicts(limit = 100)
-                        pending.isSuccessful && findPendingConflictId(pending.body(), item.eventId) == null
-                    }
-                    val noFailedRow = withContext(Dispatchers.IO) {
-                        db.syncQueueDao().getFailedItems().none { it.eventId == item.eventId }
-                    }
-                    val evidence = listOf(
-                        "Workflow invalid recovery check: ready",
-                        "workflow_invalid_conflict_visible=true",
-                        "workflow_invalid_conflict_type=WORKFLOW_INVALID",
-                        "workflow_invalid_resolution_strategy=SERVER_AUTHORITY",
-                        "workflow_invalid_copy_workflow_changed=true",
-                        "workflow_invalid_copy_refresh_stage=true",
-                        "workflow_invalid_no_stale_context_copy=true",
-                        "workflow_invalid_no_version_mismatch_copy=true",
-                        "workflow_invalid_local_row_discarded=$localRowDiscarded",
-                        "workflow_invalid_backend_ack_accept_server=${resolved.isSuccessful}",
-                        "workflow_invalid_pending_conflict_removed=$pendingConflictRemoved",
-                        "workflow_invalid_no_failed_sync_row=$noFailedRow"
-                    ).joinToString("\n")
-                    workflowInvalidRecoveryStatus = evidence
-                    lastSyncMessage = evidence
-                } else {
-                    lastSyncMessage = when (conflictType) {
-                        "VERSION_MISMATCH" -> "Server version accepted; local edit discarded"
-                        "WORKFLOW_INVALID" -> "Stage refreshed; local action discarded"
-                        else -> "Conflict acknowledged; local draft discarded"
-                    }
-                }
-                Log.d(TAG, "Accepted server conflict and discarded local row: eventId=${item.eventId}, conflictId=$conflictId")
-            } catch (e: Exception) {
-                lastSyncMessage = "Conflict recovery failed: ${e.message}"
-            } finally {
-                isSyncing = false
-            }
-        }
+        // Server conflict actions have no exact-origin admission path in this slice.
+        lastSyncMessage = if (item.isOwnershipHeld()) OwnershipContainment.HELD_MESSAGE
+            else "Server conflict recovery is temporarily unavailable. The local operation is retained."
     }
 
     Scaffold(
+        snackbarHost = {
+            if (unsupportedActionNotice) {
+                Snackbar(action = {
+                    TextButton(onClick = { unsupportedActionNotice = false }) { Text("Dismiss") }
+                }) { Text(OwnershipContainment.MESSAGE) }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text("Agri-OS") },
                 actions = {
-                    SyncStatusBadge(pendingCount = pendingCount, conflictCount = conflictCount, failedCount = failedCount)
+                    SyncStatusBadge(pendingCount = pendingCount, conflictCount = conflictCount, failedCount = failedCount, heldCount = heldCount)
                     IconButton(
                         onClick = { runSyncNow() },
                         enabled = !isSyncing
@@ -4029,144 +3842,21 @@ fun HomeScreen(
             if (assignedWorkAvailable) {
                 OutlinedButton(onClick = { onNavigateToAssignedWork(assignedProject) }, modifier = Modifier.testTag("assigned_work_navigation")) { Text("Assigned farmers") }
             }
-            if (isHydratingProfile) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        Text(LanguageManager.localize("Restoring farmer profile...", "????? ???????? ???? ?? ??? ???..."))
-                    }
-                }
-            } else if (hasProfile && farmer != null) {
+            if (farmer != null) {
                 AuthenticatedReadContractChecks()
-                if (isDebugBuild) hydratedIdentity?.let { Text("Profile restored from backend", Modifier.testTag("hydration_$it")) }
-                if (isDebugBuild) cycleReadStatuses?.let { Text(it, Modifier.testTag("cycle_collection_status")) }
-                OutlinedButton(onClick = { onNavigateToAvailability(farmer.id) }, modifier = Modifier.testTag("parcel_availability_navigation")) { Text("Parcel availability") }
-                // â•â•â•â•â•â•â•â•â•â•â• PROFILE EXISTS â€” show farmer info + crop actions â•â•â•â•â•â•â•â•â•â•â•
+                if (isDebugBuild) visibleCycleResult?.readStatuses?.let { Text(it, Modifier.testTag("cycle_collection_status")) }
+                HomeOwnedFarmerCard(queueOwner, farmerResult, onNavigateToFarmerProfile, onNavigateToAvailability)
 
-                // Farmer info header (tappable)
-                Card(
-                    onClick = { onNavigateToFarmerProfile(farmer.id) },
-                    modifier = Modifier.fillMaxWidth().testTag("profile_${farmer.id}"),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "ðŸ‘¤ ${farmer.displayName ?: farmer.mobileNumber}",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                "ðŸ“ ${farmer.villageName ?: ""} | ${farmer.mobileNumber}",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        Text("âœï¸", style = MaterialTheme.typography.titleMedium)
-                    }
-                }
-
-                // Crop actions
-                Text(
-                    LanguageManager.localize("Crop Management", "à¤«à¤¸à¤² à¤ªà¥à¤°à¤¬à¤‚à¤§à¤¨"),
-                    style = MaterialTheme.typography.titleSmall
+                HomeCropCyclePanel(
+                    scope = cycleScope,
+                    result = cycleResult,
+                    isLoadingCycles = isLoadingCycles,
+                    localize = LanguageManager::localize,
+                    onTimeline = ::openCycleTimeline,
+                    onStartCycle = onNavigateToCropCycle,
                 )
 
-                if (isLoadingCycles) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Loading active crop cycles...", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-
-                val displayCycles = (activeCycles + completedCycles + if (useCachedCycleFallback) cachedCycles else emptyList()).dedupeForHome()
-                val runningCycles = displayCycles.filterNot { it.status.equals("COMPLETED", ignoreCase = true) }
-                runningCycles.forEach { cycle ->
-                    val currentStage = cycle.stages.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
-                        ?: cycle.stages.firstOrNull { it.status.equals("PENDING", ignoreCase = true) }
-                    ElevatedCard(
-                        onClick = { onNavigateToStageTimeline(cycle.id) },
-                        modifier = Modifier.fillMaxWidth().testTag("cycle_${cycle.id}"),
-                        colors = CardDefaults.elevatedCardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                "Continue ${cycle.cropName ?: cycle.cropCode}",
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                listOfNotNull(
-                                    cycle.seasonCode,
-                                    currentStage?.getDisplayName()
-                                ).joinToString(" â€¢ "),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            currentStage?.expectedStartDate?.let { startDate ->
-                                Text(
-                                    "Current stage started: $startDate",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (cycleLoadMessage != null && activeCycles.isEmpty() && completedCycles.isEmpty() && cachedCycles.isEmpty()) {
-                    Text(
-                        cycleLoadMessage!!,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-
-                val historyCycles = displayCycles.filter { it.status.equals("COMPLETED", ignoreCase = true) }
-                if (historyCycles.isNotEmpty()) {
-                    Text("Completed Crop Cycles", style = MaterialTheme.typography.titleSmall)
-                    historyCycles.forEach { cycle ->
-                        ElevatedCard(
-                            onClick = { onNavigateToStageTimeline(cycle.id) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text("Completed ${cycle.cropName ?: cycle.cropCode}", style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    listOfNotNull(cycle.seasonCode, cycle.expectedHarvestDate?.let { "Harvest: $it" }).joinToString(" \u2022 "),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Start Crop Cycle
-                ElevatedCard(
-                    onClick = onNavigateToCropCycle,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text(
-                                if (activeCycles.isEmpty()) LanguageManager.localize("Start Crop Cycle", "à¤«à¤¸à¤² à¤šà¤•à¥à¤° à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚")
-                                else LanguageManager.localize("Start another crop cycle", "à¤à¤• à¤”à¤° à¤«à¤¸à¤² à¤šà¤•à¥à¤° à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚"),
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                if (activeCycles.isEmpty()) LanguageManager.localize("Begin a new crop season", "à¤¨à¤¯à¤¾ à¤«à¤¸à¤² à¤®à¥Œà¤¸à¤® à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚")
-                                else LanguageManager.localize("For another land parcel or crop", "à¤¦à¥‚à¤¸à¤°à¥‡ à¤–à¥‡à¤¤ à¤¯à¤¾ à¤«à¤¸à¤² à¤•à¥‡ à¤²à¤¿à¤"),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                }
-
-            } else {
-                // â•â•â•â•â•â•â•â•â•â•â• NO PROFILE â€” show enrollment â•â•â•â•â•â•â•â•â•â•â•
+            } else if (farmerResult?.isEmptyFor(queueOwner) == true) {
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -4666,59 +4356,95 @@ fun HomeScreen(
                     Text(line, style = MaterialTheme.typography.bodySmall)
                 }
             }
-            // Sync status card
-            if (pendingCount > 0 || conflictCount > 0 || failedCount > 0 || isSyncing || lastSyncMessage != null) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (conflictCount > 0 || failedCount > 0) MaterialTheme.colorScheme.errorContainer
-                        else MaterialTheme.colorScheme.secondaryContainer
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+            HomeQueuePanel(
+                owner = queueOwner,
+                rawSummary = observedSummary,
+                rawAttention = observedAttention,
+                isSyncing = isSyncing,
+                lastSyncMessage = lastSyncMessage,
+                localize = LanguageManager::localize,
+                onSync = ::runSyncNow,
+                onDiscard = ::refreshContextAndDiscardDraft,
+                onServerRecovery = ::acceptServerConflictAndDiscardLocal,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun HomeQueuePanel(
+    owner: QueueOwner?,
+    rawSummary: OwnerQueueSummary?,
+    rawAttention: List<SyncQueueEntity>,
+    isSyncing: Boolean,
+    lastSyncMessage: String?,
+    localize: (String, String) -> String,
+    onSync: () -> Unit,
+    onDiscard: (SyncQueueEntity) -> Unit,
+    onServerRecovery: (SyncQueueEntity) -> Unit,
+) {
+    if (owner == null) return
+    val queueSummary = rawSummary?.takeIf { it.visibleTo(owner) }
+    val attentionItems = if (queueSummary == null) emptyList() else rawAttention.filter(owner::owns)
+    val pendingCount = queueSummary?.pending ?: 0
+    val conflictCount = queueSummary?.conflicted ?: 0
+    val failedCount = queueSummary?.failed ?: 0
+    val heldCount = queueSummary?.held ?: 0
+    if (queueSummary == null || heldCount > 0 || pendingCount > 0 || conflictCount > 0 ||
+        failedCount > 0 || attentionItems.isNotEmpty() || isSyncing || lastSyncMessage != null) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (conflictCount > 0 || failedCount > 0) MaterialTheme.colorScheme.errorContainer
+                else MaterialTheme.colorScheme.secondaryContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    localize("Sync Status", "à¤¸à¤¿à¤‚à¤• à¤¸à¥à¤¥à¤¿à¤¤à¤¿"),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Spacer(Modifier.height(4.dp))
+                if (heldCount > 0) Text("$heldCount held for investigation. No automatic retry.")
+                if (queueSummary == null) {
+                    Text("Checking this account's queue status.")
+                } else if (isSyncing) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            LanguageManager.localize("Sync Status", "à¤¸à¤¿à¤‚à¤• à¤¸à¥à¤¥à¤¿à¤¤à¤¿"),
-                            style = MaterialTheme.typography.titleSmall
+                            localize("Syncing...", "à¤¸à¤¿à¤‚à¤• à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ..."),
+                            style = MaterialTheme.typography.bodySmall
                         )
-                        Spacer(Modifier.height(4.dp))
-                        if (isSyncing) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    LanguageManager.localize("Syncing...", "à¤¸à¤¿à¤‚à¤• à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ..."),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        } else {
-                            if (pendingCount > 0) {
-                                Text("ðŸ”„ $pendingCount ${LanguageManager.localize("items waiting", "à¤†à¤‡à¤Ÿà¤® à¤ªà¥à¤°à¤¤à¥€à¤•à¥à¤·à¤¾ à¤®à¥‡à¤‚")}")
-                            }
-                            if (conflictCount > 0) {
-                                Text("âš ï¸ $conflictCount ${LanguageManager.localize("need attention", "à¤§à¥à¤¯à¤¾à¤¨ à¤¦à¥‡à¤‚")}")
-                            }
-                            if (failedCount > 0) {
-                                Text("Failed $failedCount sync items")
-                            }
-                            attentionItems.forEach { item ->
-                                SyncAttentionMessage(
-                                    item = item,
-                                    onRefreshAndDiscard = { refreshContextAndDiscardDraft(item) },
-                                    onAcceptServerAndDiscard = { acceptServerConflictAndDiscardLocal(item) }
-                                )
-                            }
-                            if (lastSyncMessage != null) {
-                                Text(lastSyncMessage!!, style = MaterialTheme.typography.bodySmall)
-                            }
-                            if (pendingCount > 0 || conflictCount > 0 || failedCount > 0) {
-                                Spacer(Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = { runSyncNow() },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(LanguageManager.localize("Sync Now", "\u0905\u092d\u0940 \u0938\u093f\u0902\u0915 \u0915\u0930\u0947\u0902"))
-                                }
-                            }
+                    }
+                } else {
+                    Text("Synced ${queueSummary.synced}")
+                    if (pendingCount > 0) {
+                        Text("ðŸ”„ $pendingCount ${localize("items waiting", "à¤†à¤‡à¤Ÿà¤® à¤ªà¥à¤°à¤¤à¥€à¤•à¥à¤·à¤¾ à¤®à¥‡à¤‚")}")
+                    }
+                    if (conflictCount > 0) {
+                        Text("âš ï¸ $conflictCount ${localize("need attention", "à¤§à¥à¤¯à¤¾à¤¨ à¤¦à¥‡à¤‚")}")
+                    }
+                    if (failedCount > 0) {
+                        Text("Failed $failedCount sync items")
+                    }
+                    attentionItems.forEach { item ->
+                        SyncAttentionMessage(
+                            item = item,
+                            onRefreshAndDiscard = { onDiscard(item) },
+                            onAcceptServerAndDiscard = { onServerRecovery(item) }
+                        )
+                    }
+                    if (lastSyncMessage != null) {
+                        Text(if (heldCount > 0) OwnershipContainment.HELD_MESSAGE else lastSyncMessage, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (pendingCount > 0 || conflictCount > 0 || failedCount > 0) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = onSync,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(localize("Sync Now", "\u0905\u092d\u0940 \u0938\u093f\u0902\u0915 \u0915\u0930\u0947\u0902"))
                         }
                     }
                 }
@@ -4734,15 +4460,20 @@ private fun SyncAttentionMessage(
     onRefreshAndDiscard: () -> Unit,
     onAcceptServerAndDiscard: () -> Unit
 ) {
+    if (item.isOwnershipHeld()) {
+        Text("Held for investigation", style = MaterialTheme.typography.bodyMedium)
+        Text(OwnershipContainment.HELD_MESSAGE, style = MaterialTheme.typography.bodySmall)
+        return
+    }
     val message = remember(item.eventId, item.syncStatus, item.lastError) {
         item.toUserFacingSyncMessage()
     }
     Column(modifier = Modifier.padding(top = 4.dp)) {
         Text(message.title, style = MaterialTheme.typography.bodyMedium)
         Text(message.body, style = MaterialTheme.typography.bodySmall)
-        if (item.isStaleLocalContextFailure()) {
+        if (item.canDiscardLocally() && item.isStaleLocalContextFailure()) {
             Text(
-                "This draft was created from old parcel or project data. Refresh your profile and parcel list, then create it again if needed.",
+                "This removes only an unreserved local draft. Backend state is not changed or reconciled.",
                 style = MaterialTheme.typography.bodySmall
             )
             OutlinedButton(
@@ -4751,8 +4482,11 @@ private fun SyncAttentionMessage(
                     .fillMaxWidth()
                     .padding(top = 6.dp)
             ) {
-                Text("Refresh and discard draft")
+                Text("Discard local draft")
             }
+        }
+        if (item.isVersionMismatchConflict() || item.isWorkflowInvalidConflict()) {
+            Text("Server conflict recovery is temporarily unavailable. The local operation is retained.")
         }
         if (item.isVersionMismatchConflict()) {
             Text(
@@ -4761,6 +4495,7 @@ private fun SyncAttentionMessage(
             )
             OutlinedButton(
                 onClick = onAcceptServerAndDiscard,
+                enabled = false,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 6.dp)
@@ -4775,6 +4510,7 @@ private fun SyncAttentionMessage(
             )
             OutlinedButton(
                 onClick = onAcceptServerAndDiscard,
+                enabled = false,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 6.dp)
@@ -4978,34 +4714,4 @@ private fun parseSyncError(raw: String): Map<String, String> {
         val parsed: Map<String, Any?> = Gson().fromJson(raw, type)
         parsed.mapValues { (_, value) -> value?.toString().orEmpty() }
     }.getOrDefault(emptyMap())
-}
-
-
-private fun List<CropCycleResponseDto>.dedupeForHome(): List<CropCycleResponseDto> {
-    return groupBy { cycle ->
-        listOf(cycle.parcelId ?: cycle.id, cycle.cropCode, cycle.seasonCode).joinToString("|")
-    }.values.map { cycles ->
-        cycles.maxWith(
-            compareBy<CropCycleResponseDto> { it.homeProgressScore() }
-                .thenBy { it.createdAt ?: "" }
-        )
-    }.sortedWith(
-        compareByDescending<CropCycleResponseDto> { it.homeProgressScore() }
-            .thenByDescending { it.createdAt ?: "" }
-    )
-}
-
-private fun CropCycleResponseDto.homeProgressScore(): Int {
-    val activeIndex = stages.indexOfFirst { stage ->
-        stage.status.equals("ACTIVE", ignoreCase = true) ||
-            stage.status.equals("IN_PROGRESS", ignoreCase = true) ||
-            stage.status.equals("STARTED", ignoreCase = true)
-    }
-    val completedCount = stages.count { it.status.equals("COMPLETED", ignoreCase = true) }
-    val statusBonus = when {
-        status.equals("COMPLETED", ignoreCase = true) -> 30_000
-        status.equals("ACTIVE", ignoreCase = true) -> 20_000
-        else -> 0
-    }
-    return statusBonus + completedCount * 100 + activeIndex.coerceAtLeast(0)
 }

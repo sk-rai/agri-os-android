@@ -174,7 +174,7 @@ fun SettingsScreen(
                 TextButton(onClick = {
                     showLogoutDialog = false
                     scope.launch {
-                        db.authDao().clearAuth()
+                        AgriOsApp.instance.sessionExpiry.logout()
                         onLogout()
                     }
                 }) {

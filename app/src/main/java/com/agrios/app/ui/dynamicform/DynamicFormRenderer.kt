@@ -209,18 +209,20 @@ private fun RenderField(
                 val farmers by db.farmerDao().observeAll().collectAsState(initial = emptyList())
                 val parcels by db.parcelDao().observeAll().collectAsState(initial = emptyList())
                 val season = (formValues["season_code"] ?: formValues["season"])?.toString()
-                var backendEligibleItems by remember(formId, season) { mutableStateOf<List<Pair<String, String>>?>(null) }
-                var backendEligibilityLoaded by remember(formId, season) { mutableStateOf(false) }
+                val selectedFarmer = formValues["farmer_id"]?.toString()?.takeIf { it.isNotBlank() }
+                val selectedProject = formValues["project_id"]?.toString()?.takeIf { it.isNotBlank() }
+                var backendEligibleItems by remember(formId, season, selectedFarmer, selectedProject) { mutableStateOf<List<Pair<String, String>>?>(null) }
+                var backendEligibilityLoaded by remember(formId, season, selectedFarmer, selectedProject) { mutableStateOf(false) }
 
-                LaunchedEffect(formId, season) {
+                LaunchedEffect(formId, season, selectedFarmer, selectedProject) {
                     if (formId == "crop_cycle_create") {
                         backendEligibilityLoaded = false
-                        backendEligibleItems = loadEligibleParcelOptions(season)
+                        backendEligibleItems = loadEligibleParcelOptions(season, selectedFarmer, selectedProject)
                         backendEligibilityLoaded = true
                     }
                 }
 
-                val currentFarmerId = farmers.firstOrNull()?.id
+                val currentFarmerId = selectedFarmer ?: farmers.firstOrNull()?.id
                 val localEligibleParcels = if (formId == "crop_cycle_create") {
                     parcels
                         .filter { currentFarmerId.isNullOrBlank() || it.farmerId == currentFarmerId }
@@ -229,7 +231,8 @@ private fun RenderField(
                 }
                 val localParcelItems = localEligibleParcels.map { it.id to "${it.reportedArea} ${it.reportedAreaUnit} (${it.ownershipType})" }
                 val parcelItems = if (formId == "crop_cycle_create" && backendEligibilityLoaded) {
-                    backendEligibleItems?.takeIf { it.isNotEmpty() } ?: localParcelItems
+                    if (selectedFarmer != null) backendEligibleItems.orEmpty()
+                    else backendEligibleItems?.takeIf { it.isNotEmpty() } ?: localParcelItems
                 } else {
                     localParcelItems
                 }
@@ -520,12 +523,12 @@ fun validateForm(schema: FormSchemaDto, formValues: Map<String, Any?>): Map<Stri
 }
 
 
-private suspend fun loadEligibleParcelOptions(season: String?): List<Pair<String, String>>? {
+private suspend fun loadEligibleParcelOptions(season: String?, selectedFarmer: String?, selectedProject: String?): List<Pair<String, String>>? {
     return withContext(Dispatchers.IO) {
         try {
             val db = AgriOsApp.instance.database
-            val farmerId = db.farmerDao().getFirst()?.id ?: return@withContext null
-            val projectId = AndroidDynamicTestContext.projectIdFor(db.authDao())
+            val farmerId = selectedFarmer ?: db.farmerDao().getFirst()?.id ?: return@withContext null
+            val projectId = selectedProject ?: AndroidDynamicTestContext.projectIdFor(db.authDao())
             val okHttp = OkHttpClient.Builder()
                 .addInterceptor(AuthInterceptor(db.authDao()))
                 .connectTimeout(15, TimeUnit.SECONDS)

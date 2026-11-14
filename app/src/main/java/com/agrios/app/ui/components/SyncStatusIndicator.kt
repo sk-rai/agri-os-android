@@ -41,13 +41,17 @@ fun SyncStatusIndicator(
 }
 
 @Composable
-fun SyncStatusBadge(pendingCount: Int, conflictCount: Int, failedCount: Int = 0) {
-    if (pendingCount == 0 && conflictCount == 0 && failedCount == 0) return
+fun SyncStatusBadge(pendingCount: Int, conflictCount: Int, failedCount: Int = 0, heldCount: Int = 0) {
+    if (pendingCount == 0 && conflictCount == 0 && failedCount == 0 && heldCount == 0) return
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(horizontal = 8.dp)
     ) {
+        if (heldCount > 0) {
+            Text("Held $heldCount", style = MaterialTheme.typography.labelSmall, color = Color(0xFFE65100))
+            Spacer(Modifier.width(8.dp))
+        }
         if (pendingCount > 0) {
             Text(
                 "Waiting $pendingCount",

@@ -9,6 +9,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.agrios.app.core.sync.NewQueueOrigin
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -38,6 +40,13 @@ fun SoilProfileScreen(
 ) {
     val db = AgriOsApp.instance.database
     val scope = rememberCoroutineScope()
+    var origin by remember(db) { mutableStateOf<NewQueueOrigin?>(null) }
+    LaunchedEffect(db) { origin = NewQueueOrigin.capture(db.authDao()) }
+    val formOrigin = origin
+    if (formOrigin == null) {
+        Text("An authenticated origin session is required. Reopen this form after signing in.")
+        return
+    }
 
     // State
     var isSaving by remember { mutableStateOf(false) }
@@ -330,9 +339,15 @@ fun SoilProfileScreen(
                     errorMessage = null; isSaving = true
 
                     scope.launch {
+                        try {
+                        formOrigin.commit(db) {
+                        val parcel = db.parcelDao().getById(parcelId)
+                        formOrigin.requireSource(parcel)
+                        formOrigin.requireSource(db.farmerDao().getById(farmerId))
+                        check(parcel?.farmerId == farmerId) { "QUEUE_SOURCE_RELATION_MISMATCH" }
                         val now = System.currentTimeMillis()
                         val profileId = UUID.randomUUID().toString()
-                        val authState = db.authDao().getAuthState()
+                        check(db.soilProfileDao().getById(profileId) == null) { "QUEUE_NEW_RECORD_ALREADY_EXISTS" }
                         val dataSource = if (showShcSection && shcCardNumber.isNotBlank()) "SHC_CARD"
                             else if (inferredSoilType.isNotEmpty()) "INFERRED"
                             else "MANUAL"
@@ -362,7 +377,8 @@ fun SoilProfileScreen(
                             syncStatus = SyncStatus.PENDING.name,
                             createdAt = now,
                             updatedAt = now,
-                            actorId = authState?.userId ?: "unknown"
+                            actorId = formOrigin.owner.userId,
+                            originTenantId = formOrigin.owner.tenantId, originUserId = formOrigin.owner.userId
                         ))
 
                         // Queue for sync
@@ -389,7 +405,7 @@ fun SoilProfileScreen(
                             "test_date" to testDate.ifBlank { null }
                         ))
 
-                        db.syncQueueDao().enqueue(SyncQueueEntity(
+                        db.syncQueueDao().enqueue(formOrigin.bindNewEvent(SyncQueueEntity(
                             eventId = UUID.randomUUID().toString(),
                             entityType = "SOIL_PROFILE",
                             entityId = profileId,
@@ -399,11 +415,19 @@ fun SoilProfileScreen(
                             priority = SyncPriority.MEDIUM.name,
                             dependencyIds = parcelId, // soil depends on parcel being synced
                             createdAt = now
-                        ))
+                        )))
+                        }
 
                         // Trigger immediate sync
-                        SyncWorker.triggerImmediateSync(AgriOsApp.instance)
                         isSaving = false; showSuccess = true
+                        try {
+                            SyncWorker.triggerImmediateSync(AgriOsApp.instance, formOrigin)
+                        } catch (e: CancellationException) { throw e
+                        } catch (_: Exception) { errorMessage = "Saved locally. Sync scheduling failed; do not submit again." }
+                        } catch (e: CancellationException) { throw e
+                        } catch (_: Exception) {
+                            errorMessage = "Soil save blocked: original source ownership is not established. No automatic retry."
+                        } finally { isSaving = false }
                     }
                 },
                 enabled = !isSaving,

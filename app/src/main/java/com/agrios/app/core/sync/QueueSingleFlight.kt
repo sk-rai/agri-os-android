@@ -22,6 +22,15 @@ class QueueSingleFlight {
         block()
     }
 
+    /** A rejected admission must not run recovery or consume its once-per-queue slot. */
+    internal suspend fun <T : Any> runAdmitted(
+        queue: Any, admit: suspend (needsRecovery: Boolean) -> Boolean, block: suspend () -> T,
+    ): T? = mutex.withLock {
+        if (!admit(recovered[queue] != true)) return@withLock null
+        recovered[queue] = true
+        block()
+    }
+
     companion object { val applicationQueue = QueueSingleFlight() }
 }
 

@@ -10,6 +10,10 @@ import kotlinx.coroutines.flow.Flow
 import android.util.Base64
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /**
  * Auth flow:
@@ -21,15 +25,17 @@ class AuthRepository(
     private val api: AgriOsApi,
     private val authDao: AuthDao,
     private val deviceId: String,
-    private val deviceName: String
+    private val deviceName: String,
+    private val expiry: SessionExpiryCoordinator? = SessionExpiryCoordinator.registeredFor(authDao)
 ) {
+
     fun observeAuthState(): Flow<AuthStateEntity?> = authDao.observeAuthState()
 
     suspend fun getAuthState(): AuthStateEntity? = authDao.getAuthState()
 
     suspend fun isAuthenticated(): Boolean {
         val state = authDao.getAuthState()
-        return state?.isAuthenticated == true && state.jwt != null
+        return state?.isAuthenticated == true && !state.reauthRequired && !state.jwt.isNullOrBlank()
     }
 
     /**
@@ -40,13 +46,16 @@ class AuthRepository(
         return try {
             val response = api.requestOtp(OtpRequestDto(mobileNumber))
             if (response.isSuccessful) {
+                val devOtp = response.body()?.devOtp
                 // Return dev_otp if present (for dev/testing builds)
-                Result.success(response.body()?.devOtp)
+                Result.success(devOtp)
             } else {
+                response.errorBody()?.close()
                 Result.failure(Exception("OTP request failed: ${response.code()}"))
             }
-        } catch (e: Exception) {
-            Result.failure(e)
+        } catch (e: CancellationException) { throw e
+        } catch (_: Exception) {
+            Result.failure(IllegalStateException("AUTHENTICATION_UNAVAILABLE"))
         }
     }
 
@@ -54,7 +63,17 @@ class AuthRepository(
      * Step 2: Verify OTP → receive JWT + device_key
      */
     suspend fun verifyOtp(mobileNumber: String, otpCode: String): Result<AuthStateEntity> {
+        var attempt: AuthAttempt? = null
+        var requestStarted = false
+        var responseReceived = false
+        var persistenceStarted = false
         return try {
+            // Navigation observes this owner, not the repository result. Never
+            // consume an OTP or silently save a session without that owner.
+            val owner = expiry ?: return Result.failure(OtpVerificationUnavailable(OtpFailureCategory.OWNER_UNAVAILABLE))
+            if (!owner.owns(authDao)) return Result.failure(OtpVerificationUnavailable(OtpFailureCategory.OWNER_MISMATCH))
+            attempt = owner.beginAuthentication()
+            requestStarted = true
             val response = api.verifyOtp(
                 OtpVerifyDto(
                     mobileNumber = mobileNumber,
@@ -63,8 +82,9 @@ class AuthRepository(
                     deviceName = deviceName
                 )
             )
+            responseReceived = true
             if (response.isSuccessful) {
-                val body = response.body()!!
+                val body = response.body() ?: throw OtpVerificationUnavailable(OtpFailureCategory.INVALID_RESPONSE)
 
                 // If backend didn't return tenant_id, try to extract from JWT claims
                 val tenantId = body.tenantId ?: extractTenantFromJwt(body.accessToken)
@@ -78,13 +98,42 @@ class AuthRepository(
                     mobileNumber = mobileNumber,
                     isAuthenticated = true
                 )
-                authDao.saveAuthState(authState)
+                persistenceStarted = true
+                val decision = owner.completeAuthenticationDecision(attempt, authState)
+                if (decision.completion != AuthenticationCompletion.ACCEPTED)
+                    throw AuthenticationRejected(decision.completion, decision.comparison)
                 Result.success(authState)
             } else {
-                Result.failure(Exception("OTP verification failed: ${response.code()}"))
+                if (attempt != null) expiry?.authenticationFailed(attempt)
+                response.errorBody()?.close()
+                Result.failure(OtpHttpRejected(response.code()))
             }
-        } catch (e: Exception) {
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { if (attempt != null) expiry?.authenticationFailed(attempt) }
+            throw e
+        } catch (e: AuthenticationRejected) {
+            if (attempt != null) expiry?.authenticationFailed(attempt)
             Result.failure(e)
+        } catch (e: OtpVerificationUnavailable) {
+            if (attempt != null) expiry?.authenticationFailed(attempt)
+            Result.failure(e)
+        } catch (_: com.google.gson.JsonParseException) {
+            if (attempt != null) expiry?.authenticationFailed(attempt)
+            Result.failure(OtpVerificationUnavailable(OtpFailureCategory.INVALID_RESPONSE))
+        } catch (e: IOException) {
+            if (attempt != null) expiry?.authenticationFailed(attempt)
+            val category = if (!requestStarted || persistenceStarted) OtpFailureCategory.STORAGE_UNAVAILABLE
+                else OtpFailureCategory.TRANSPORT_UNAVAILABLE
+            Result.failure(OtpVerificationUnavailable(category,
+                if (category == OtpFailureCategory.TRANSPORT_UNAVAILABLE) otpTransportCode(e) else null))
+        } catch (_: Exception) {
+            if (attempt != null) expiry?.authenticationFailed(attempt)
+            val category = when {
+                !requestStarted || persistenceStarted -> OtpFailureCategory.STORAGE_UNAVAILABLE
+                responseReceived -> OtpFailureCategory.INVALID_RESPONSE
+                else -> OtpFailureCategory.UNEXPECTED_FAILURE
+            }
+            Result.failure(OtpVerificationUnavailable(category))
         }
     }
 
@@ -93,13 +142,21 @@ class AuthRepository(
      */
     suspend fun refreshWithDeviceKey(): Result<AuthStateEntity> {
         val currentState = authDao.getAuthState()
+        if (currentState?.reauthRequired == true) return Result.failure(IllegalStateException("OTP_REQUIRED"))
         val deviceKey = currentState?.deviceKey
             ?: return Result.failure(Exception("No device key stored"))
 
+        var attempt: AuthAttempt? = null
+        var deviceResponseReceived = false
+
         return try {
+            val owner = checkNotNull(expiry) { "AUTHENTICATION_OWNER_UNAVAILABLE" }
+            check(owner.owns(authDao)) { "AUTHENTICATION_OWNER_MISMATCH" }
+            attempt = owner.beginAuthentication()
             val response = api.authenticateDevice(
                 DeviceAuthDto(deviceKey = deviceKey, deviceId = deviceId)
             )
+            deviceResponseReceived = true
             if (response.isSuccessful) {
                 val body = response.body()!!
 
@@ -117,25 +174,46 @@ class AuthRepository(
                     mobileNumber = currentState.mobileNumber,
                     isAuthenticated = true
                 )
-                authDao.saveAuthState(authState)
+                check(owner.completeAuthentication(attempt, authState)) { "AUTHENTICATION_REJECTED" }
                 Result.success(authState)
             } else {
+                if (attempt != null) expiry?.authenticationFailed(attempt)
+                response.errorBody()?.close()
                 // Device key rejected — need fresh OTP
                 Result.failure(Exception("Device auth failed: ${response.code()}"))
             }
-        } catch (e: Exception) {
-            // Network error — continue with cached auth if available
-            if (currentState?.isAuthenticated == true) {
-                Result.success(currentState)
-            } else {
-                Result.failure(e)
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { if (attempt != null) expiry?.authenticationFailed(attempt) }
+            throw e
+        } catch (_: IOException) {
+            if (deviceResponseReceived) {
+                if (attempt != null) expiry?.authenticationFailed(attempt)
+                return Result.failure(IllegalStateException("AUTHENTICATION_UNAVAILABLE"))
             }
+            // Offline reuse still has to publish through the same owner. A bare
+            // Result.success leaves AuthViewModel waiting forever for navigation.
+            val latest = authDao.getAuthState()
+            try {
+                if (expiry?.owns(authDao) == true && attempt != null && latest == currentState &&
+                    expiry.completeAuthentication(attempt, currentState)) {
+                    Result.success(currentState)
+                } else Result.failure(IllegalStateException("AUTHENTICATION_UNAVAILABLE"))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                Result.failure(IllegalStateException("AUTHENTICATION_UNAVAILABLE"))
+            }
+        } catch (_: Exception) {
+            if (attempt != null) expiry?.authenticationFailed(attempt)
+            Result.failure(IllegalStateException("AUTHENTICATION_UNAVAILABLE"))
         }
     }
 
     suspend fun logout() {
-        authDao.clearAuth()
+        if (expiry != null) expiry.logout() else authDao.clearAuth()
     }
+
+    suspend fun cancelAuthentication() { expiry?.cancelAuthentication() }
 
     /**
      * Extract tenant_id from JWT payload claims.

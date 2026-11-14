@@ -18,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.agrios.app.core.sync.OwnershipContainment
+import com.agrios.app.core.sync.UnsupportedOwnershipAction
 import com.agrios.app.AgriOsApp
 import com.agrios.app.core.cache.CropCycleCache
 import com.agrios.app.core.geo.GeoJson
@@ -25,7 +27,6 @@ import com.agrios.app.core.network.AndroidDynamicTestContext
 import com.agrios.app.core.network.ApiConfig
 import com.agrios.app.core.network.AuthInterceptor
 import com.agrios.app.core.database.AppDatabase
-import com.agrios.app.core.sync.SyncWorker
 import com.agrios.app.core.util.LanguageManager
 import com.agrios.app.core.util.UnitConverter
 import com.agrios.app.data.local.entity.FarmerEntity
@@ -39,7 +40,6 @@ import com.agrios.app.data.remote.dto.FormSchemaDto
 import com.agrios.app.data.remote.dto.LandIntelligenceContextDto
 import com.agrios.app.data.repository.BackendBootstrapRepository
 import com.agrios.app.data.repository.GeometryRepository
-import com.agrios.app.data.repository.OfflineCropSyncRepository
 import com.agrios.app.ui.cropcycle.StageInferenceDialog
 import com.google.gson.Gson
 import com.google.gson.JsonParser
@@ -47,10 +47,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -287,6 +285,11 @@ fun DynamicFormScreen(
                 }
 
                 schema != null -> {
+                    if (formId == "crop_cycle_create" && contextValues["farmer_id"] != null) {
+                        Text("Farmer: ${contextValues["farmer_id"]}")
+                        Text("Parcel: ${contextValues["parcel_id"]}")
+                        Text("Project: ${contextValues["project_id"]}")
+                    }
                     landIntelligenceContext?.let { LandIntelligenceGuidanceCard(it) }
                     // Render the form
                     DynamicFormRenderer(
@@ -332,6 +335,11 @@ fun DynamicFormScreen(
                         onClick = {
                             // State is read immediately, not only through a later disabled recomposition.
                             if (isSaving || saveSuccess || (formId == "crop_cycle_create" && cycleCreateAttempted)) return@Button
+                            if (formId == "activity_log" &&
+                                OwnershipContainment.block(UnsupportedOwnershipAction.ACTIVITY) { saveError = it }) {
+                                isSaving = false
+                                return@Button
+                            }
                             // Validate
                             val errors = validateForm(schema!!, formValues)
                             if (errors.isNotEmpty()) {
@@ -370,75 +378,23 @@ fun DynamicFormScreen(
 
                                     // Route to correct endpoint based on form type
                                     if (formId == "activity_log") {
-                                        // Activity log — direct API call to /crop-cycles/{cycleId}/activities
-                                        val cycleId = contextValues["crop_cycle_id"] ?: ""
-                                        if (cycleId.isBlank()) {
-                                            throw Exception("Missing crop_cycle_id for activity log")
-                                        }
-                                        try {
-                                            withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                            val okHttp = OkHttpClient.Builder()
-                                                .addInterceptor(AuthInterceptor(db.authDao()))
-                                                .connectTimeout(15, TimeUnit.SECONDS)
-                                                .readTimeout(15, TimeUnit.SECONDS)
-                                                .build()
-
-                                            val activityUrl = "${ApiConfig.BASE_URL}crop-cycles/$cycleId/activities"
-
-                                            val requestBody = okhttp3.RequestBody.create(
-                                                "application/json".toMediaTypeOrNull(),
-                                                Gson().toJson(payload)
-                                            )
-                                            val request = okhttp3.Request.Builder()
-                                                .url(activityUrl)
-                                                .post(requestBody)
-                                                .build()
-                                            val response = okHttp.newCall(request).execute()
-
-                                            if (response.isSuccessful) {
-                                                Log.d(TAG, "Activity logged successfully")
-                                            } else {
-                                                val errorBody = response.body?.string()
-                                                Log.e(TAG, "Activity log failed: HTTP ${response.code}")
-                                                throw Exception("HTTP ${response.code}: ${errorBody ?: response.message}")
-                                            }
-                                            }
-                                        } catch (e: IOException) {
-                                            withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                                val offlinePayload = payload.toMutableMap()
-                                                offlinePayload.putIfAbsent("crop_cycle_id", cycleId)
-                                                contextValues["stage_code"]?.takeIf { it.isNotBlank() }?.let {
-                                                    offlinePayload.putIfAbsent("stage_code", it)
-                                                }
-                                                val stageDependencyEventId = contextValues["stage_code"]
-                                                    ?.takeIf { it.isNotBlank() }
-                                                    ?.let { stageCode ->
-                                                        db.syncQueueDao()
-                                                            .getLatestCropStageEvent(
-                                                                entityType = OfflineCropSyncRepository.ENTITY_TYPE_CROP_STAGE,
-                                                                cycleId = cycleId,
-                                                                stageCode = stageCode
-                                                            )
-                                                            ?.eventId
-                                                    }
-                                                OfflineCropSyncRepository.enqueueActivityCreate(
-                                                    syncQueueDao = db.syncQueueDao(),
-                                                    activityId = UUID.randomUUID().toString(),
-                                                    payload = offlinePayload,
-                                                    dependencyIds = listOfNotNull(stageDependencyEventId)
-                                                )
-                                                SyncWorker.triggerImmediateSync(AgriOsApp.instance)
-                                                Log.d(TAG, "Activity queued for offline crop sync replay")
-                                            }
-                                        }
+                                        OwnershipContainment.block(UnsupportedOwnershipAction.ACTIVITY) { saveError = it }
+                                        isSaving = false
+                                        return@launch
                                     } else if (entityType == "CROP_CYCLE") {
                                         // Crop cycle creation — direct API call to get stages/inference
                                         withContext(kotlinx.coroutines.Dispatchers.IO) {
                                             val parcelId = payload["parcel_id"]?.toString()
-                                            var farmerId: String? = null
+                                            val assisted = contextValues["farmer_id"]?.let { farmer ->
+                                                com.agrios.app.core.sync.AssistedCycleSubject(
+                                                    farmer, contextValues["parcel_id"].orEmpty(),
+                                                    contextValues["project_id"].orEmpty())
+                                            }
+                                            var farmerId: String? = assisted?.farmerId
                                             if (parcelId != null) {
                                                 val parcel = db.parcelDao().getById(parcelId)
-                                                farmerId = parcel?.farmerId
+                                                if (assisted == null) farmerId = parcel?.farmerId
+                                                else require(parcel == null || parcel.farmerId == assisted.farmerId) { "Parcel context changed" }
                                             }
                                             if (farmerId == null) {
                                                 val authState = db.authDao().getAuthState()
@@ -448,8 +404,20 @@ fun DynamicFormScreen(
                                             if (farmerId != null) {
                                                 enrichedPayload["farmer_id"] = farmerId
                                             }
-                                            AndroidDynamicTestContext.projectIdFor(db.authDao())?.let { projectId ->
+                                            (assisted?.projectId ?: AndroidDynamicTestContext.projectIdFor(db.authDao()))?.let { projectId ->
                                                 enrichedPayload["project_id"] = projectId
+                                            }
+                                            if (assisted != null) {
+                                                val bound = assisted.bind(payload)
+                                                enrichedPayload.clear()
+                                                enrichedPayload.putAll(bound)
+                                                val reads = com.agrios.app.data.repository.AuthenticatedReadsRepository(db.authDao())
+                                                val eligible = com.agrios.app.data.repository.availabilityRows(
+                                                    reads.eligibility(assisted.farmerId, payload["season_code"]?.toString().orEmpty(), assisted.projectId),
+                                                    assisted.farmerId)
+                                                require(eligible?.any { row ->
+                                                    row.get("parcel_id")?.asString == assisted.parcelId && row.get("eligible")?.asBoolean == true
+                                                } == true) { "Selected parcel eligibility could not be confirmed" }
                                             }
                                             cycleCreateAttempted = true
                                             val createResult = cycleSubmission.submit {
@@ -515,7 +483,6 @@ fun DynamicFormScreen(
                                         )
                                         savedEntityId
                                         } }
-                                        SyncWorker.triggerImmediateSync(AgriOsApp.instance)
                                     } else {
                                         // For other entity types, use sync queue
                                         val entityId = UUID.randomUUID().toString()
@@ -529,7 +496,6 @@ fun DynamicFormScreen(
                                             priority = SyncPriority.HIGH.name,
                                             createdAt = now
                                         ))
-                                        SyncWorker.triggerImmediateSync(AgriOsApp.instance)
                                     }
 
                                     isSaving = false
