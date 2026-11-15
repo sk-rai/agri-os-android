@@ -1,0 +1,1190 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 10,
+    "identityHash": "3c4ff69c36c5a4f10fa8050c0c7f8ff3",
+    "entities": [
+      {
+        "tableName": "auth_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `jwt` TEXT, `device_key` TEXT, `user_id` TEXT, `tenant_id` TEXT, `role` TEXT, `mobile_number` TEXT, `is_authenticated` INTEGER NOT NULL, `reauth_required` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "jwt",
+            "columnName": "jwt",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "deviceKey",
+            "columnName": "device_key",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "tenantId",
+            "columnName": "tenant_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "mobileNumber",
+            "columnName": "mobile_number",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isAuthenticated",
+            "columnName": "is_authenticated",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reauthRequired",
+            "columnName": "reauth_required",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "geography_states",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `lgd_code` TEXT NOT NULL, `canonical_name` TEXT NOT NULL, `aliases` TEXT, `is_active` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lgdCode",
+            "columnName": "lgd_code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalName",
+            "columnName": "canonical_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aliases",
+            "columnName": "aliases",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_geography_states_lgd_code",
+            "unique": true,
+            "columnNames": [
+              "lgd_code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_geography_states_lgd_code` ON `${TABLE_NAME}` (`lgd_code`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "geography_districts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `lgd_code` TEXT NOT NULL, `state_id` TEXT NOT NULL, `canonical_name` TEXT NOT NULL, `aliases` TEXT, `is_active` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lgdCode",
+            "columnName": "lgd_code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stateId",
+            "columnName": "state_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalName",
+            "columnName": "canonical_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aliases",
+            "columnName": "aliases",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_geography_districts_lgd_code",
+            "unique": true,
+            "columnNames": [
+              "lgd_code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_geography_districts_lgd_code` ON `${TABLE_NAME}` (`lgd_code`)"
+          },
+          {
+            "name": "index_geography_districts_state_id",
+            "unique": false,
+            "columnNames": [
+              "state_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_geography_districts_state_id` ON `${TABLE_NAME}` (`state_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "geography_blocks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `lgd_code` TEXT NOT NULL, `district_id` TEXT NOT NULL, `canonical_name` TEXT NOT NULL, `aliases` TEXT, `is_active` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lgdCode",
+            "columnName": "lgd_code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "districtId",
+            "columnName": "district_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalName",
+            "columnName": "canonical_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aliases",
+            "columnName": "aliases",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_geography_blocks_lgd_code",
+            "unique": true,
+            "columnNames": [
+              "lgd_code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_geography_blocks_lgd_code` ON `${TABLE_NAME}` (`lgd_code`)"
+          },
+          {
+            "name": "index_geography_blocks_district_id",
+            "unique": false,
+            "columnNames": [
+              "district_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_geography_blocks_district_id` ON `${TABLE_NAME}` (`district_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "geography_villages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `lgd_code` TEXT NOT NULL, `block_id` TEXT NOT NULL, `district_id` TEXT NOT NULL, `canonical_name` TEXT NOT NULL, `pin_codes` TEXT, `aliases` TEXT, `is_active` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lgdCode",
+            "columnName": "lgd_code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blockId",
+            "columnName": "block_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "districtId",
+            "columnName": "district_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalName",
+            "columnName": "canonical_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinCodes",
+            "columnName": "pin_codes",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "aliases",
+            "columnName": "aliases",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_geography_villages_lgd_code",
+            "unique": true,
+            "columnNames": [
+              "lgd_code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_geography_villages_lgd_code` ON `${TABLE_NAME}` (`lgd_code`)"
+          },
+          {
+            "name": "index_geography_villages_block_id",
+            "unique": false,
+            "columnNames": [
+              "block_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_geography_villages_block_id` ON `${TABLE_NAME}` (`block_id`)"
+          },
+          {
+            "name": "index_geography_villages_district_id",
+            "unique": false,
+            "columnNames": [
+              "district_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_geography_villages_district_id` ON `${TABLE_NAME}` (`district_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "crop_categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT, `is_active` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "crops",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `crop_code` TEXT NOT NULL, `canonical_name` TEXT NOT NULL, `category_id` TEXT NOT NULL, `season` TEXT, `aliases` TEXT, `is_active` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cropCode",
+            "columnName": "crop_code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalName",
+            "columnName": "canonical_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "category_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "aliases",
+            "columnName": "aliases",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_crops_crop_code",
+            "unique": true,
+            "columnNames": [
+              "crop_code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_crops_crop_code` ON `${TABLE_NAME}` (`crop_code`)"
+          },
+          {
+            "name": "index_crops_category_id",
+            "unique": false,
+            "columnNames": [
+              "category_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_crops_category_id` ON `${TABLE_NAME}` (`category_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "sync_queue",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`event_id` TEXT NOT NULL, `entity_type` TEXT NOT NULL, `entity_id` TEXT NOT NULL, `operation` TEXT NOT NULL, `payload` TEXT NOT NULL, `sync_status` TEXT NOT NULL, `retry_count` INTEGER NOT NULL, `max_retries` INTEGER NOT NULL, `next_retry_after` INTEGER, `priority` TEXT NOT NULL, `dependency_ids` TEXT, `last_error` TEXT, `version` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `origin_tenant_id` TEXT, `origin_user_id` TEXT, `dispatch_reserved` INTEGER NOT NULL DEFAULT 0, `dispatch_claim_id` TEXT, PRIMARY KEY(`event_id`))",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "event_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entity_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entity_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operation",
+            "columnName": "operation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retryCount",
+            "columnName": "retry_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxRetries",
+            "columnName": "max_retries",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextRetryAfter",
+            "columnName": "next_retry_after",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "priority",
+            "columnName": "priority",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dependencyIds",
+            "columnName": "dependency_ids",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "last_error",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "originTenantId",
+            "columnName": "origin_tenant_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "originUserId",
+            "columnName": "origin_user_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "dispatchReserved",
+            "columnName": "dispatch_reserved",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "dispatchClaimId",
+            "columnName": "dispatch_claim_id",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "event_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_queue_sync_status",
+            "unique": false,
+            "columnNames": [
+              "sync_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_queue_sync_status` ON `${TABLE_NAME}` (`sync_status`)"
+          },
+          {
+            "name": "index_sync_queue_priority_created_at",
+            "unique": false,
+            "columnNames": [
+              "priority",
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_queue_priority_created_at` ON `${TABLE_NAME}` (`priority`, `created_at`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "farmers_local",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `mobile_number` TEXT NOT NULL, `village_id` TEXT NOT NULL, `village_name` TEXT, `primary_crop_code` TEXT, `display_name` TEXT, `father_name` TEXT, `age` INTEGER, `gender` TEXT, `aadhaar_number` TEXT, `assistance_mode` TEXT NOT NULL, `sync_status` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `actor_id` TEXT NOT NULL, `gps_lat` REAL, `gps_lng` REAL, `origin_tenant_id` TEXT, `origin_user_id` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mobileNumber",
+            "columnName": "mobile_number",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "villageId",
+            "columnName": "village_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "villageName",
+            "columnName": "village_name",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "primaryCropCode",
+            "columnName": "primary_crop_code",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "display_name",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "fatherName",
+            "columnName": "father_name",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "age",
+            "columnName": "age",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "gender",
+            "columnName": "gender",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "aadhaarNumber",
+            "columnName": "aadhaar_number",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "assistanceMode",
+            "columnName": "assistance_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorId",
+            "columnName": "actor_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gpsLat",
+            "columnName": "gps_lat",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "gpsLng",
+            "columnName": "gps_lng",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "originTenantId",
+            "columnName": "origin_tenant_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "originUserId",
+            "columnName": "origin_user_id",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_farmers_local_mobile_number",
+            "unique": false,
+            "columnNames": [
+              "mobile_number"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_farmers_local_mobile_number` ON `${TABLE_NAME}` (`mobile_number`)"
+          },
+          {
+            "name": "index_farmers_local_village_id",
+            "unique": false,
+            "columnNames": [
+              "village_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_farmers_local_village_id` ON `${TABLE_NAME}` (`village_id`)"
+          },
+          {
+            "name": "index_farmers_local_sync_status",
+            "unique": false,
+            "columnNames": [
+              "sync_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_farmers_local_sync_status` ON `${TABLE_NAME}` (`sync_status`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "parcels_local",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `village_id` TEXT NOT NULL, `village_name` TEXT, `reported_area` REAL NOT NULL, `reported_area_unit` TEXT NOT NULL, `area_hectares` REAL, `geometry_source` TEXT NOT NULL, `gps_lat` REAL, `gps_lng` REAL, `ownership_type` TEXT NOT NULL, `irrigation_type` TEXT, `irrigation_source` TEXT, `survey_number` TEXT, `annual_rent` REAL, `share_percentage` INTEGER, `sharecrop_percentage` INTEGER, `sync_status` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `actor_id` TEXT NOT NULL, `origin_tenant_id` TEXT, `origin_user_id` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "villageId",
+            "columnName": "village_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "villageName",
+            "columnName": "village_name",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "reportedArea",
+            "columnName": "reported_area",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reportedAreaUnit",
+            "columnName": "reported_area_unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "areaHectares",
+            "columnName": "area_hectares",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "geometrySource",
+            "columnName": "geometry_source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gpsLat",
+            "columnName": "gps_lat",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "gpsLng",
+            "columnName": "gps_lng",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "ownershipType",
+            "columnName": "ownership_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "irrigationType",
+            "columnName": "irrigation_type",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "irrigationSource",
+            "columnName": "irrigation_source",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "surveyNumber",
+            "columnName": "survey_number",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "annualRent",
+            "columnName": "annual_rent",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "sharePercentage",
+            "columnName": "share_percentage",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "sharecropPercentage",
+            "columnName": "sharecrop_percentage",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorId",
+            "columnName": "actor_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "originTenantId",
+            "columnName": "origin_tenant_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "originUserId",
+            "columnName": "origin_user_id",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_parcels_local_farmer_id",
+            "unique": false,
+            "columnNames": [
+              "farmer_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_parcels_local_farmer_id` ON `${TABLE_NAME}` (`farmer_id`)"
+          },
+          {
+            "name": "index_parcels_local_village_id",
+            "unique": false,
+            "columnNames": [
+              "village_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_parcels_local_village_id` ON `${TABLE_NAME}` (`village_id`)"
+          },
+          {
+            "name": "index_parcels_local_sync_status",
+            "unique": false,
+            "columnNames": [
+              "sync_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_parcels_local_sync_status` ON `${TABLE_NAME}` (`sync_status`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "cache_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`entity_type` TEXT NOT NULL, `server_version` TEXT NOT NULL, `last_synced_at` INTEGER NOT NULL, `record_count` INTEGER NOT NULL, PRIMARY KEY(`entity_type`))",
+        "fields": [
+          {
+            "fieldPath": "entityType",
+            "columnName": "entity_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverVersion",
+            "columnName": "server_version",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncedAt",
+            "columnName": "last_synced_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordCount",
+            "columnName": "record_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "entity_type"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "soil_profiles_local",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `parcel_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `soil_type_code` TEXT, `soil_texture` TEXT, `soil_color` TEXT, `ph` REAL, `nitrogen_n` REAL, `phosphorus_p` REAL, `potassium_k` REAL, `sulphur_s` REAL, `zinc_zn` REAL, `iron_fe` REAL, `copper_cu` REAL, `manganese_mn` REAL, `boron_b` REAL, `ec` REAL, `organic_carbon_oc` REAL, `shc_card_number` TEXT, `data_source` TEXT NOT NULL, `test_date` TEXT, `sync_status` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `actor_id` TEXT NOT NULL, `origin_tenant_id` TEXT, `origin_user_id` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parcelId",
+            "columnName": "parcel_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "soilTypeCode",
+            "columnName": "soil_type_code",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "soilTexture",
+            "columnName": "soil_texture",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "soilColor",
+            "columnName": "soil_color",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "ph",
+            "columnName": "ph",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "nitrogenN",
+            "columnName": "nitrogen_n",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "phosphorusP",
+            "columnName": "phosphorus_p",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "potassiumK",
+            "columnName": "potassium_k",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "sulphurS",
+            "columnName": "sulphur_s",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "zincZn",
+            "columnName": "zinc_zn",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "ironFe",
+            "columnName": "iron_fe",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "copperCu",
+            "columnName": "copper_cu",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "manganeseMn",
+            "columnName": "manganese_mn",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "boronB",
+            "columnName": "boron_b",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "ec",
+            "columnName": "ec",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "organicCarbonOc",
+            "columnName": "organic_carbon_oc",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "shcCardNumber",
+            "columnName": "shc_card_number",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "dataSource",
+            "columnName": "data_source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "testDate",
+            "columnName": "test_date",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorId",
+            "columnName": "actor_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "originTenantId",
+            "columnName": "origin_tenant_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "originUserId",
+            "columnName": "origin_user_id",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_soil_profiles_local_parcel_id",
+            "unique": false,
+            "columnNames": [
+              "parcel_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_soil_profiles_local_parcel_id` ON `${TABLE_NAME}` (`parcel_id`)"
+          },
+          {
+            "name": "index_soil_profiles_local_farmer_id",
+            "unique": false,
+            "columnNames": [
+              "farmer_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_soil_profiles_local_farmer_id` ON `${TABLE_NAME}` (`farmer_id`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3c4ff69c36c5a4f10fa8050c0c7f8ff3')"
+    ]
+  }
+}
