@@ -8,6 +8,10 @@ plugins {
 val otpPrivacyIsolation = providers.gradleProperty("otpPrivacyIsolation")
     .map { it == "true" }.getOrElse(false)
 
+val homeCardIsolation = providers.gradleProperty("homeCardIsolation")
+    .map { it == "true" }.getOrElse(false)
+require(!(homeCardIsolation && otpPrivacyIsolation)) { "Home card isolation must run by itself" }
+
 android {
     namespace = "com.agrios.app"
     compileSdk = 35
@@ -20,11 +24,16 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        if (homeCardIsolation) {
+            testApplicationId = "com.agrios.app.homecard.test"
+            testInstrumentationRunner = "com.agrios.app.ui.home.HomeCardIsolationRunner"
+        }
     }
 
     buildTypes {
         getByName("debug") {
             if (otpPrivacyIsolation) applicationIdSuffix = ".otpprivacy"
+            if (homeCardIsolation) applicationIdSuffix = ".homecard"
         }
         release {
             isMinifyEnabled = false
@@ -36,6 +45,11 @@ android {
     }
     if (otpPrivacyIsolation) {
         sourceSets.getByName("debug").manifest.srcFile("src/otpPrivacyIsolation/AndroidManifest.xml")
+    }
+    if (homeCardIsolation) {
+        sourceSets.getByName("debug").manifest.srcFile("src/homeCardIsolation/AndroidManifest.xml")
+        sourceSets.getByName("androidTest").manifest.srcFile("src/homeCardIsolation/AndroidTestManifest.xml")
+        sourceSets.getByName("androidTest").java.setSrcDirs(listOf("src/homeCardIsolation/java"))
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

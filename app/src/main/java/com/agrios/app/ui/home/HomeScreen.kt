@@ -3839,6 +3839,7 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             modeReadError?.let { Text(it, Modifier.testTag("mode_read_error")) }
+            HomeServerProfilePanel(db, observedAuthState)
             if (assignedWorkAvailable) {
                 OutlinedButton(onClick = { onNavigateToAssignedWork(assignedProject) }, modifier = Modifier.testTag("assigned_work_navigation")) { Text("Assigned farmers") }
             }

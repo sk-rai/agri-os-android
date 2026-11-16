@@ -31,45 +31,62 @@ internal enum class SelfProfileRefreshResult {
     APPLIED, UNCHANGED, NO_PROFILE, INVALID_RESPONSE, CONFLICT, SESSION_CHANGED, REQUEST_FAILED
 }
 
-/** Unwired API boundary. Local persistence errors and cancellation propagate. */
+internal class SelfProfileRefreshReceipt(val origin: QueueDispatchLease, val farmerId: String)
+internal class SelfProfileRefreshOutcome(
+    val result: SelfProfileRefreshResult,
+    val receipt: SelfProfileRefreshReceipt? = null
+)
+
+/** Local persistence errors and cancellation propagate. */
 internal class SelfProfileCacheRefresh(private val db: AppDatabase, private val api: SelfProfileCacheApi) {
     suspend fun refresh(): SelfProfileRefreshResult {
         val coordinator = db.sessionExpiry
         val selected = coordinator.requestLease() ?: return SelfProfileRefreshResult.SESSION_CHANGED
+        return refresh(QueueDispatchLease(coordinator, selected)).result
+    }
+
+    suspend fun refresh(origin: QueueDispatchLease): SelfProfileRefreshOutcome {
+        val coordinator = db.sessionExpiry
+        val selected = origin.selected
+        if (origin.coordinator !== coordinator || !coordinator.isCurrentLease(selected)) {
+            return SelfProfileRefreshOutcome(SelfProfileRefreshResult.SESSION_CHANGED)
+        }
         val tenant = checkNotNull(selected.state.tenantId)
         val user = checkNotNull(selected.state.userId)
-        val origin = QueueDispatchLease(coordinator, selected)
+        suspend fun failure(result: SelfProfileRefreshResult) = SelfProfileRefreshOutcome(
+            if (coordinator.isCurrentLease(selected)) result else SelfProfileRefreshResult.SESSION_CHANGED
+        )
         val response = try {
             api.get(origin)
         } catch (_: IOException) {
-            return if (coordinator.isCurrentLease(selected)) SelfProfileRefreshResult.REQUEST_FAILED
-            else SelfProfileRefreshResult.SESSION_CHANGED
+            return failure(SelfProfileRefreshResult.REQUEST_FAILED)
         }
         val projection = try {
             response.errorBody()?.close()
             response.body().use { body ->
-                if (!coordinator.isCurrentLease(selected)) return SelfProfileRefreshResult.SESSION_CHANGED
+                if (!coordinator.isCurrentLease(selected)) return SelfProfileRefreshOutcome(SelfProfileRefreshResult.SESSION_CHANGED)
                 when (response.code()) {
-                    404 -> return SelfProfileRefreshResult.NO_PROFILE
-                    200 -> { if (body == null) return SelfProfileRefreshResult.INVALID_RESPONSE }
-                    else -> return SelfProfileRefreshResult.REQUEST_FAILED
+                    404 -> return failure(SelfProfileRefreshResult.NO_PROFILE)
+                    200 -> { if (body == null) return failure(SelfProfileRefreshResult.INVALID_RESPONSE) }
+                    else -> return failure(SelfProfileRefreshResult.REQUEST_FAILED)
                 }
                 withContext(Dispatchers.IO) { decodeSelfProfile(checkNotNull(body), tenant, user) }
             }
         } catch (_: InvalidProjection) {
-            return if (coordinator.isCurrentLease(selected)) SelfProfileRefreshResult.INVALID_RESPONSE
-            else SelfProfileRefreshResult.SESSION_CHANGED
+            return failure(SelfProfileRefreshResult.INVALID_RESPONSE)
         } catch (_: IOException) {
-            return if (coordinator.isCurrentLease(selected)) SelfProfileRefreshResult.REQUEST_FAILED
-            else SelfProfileRefreshResult.SESSION_CHANGED
+            return failure(SelfProfileRefreshResult.REQUEST_FAILED)
         }
-        return when (SelfProfileCacheStore(db).commit(origin, projection)) {
+        val result = when (SelfProfileCacheStore(db).commit(origin, projection)) {
             CacheCommit.APPLIED -> SelfProfileRefreshResult.APPLIED
             CacheCommit.UNCHANGED -> SelfProfileRefreshResult.UNCHANGED
             CacheCommit.INVALID -> SelfProfileRefreshResult.INVALID_RESPONSE
             CacheCommit.CONFLICT -> SelfProfileRefreshResult.CONFLICT
             CacheCommit.SESSION_CHANGED -> SelfProfileRefreshResult.SESSION_CHANGED
         }
+        val receipt = if (result == SelfProfileRefreshResult.APPLIED || result == SelfProfileRefreshResult.UNCHANGED)
+            SelfProfileRefreshReceipt(origin, projection.farmer.farmerId) else null
+        return SelfProfileRefreshOutcome(result, receipt)
     }
 
     companion object {
