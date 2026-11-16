@@ -65,4 +65,26 @@ After separate approval, use the same offline host guard and
 `--tests com.agrios.app.core.sync.SelfProfileCacheRoomHostTest` filter.
 Do not set the migration execution gate for this run.
 
+## Unwired self-profile API boundary (separate host filter)
+
+The new refresh boundary captures one lease, sends only the tagged
+`GET /farmers/me/profile` request, and passes a validated projection to
+the lease-bound cache store. It is not called by Home or the old
+hydration path. A 404 never writes or deletes anything. The parser
+rejects ambiguous or invalid success responses and bounds the streamed
+success body, nesting and node count. It does not consume deferred fields
+as cache data. Callback results are status-only; a future UI still needs
+its own session-checked publication boundary.
+
+After separate approval, use the same guarded offline command, unset the
+migration gate, and filter to
+`--tests com.agrios.app.core.sync.SelfProfileCacheRefreshHostTest`.
+The Retrofit/OkHttp case terminates in a fake application interceptor;
+it must not open a socket. Other cases use a fake API and generated
+in-memory Room, without device work or live requests. Independent review
+accepted the retained host report: 6 tests, 0 failures, 0 errors, 0 skips,
+and 0 bounded privacy matches. XML SHA-256:
+`5CB5DD7285D07BBC14688151521538BA22959A9783B84C35C953B8B2761DFE81`.
+Offline flags and unchanged input hashes were operator-reported.
+
 `PRODUCTION_RECOVERY_LIVE_NOT_APPROVED` remains closed.
