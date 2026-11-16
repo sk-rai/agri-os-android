@@ -3,6 +3,7 @@ package com.agrios.app.core.sync
 import android.app.Application
 import com.almworks.sqlite4java.SQLiteConnection
 import com.almworks.sqlite4java.SQLiteConstants
+import com.almworks.sqlite4java.SQLiteException
 import com.almworks.sqlite4java.SQLiteStatement
 import java.nio.ByteBuffer
 import java.nio.file.Files
@@ -21,6 +22,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.annotation.SQLiteMode
+import org.robolectric.shadows.util.SQLiteLibraryLoader
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
@@ -39,6 +41,14 @@ class V10FixtureConstructionHostTest {
         val inserts = recipe(pinned(baseline.resolve("synthetic-fixture-recipe.md"), RECIPE_HASH))
         checkInputs(tables, inserts)
         checkInputs(tables, V10FixtureExpected.rows)
+        // Direct sqlite4java opens bypass the legacy Android SQLite shadow's loader call.
+        try {
+            SQLiteLibraryLoader.load()
+        } catch (_: Exception) {
+            error("V10_SQLITE_LIBRARY_INIT_FAILED")
+        } catch (_: LinkageError) {
+            error("V10_SQLITE_LIBRARY_INIT_FAILED")
+        }
         val root = directory(module.resolve("build")).resolve("ownership-room-db")
         require10(Paths.get(System.getProperty("ownership.room.root", "")).toAbsolutePath().normalize() == root)
         if (!Files.exists(root, NOFOLLOW_LINKS)) Files.createDirectory(root)
@@ -46,24 +56,24 @@ class V10FixtureConstructionHostTest {
         val dir = Files.createTempDirectory(root, "v10-construction-")
         val file = dir.resolve(DB)
         try {
-            require10(inventory(root, dir).isEmpty())
-            // Claim a fresh target without replacement. Both engine opens below
-            // are existing-file-only; no AndroidX helper can retry or delete it.
-            Files.createFile(file)
-            createV10(file, tables, inserts)
-            require10(file in inventory(root, dir))
-            val readOnly = SQLiteConnection(file.toFile())
-            try {
-                readOnly.openReadonly()
-                require10(readOnly.isReadOnly() && file.toRealPath() == file)
-                validate(readOnly, tables)
-            } finally {
-                readOnly.dispose()
-                require10(readOnly.isDisposed && !readOnly.isOpen)
+            diagnostic("CASE_PREPARE") {
+                require10(inventory(root, dir).isEmpty())
+                // Neither engine open below can recreate a missing target.
+                Files.createFile(file)
             }
-        } catch (_: Exception) {
+            createV10(file, tables, inserts)
+            diagnostic("REOPEN_INVENTORY") { require10(file in inventory(root, dir)) }
+            val readOnly = SQLiteConnection(file.toFile())
+            withConfirmedClose("REOPEN_CLOSE", readOnly) {
+                diagnostic("REOPEN") {
+                    readOnly.openReadonly()
+                    require10(readOnly.isReadOnly() && file.toRealPath() == file)
+                }
+                diagnostic("VALIDATE") { validate(readOnly, tables) }
+            }
+        } catch (e: Exception) {
             // Keep the case on any construction, inspection or closure failure.
-            error("V10_CONSTRUCTION_OR_VALIDATION_FAILED_CASE_RETAINED")
+            throw if (e is FixtureDiagnostic) e else FixtureDiagnostic("UNCLASSIFIED", "OTHER")
         }
         try {
             inventory(root, dir).forEach { Files.delete(it) }
@@ -82,6 +92,46 @@ private const val IDENTITY = "3c4ff69c36c5a4f10fa8050c0c7f8ff3"
 private const val TOKEN = "\${TABLE_NAME}"
 private const val MASTER_CREATE = "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)"
 private fun require10(ok: Boolean) { check(ok) { "V10_FIXTURE_CHECK_FAILED" } }
+private class FixtureDiagnostic(stage: String, kind: String) :
+    IllegalStateException("V10_${stage}_${kind}_CASE_RETAINED")
+
+private inline fun <T> diagnostic(stage: String, block: () -> T): T = try {
+    block()
+} catch (e: FixtureDiagnostic) {
+    throw e
+} catch (e: Exception) {
+    val kind = if (e is SQLiteException) when (e.baseErrorCode) {
+        SQLiteConstants.SQLITE_CANTOPEN -> "SQLITE_CANTOPEN"
+        SQLiteConstants.SQLITE_CONSTRAINT -> "SQLITE_CONSTRAINT"
+        SQLiteConstants.SQLITE_ERROR -> "SQLITE_ERROR"
+        SQLiteConstants.SQLITE_IOERR -> "SQLITE_IOERR"
+        SQLiteConstants.SQLITE_CORRUPT -> "SQLITE_CORRUPT"
+        else -> "SQLITE_OTHER"
+    } else if (e is IllegalStateException) "CHECK_FAILED" else "OTHER"
+    // Deliberately do not attach the exception: it may contain paths or SQL.
+    throw FixtureDiagnostic(stage, kind)
+}
+
+private inline fun withConfirmedClose(stage: String, db: SQLiteConnection, block: () -> Unit) {
+    var primary: FixtureDiagnostic? = null
+    try {
+        block()
+    } catch (e: Exception) {
+        val safe = if (e is FixtureDiagnostic) e else FixtureDiagnostic("UNCLASSIFIED", "OTHER")
+        primary = safe
+        throw safe
+    } finally {
+        try {
+            diagnostic(stage) {
+                db.dispose()
+                require10(db.isDisposed && !db.isOpen)
+            }
+        } catch (close: FixtureDiagnostic) {
+            val first = primary ?: throw close
+            first.addSuppressed(close)
+        }
+    }
+}
 private fun directory(path: Path): Path {
     require10(Files.isDirectory(path, NOFOLLOW_LINKS) && path.toRealPath() == path)
     return path
@@ -218,15 +268,19 @@ private inline fun <T> SQLiteConnection.query(sql: String, read: (SQLiteStatemen
 }
 
 private fun createV10(file: Path, tables: List<Table>, rows: Map<String, List<Map<String, Any?>>>) {
-    require10(Files.isRegularFile(file, NOFOLLOW_LINKS) && file.toRealPath() == file)
+    diagnostic("CREATE_TARGET") { require10(Files.isRegularFile(file, NOFOLLOW_LINKS) && file.toRealPath() == file) }
     val db = SQLiteConnection(file.toFile())
-    try {
-        db.open(false)
-        require10(db.isOpen && !db.isReadOnly() && file.toRealPath() == file)
-        db.exec("BEGIN IMMEDIATE")
-        for (table in tables) {
+    withConfirmedClose("CREATE_CLOSE", db) {
+        diagnostic("CREATE_OPEN") {
+            db.open(false)
+            require10(db.isOpen && !db.isReadOnly() && file.toRealPath() == file)
+        }
+        diagnostic("CREATE_BEGIN") { db.exec("BEGIN IMMEDIATE") }
+        for (table in tables) diagnostic("CREATE_TABLE_${table.name.uppercase(java.util.Locale.ROOT)}") {
             db.exec(table.sql)
             table.indexes.forEach { db.exec(it.sql) }
+        }
+        for (table in tables) diagnostic("INSERT_${table.name.uppercase(java.util.Locale.ROOT)}") {
             val columns = table.fields.joinToString { quote(it.name) }
             val placeholders = table.fields.joinToString { if (it.type == "TEXT") "CAST(? AS TEXT)" else "?" }
             for (row in rows.getValue(table.name)) {
@@ -245,18 +299,16 @@ private fun createV10(file: Path, tables: List<Table>, rows: Map<String, List<Ma
                 }
             }
         }
-        db.exec(MASTER_CREATE)
-        db.query("INSERT INTO room_master_table (id,identity_hash) VALUES (?,?)") {
-            it.bind(1, 42L)
-            it.bind(2, IDENTITY)
-            require10(!it.step())
+        diagnostic("CREATE_METADATA") {
+            db.exec(MASTER_CREATE)
+            db.query("INSERT INTO room_master_table (id,identity_hash) VALUES (?,?)") {
+                it.bind(1, 42L)
+                it.bind(2, IDENTITY)
+                require10(!it.step())
+            }
+            db.exec("PRAGMA user_version = 10")
         }
-        db.exec("PRAGMA user_version = 10")
-        db.exec("COMMIT")
-    } finally {
-        // Disposing an uncommitted connection rolls back; never retry or repair.
-        db.dispose()
-        require10(db.isDisposed && !db.isOpen)
+        diagnostic("CREATE_COMMIT") { db.exec("COMMIT") }
     }
 }
 
