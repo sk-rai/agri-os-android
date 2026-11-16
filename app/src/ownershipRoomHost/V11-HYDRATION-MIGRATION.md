@@ -1,8 +1,8 @@
 # Synthetic Room v10 to v11 hydration-cache migration
 
-Source review only. This slice adds three empty cache tables and two
-owner-scoped unique indexes. It does not add a cache DAO, hydration writer,
-API admission, or UI wiring. Home automatic restore remains disabled.
+The migration sub-slice added three empty cache tables and two owner-scoped
+unique indexes. The separate storage slice described below adds a cache DAO
+and store, with no API or UI caller. Home automatic restore remains disabled.
 
 The separately filtered migration case reuses the pinned v10 constructor
 and independent literal validator. It takes an unfiltered, typed snapshot
@@ -26,8 +26,12 @@ Historical v9/v10 migration, claim and process cases are not current-schema
 targets. Do not use a wildcard test filter or run those cases against
 v11. Their previously accepted evidence remains version-specific. The
 construction-only v10 test remains independent of generated Room. A
-generated v11 schema artifact and behavioral tests of the future cache
-DAO remain separate outputs; this patch does not claim either.
+generated v11 schema artifact remains a separate output. The cache
+DAO/store behavioral tests described below are included in the storage
+slice. Independent review accepted the guarded offline host run: 5 tests,
+0 failures, 0 errors, and 0 skips. Retained XML SHA-256:
+`7CDC33BBEF67F35A82DED7B6B3DE4C61DC09027CE21F45E457621CBE6BEAA7F1`.
+Input hash stability was operator-reported, not established by the XML.
 
 After separate execution approval, run only the migration class in the
 provisioned, guarded offline host environment:
@@ -44,4 +48,21 @@ try {
 
 Require one executed testcase, a fresh passing XML report, and one
 `V10_V11_MIGRATION_VERIFIED` marker after cleanup.
+
+## Cache storage behavior (separate host filter)
+
+`SelfProfileCacheRoomHostTest` uses fresh in-memory Room and no network.
+It exercises owner and epoch changes, exact repeats, partial projections,
+same-response parent requirements, reparent rejection, actual SQLite
+foreign key and uniqueness constraints, and rollback after a late
+collision or a forced soil insert failure. The storage boundary expects
+an already verified server projection; no production API or UI caller
+is introduced. The DAO is internal; guarded store methods are the
+production access path. A later UI must still suppress stale results.
+
+After separate approval, use the same offline host guard and
+`-PownershipRoomHost=true` with the exact
+`--tests com.agrios.app.core.sync.SelfProfileCacheRoomHostTest` filter.
+Do not set the migration execution gate for this run.
+
 `PRODUCTION_RECOVERY_LIVE_NOT_APPROVED` remains closed.

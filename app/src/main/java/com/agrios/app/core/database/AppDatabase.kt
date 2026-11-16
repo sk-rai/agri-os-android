@@ -13,6 +13,7 @@ import com.agrios.app.data.local.dao.SyncQueueDao
 import com.agrios.app.data.local.dao.FarmerDao
 import com.agrios.app.data.local.dao.ParcelDao
 import com.agrios.app.data.local.dao.SoilProfileDao
+import com.agrios.app.data.local.dao.SelfProfileCacheDao
 import com.agrios.app.data.local.entity.*
 import com.agrios.app.core.auth.SessionExpiryCoordinator
 import com.agrios.app.core.sync.holdDepartingQueueRows
@@ -51,6 +52,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun farmerDao(): FarmerDao
     abstract fun parcelDao(): ParcelDao
     abstract fun soilProfileDao(): SoilProfileDao
+    internal abstract fun selfProfileCacheDao(): SelfProfileCacheDao
 
     suspend fun invalidateExpiredSession(expectedJwt: String): Boolean = withTransaction {
         invalidateSessionWithQueueHold(authDao(), syncQueueDao(), expectedJwt)
