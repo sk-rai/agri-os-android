@@ -32,8 +32,11 @@ import com.agrios.app.core.sync.invalidateSessionWithQueueHold
         ParcelEntity::class,
         CacheMetadataEntity::class,
         SoilProfileEntity::class,
+        SelfProfileCacheFarmerEntity::class,
+        SelfProfileCacheParcelEntity::class,
+        SelfProfileCacheSoilEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -59,6 +62,43 @@ abstract class AppDatabase : RoomDatabase() {
     }
 
     companion object {
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE `self_profile_cache_farmer` (
+                        `tenant_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL,
+                        `display_name` TEXT, `village_name_manual` TEXT,
+                        PRIMARY KEY(`tenant_id`, `user_id`, `farmer_id`))"""
+                )
+                db.execSQL(
+                    """CREATE TABLE `self_profile_cache_parcel` (
+                        `tenant_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL,
+                        `parcel_id` TEXT NOT NULL, `survey_number` TEXT, `reported_area_unit` TEXT, `reported_area` REAL,
+                        PRIMARY KEY(`tenant_id`, `user_id`, `farmer_id`, `parcel_id`),
+                        FOREIGN KEY(`tenant_id`, `user_id`, `farmer_id`)
+                        REFERENCES `self_profile_cache_farmer`(`tenant_id`, `user_id`, `farmer_id`)
+                        ON UPDATE NO ACTION ON DELETE NO ACTION)"""
+                )
+                db.execSQL(
+                    """CREATE UNIQUE INDEX `index_self_profile_cache_parcel_tenant_id_user_id_parcel_id`
+                        ON `self_profile_cache_parcel`(`tenant_id`, `user_id`, `parcel_id`)"""
+                )
+                db.execSQL(
+                    """CREATE TABLE `self_profile_cache_soil` (
+                        `tenant_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL,
+                        `parcel_id` TEXT NOT NULL, `soil_profile_id` TEXT NOT NULL,
+                        `soil_type_code` TEXT, `ph` REAL,
+                        PRIMARY KEY(`tenant_id`, `user_id`, `farmer_id`, `parcel_id`, `soil_profile_id`),
+                        FOREIGN KEY(`tenant_id`, `user_id`, `farmer_id`, `parcel_id`)
+                        REFERENCES `self_profile_cache_parcel`(`tenant_id`, `user_id`, `farmer_id`, `parcel_id`)
+                        ON UPDATE NO ACTION ON DELETE NO ACTION)"""
+                )
+                db.execSQL(
+                    """CREATE UNIQUE INDEX `index_self_profile_cache_soil_tenant_id_user_id_soil_profile_id`
+                        ON `self_profile_cache_soil`(`tenant_id`, `user_id`, `soil_profile_id`)"""
+                )
+            }
+        }
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE sync_queue ADD COLUMN dispatch_claim_id TEXT")
@@ -96,7 +136,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "agrios_local.db"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .build()
                 instance.sessionExpiry
                 INSTANCE = instance

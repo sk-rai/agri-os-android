@@ -1,6 +1,14 @@
 package com.agrios.app.core.sync
 
 import android.app.Application
+import android.content.Context
+import android.content.ContextWrapper
+import android.database.Cursor
+import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import com.agrios.app.core.database.AppDatabase
 import com.almworks.sqlite4java.SQLiteConnection
 import com.almworks.sqlite4java.SQLiteConstants
 import com.almworks.sqlite4java.SQLiteException
@@ -32,6 +40,40 @@ class V10FixtureConstructionHostTest {
     @Test fun createsAndValidatesPinnedV10WithoutMigration() {
         assumeTrue("V10_CONSTRUCTION_NOT_ENABLED",
             System.getenv("OWNERSHIP_V10_CONSTRUCTION") == "APPROVED_SYNTHETIC_V10_CONSTRUCTION")
+        withValidatedV10("v10-construction-") { _, _, _, _ -> }
+        println("V10_CONSTRUCTION_VERIFIED version=10 entity_tables=12 entity_rows=14 values=172 retained_case_files=0")
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], manifest = Config.NONE, application = Application::class)
+@LooperMode(LooperMode.Mode.PAUSED)
+@SQLiteMode(SQLiteMode.Mode.LEGACY)
+class V10ToV11HydrationMigrationHostTest {
+    @Test fun upgradesExistingV10AndPreservesAllRows() {
+        assumeTrue("V10_V11_MIGRATION_NOT_ENABLED",
+            System.getenv("OWNERSHIP_V10_TO_V11_MIGRATION") == "APPROVED_SYNTHETIC_V10_TO_V11_MIGRATION")
+        withValidatedV10("v10-to-v11-") { app, file, tables, before ->
+            val names = tables.map { it.name }.toSet() + cacheTables
+            val upgraded = inspectV11(app, file, upgrade = true) { db ->
+                verifyV11(db, tables, before, names)
+            }
+            val fresh = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java).build()
+            try {
+                val db = fresh.openHelper.writableDatabase
+                check(db.version == 11 && v11Shape(db, names) == upgraded) { "V11_FRESH_SCHEMA_MISMATCH" }
+            } finally {
+                fresh.close()
+            }
+            inspectV11(app, file, upgrade = false) { db ->
+                check(verifyV11(db, tables, before, names) == upgraded) { "V11_REOPEN_SCHEMA_MISMATCH" }
+            }
+        }
+        println("V10_V11_MIGRATION_VERIFIED historical_tables=12 rows=14 values=172 empty_cache_tables=3 reopens=1 retained_case_files=0")
+    }
+}
+
+private fun withValidatedV10(prefix: String, use: (Application, Path, List<Table>, Snapshot) -> Unit) {
         val app: Application = RuntimeEnvironment.getApplication()
         require10(app.javaClass == Application::class.java)
         val cwd = Paths.get("").toRealPath()
@@ -53,7 +95,7 @@ class V10FixtureConstructionHostTest {
         require10(Paths.get(System.getProperty("ownership.room.root", "")).toAbsolutePath().normalize() == root)
         if (!Files.exists(root, NOFOLLOW_LINKS)) Files.createDirectory(root)
         directory(root)
-        val dir = Files.createTempDirectory(root, "v10-construction-")
+        val dir = Files.createTempDirectory(root, prefix)
         val file = dir.resolve(DB)
         try {
             diagnostic("CASE_PREPARE") {
@@ -64,13 +106,30 @@ class V10FixtureConstructionHostTest {
             createV10(file, tables, inserts)
             diagnostic("REOPEN_INVENTORY") { require10(file in inventory(root, dir)) }
             val readOnly = SQLiteConnection(file.toFile())
+            var before: Snapshot? = null
             withConfirmedClose("REOPEN_CLOSE", readOnly) {
                 diagnostic("REOPEN") {
                     readOnly.openReadonly()
                     require10(readOnly.isReadOnly() && file.toRealPath() == file)
                 }
                 diagnostic("VALIDATE") { validate(readOnly, tables) }
+                before = v10Snapshot(tables) { sql ->
+                    readOnly.query(sql) { q ->
+                        buildList {
+                            while (q.step()) add(List(q.columnCount()) { i ->
+                                when (q.columnType(i)) {
+                                    SQLiteConstants.SQLITE_NULL -> null
+                                    SQLiteConstants.SQLITE_INTEGER -> q.columnLong(i)
+                                    SQLiteConstants.SQLITE_FLOAT -> q.columnDouble(i).toRawBits()
+                                    SQLiteConstants.SQLITE_TEXT -> q.columnString(i)
+                                    else -> error("V10_SNAPSHOT_STORAGE_TYPE")
+                                }
+                            })
+                        }
+                    }
+                }
             }
+            diagnostic("HANDOFF") { use(app, file, tables, checkNotNull(before)) }
         } catch (e: Exception) {
             // Keep the case on any construction, inspection or closure failure.
             throw if (e is FixtureDiagnostic) e else FixtureDiagnostic("UNCLASSIFIED", "OTHER")
@@ -81,11 +140,134 @@ class V10FixtureConstructionHostTest {
         } catch (_: Exception) {
             error("V10_CASE_CLEANUP_INCOMPLETE")
         }
-        println("V10_CONSTRUCTION_VERIFIED version=10 entity_tables=12 entity_rows=14 values=172 retained_case_files=0")
-    }
 }
 
 private const val DB = "synthetic-v10.db"
+private typealias Snapshot = Map<String, List<List<Any?>>>
+private val cacheTables = setOf("self_profile_cache_farmer", "self_profile_cache_parcel", "self_profile_cache_soil")
+
+private fun v10Snapshot(tables: List<Table>, query: (String) -> List<List<Any?>>): Snapshot =
+    tables.associate { table ->
+        val fields = table.fields.joinToString { field ->
+            val c = quote(field.name)
+            "typeof($c), CASE WHEN typeof($c)='text' THEN hex(CAST($c AS BLOB)) ELSE $c END"
+        }
+        table.name to query("SELECT $fields FROM ${quote(table.name)} ORDER BY ${quote(table.key)} COLLATE BINARY")
+    }
+
+private fun SupportSQLiteDatabase.cells(sql: String): List<List<Any?>> = query(sql).use { q ->
+    buildList {
+        while (q.moveToNext()) add(List(q.columnCount) { i ->
+            when (q.getType(i)) {
+                Cursor.FIELD_TYPE_NULL -> null
+                Cursor.FIELD_TYPE_INTEGER -> q.getLong(i)
+                Cursor.FIELD_TYPE_FLOAT -> q.getDouble(i).toRawBits()
+                Cursor.FIELD_TYPE_STRING -> q.getString(i)
+                else -> error("V11_SNAPSHOT_STORAGE_TYPE")
+            }
+        })
+    }
+}
+
+private fun <T> inspectV11(app: Application, file: Path, upgrade: Boolean, inspect: (SupportSQLiteDatabase) -> T): T {
+    val dir = file.parent
+    val root = dir.parent
+    fun checkExisting() = require10(file in inventory(root, dir))
+    checkExisting()
+    val context = object : ContextWrapper(app) {
+        override fun getApplicationContext(): Context = this
+        override fun getCacheDir() = directory(dir).toFile()
+        override fun getDatabasePath(name: String): java.io.File {
+            require10(name == DB)
+            checkExisting()
+            return file.toFile()
+        }
+        override fun deleteDatabase(name: String): Boolean = error("V11_DELETE_FORBIDDEN")
+    }
+    var callbackFailed = false
+    var migrated = false
+    fun guarded(action: () -> Unit) {
+        check(!callbackFailed) { "V11_PRIOR_CALLBACK_FAILURE" }
+        try {
+            action()
+        } catch (e: Exception) {
+            callbackFailed = true
+            throw e
+        }
+    }
+    val room = Room.databaseBuilder(context, AppDatabase::class.java, DB)
+        .addMigrations(AppDatabase.MIGRATION_10_11)
+        .openHelperFactory { config ->
+            val delegate = config.callback
+            require10(config.name == DB && delegate.version == 11)
+            val callback = object : SupportSQLiteOpenHelper.Callback(delegate.version) {
+                override fun onConfigure(db: SupportSQLiteDatabase) = guarded {
+                    // FrameworkSQLiteOpenHelper reconfigures after the upgrade
+                    // transaction commits and its connection is reopened.
+                    val expectedVersion = if (upgrade && !migrated) 10 else 11
+                    require10(Paths.get(checkNotNull(db.path)).toRealPath() == file &&
+                        db.version == expectedVersion)
+                    delegate.onConfigure(db)
+                }
+                override fun onCreate(db: SupportSQLiteDatabase) = guarded { error("V11_CREATE_FORBIDDEN") }
+                override fun onCorruption(db: SupportSQLiteDatabase) = guarded { error("V11_CORRUPTION_FORBIDDEN") }
+                override fun onDowngrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) =
+                    guarded { error("V11_DOWNGRADE_FORBIDDEN") }
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = guarded {
+                    require10(upgrade && !migrated && oldVersion == 10 && newVersion == 11 && db.inTransaction())
+                    delegate.onUpgrade(db, oldVersion, newVersion)
+                    migrated = true
+                }
+                override fun onOpen(db: SupportSQLiteDatabase) = guarded {
+                    require10(migrated == upgrade)
+                    delegate.onOpen(db)
+                }
+            }
+            FrameworkSQLiteOpenHelperFactory().create(SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(DB).callback(callback).noBackupDirectory(false).allowDataLossOnRecovery(false).build())
+        }.build()
+    return try {
+        val db = room.openHelper.writableDatabase
+        require10(!callbackFailed && migrated == upgrade && db.version == 11)
+        inspect(db)
+    } finally {
+        room.close()
+        require10(!room.isOpen)
+    }
+}
+
+private fun verifyV11(db: SupportSQLiteDatabase, tables: List<Table>, before: Snapshot, names: Set<String>): Snapshot {
+    check(v10Snapshot(tables, db::cells) == before) { "V11_RETAINED_FIELDS_CHANGED" }
+    for (table in cacheTables) {
+        check(db.cells("SELECT count(*) FROM ${quote(table)}") == listOf(listOf(0L))) { "V11_CACHE_NOT_EMPTY" }
+    }
+    return v11Shape(db, names)
+}
+
+private fun v11Shape(db: SupportSQLiteDatabase, names: Set<String>): Snapshot {
+    val metadata = db.cells("SELECT id, identity_hash FROM room_master_table")
+    require10(metadata.size == 1 && metadata[0][0] == 42L && metadata[0][1] is String && metadata[0][1] != IDENTITY)
+    val objects = db.cells("SELECT type,name,tbl_name FROM sqlite_master ORDER BY type,name")
+        .filterNot { it == listOf("table", "android_metadata", "android_metadata") }
+    require10(objects.filter { it[0] == "table" }.map { it[1] }.toSet() == names + "room_master_table" &&
+        objects.all { it[0] == "table" || it[0] == "index" })
+    return buildMap {
+        put("objects", objects)
+        put("identity", metadata)
+        for (table in names) {
+            val name = quote(table)
+            put("columns:$table", db.cells("PRAGMA table_info($name)"))
+            put("foreign:$table", db.cells("PRAGMA foreign_key_list($name)"))
+            val indexes = db.cells("PRAGMA index_list($name)").map { it.drop(1) }.sortedBy { it[0] as String }
+            put("indexes:$table", indexes)
+            for (index in indexes) {
+                val indexName = index[0] as String
+                put("index:$indexName", db.cells("PRAGMA index_xinfo(${quote(indexName)})"))
+            }
+        }
+    }
+}
+
 private const val SCHEMA_HASH = "EB8C48552F9C665B6B191697E2A6D547BC4C179246CDD3DE1A3864FA0228ACC6"
 private const val RECIPE_HASH = "A8A8E523CC34BE105B5F82E411A56A375A934CFD2313E51D7E92E1BCF4A6FEAA"
 private const val IDENTITY = "3c4ff69c36c5a4f10fa8050c0c7f8ff3"
